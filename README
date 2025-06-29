@@ -9,7 +9,33 @@ Documentation for STREAM is on the web at:
 ===============================================
 NEWS
 ===============================================
-UPDATE: October 28 2014:
+UPDATE: June 29, 2025:
+
+Version 5.10.01 of stream.c released with Windows optimizations!
+
+New features and improvements in this version:
+* Enhanced Windows compilation support with detailed 
+  instructions for both x64 and ARM64 architectures
+* Cross-platform compatibility improvements with proper
+  Windows API integration for high-resolution timing
+* Automatic thread detection and configuration for
+  optimal multi-core performance on Windows systems
+* Fixed format string warnings for better ARM64 
+  compatibility (using %zu for size_t values)
+* Improved code formatting and documentation structure
+  with clear section organization and consistent
+  comment style throughout the source
+* Enhanced cross-platform headers with proper ssize_t
+  definition for Windows MSVC compiler
+* Detailed compilation guide specifically for Microsoft
+  Visual C++ compiler (cl.exe) with OpenMP support
+
+This version maintains full backward compatibility while
+adding significant improvements for Windows users and
+better support for modern multi-core systems.
+
+===============================================
+UPDATE: October 28, 2014:
 
 "stream_mpi.c" released in the Versions directory.
 
@@ -42,7 +68,7 @@ NOTE: MPI is not a preferred implementation for
   exercise to develop and debug.
 
 ===============================================
-UPDATE: January 17 2013:
+UPDATE: January 17, 2013:
 
 Version 5.10 of stream.c is finally available!
 
@@ -80,7 +106,7 @@ a number of long-awaited improvements have been made:
 
 
 ===============================================
-UPDATE: February 19 2009:
+UPDATE: February 19, 2009:
 
 The most recent "official" versions have been renamed
 "stream.f" and "stream.c" -- all other versions have
