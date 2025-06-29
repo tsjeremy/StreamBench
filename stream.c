@@ -3,105 +3,109 @@
 /* Revision: $Id: stream.c,v 5.10 2013/01/17 16:01:06 mccalpin Exp mccalpin $ */
 /* Original code developed by John D. McCalpin                           */
 /* Programmers: John D. McCalpin                                         */
-/*              Joe R. Zagar                                             */
-/*                                                                       */
+/* Joe R. Zagar                                             */
+/* */
 /* This program measures memory transfer rates in MB/s for simple        */
 /* computational kernels coded in C.                                     */
 /*-----------------------------------------------------------------------*/
 /* Copyright 1991-2013: John D. McCalpin                                 */
 /*-----------------------------------------------------------------------*/
 /* License:                                                              */
-/*  1. You are free to use this program and/or to redistribute           */
-/*     this program.                                                     */
-/*  2. You are free to modify this program for your own use,             */
-/*     including commercial use, subject to the publication              */
-/*     restrictions in item 3.                                           */
-/*  3. You are free to publish results obtained from running this        */
-/*     program, or from works that you derive from this program,         */
-/*     with the following limitations:                                   */
-/*     3a. In order to be referred to as "STREAM benchmark results",     */
-/*         published results must be in conformance to the STREAM        */
-/*         Run Rules, (briefly reviewed below) published at              */
-/*         http://www.cs.virginia.edu/stream/ref.html                    */
-/*         and incorporated herein by reference.                         */
-/*         As the copyright holder, John McCalpin retains the            */
-/*         right to determine conformity with the Run Rules.             */
-/*     3b. Results based on modified source code or on runs not in       */
-/*         accordance with the STREAM Run Rules must be clearly          */
-/*         labelled whenever they are published.  Examples of            */
-/*         proper labelling include:                                     */
-/*           "tuned STREAM benchmark results"                            */
-/*           "based on a variant of the STREAM benchmark code"           */
-/*         Other comparable, clear, and reasonable labelling is          */
-/*         acceptable.                                                   */
-/*     3c. Submission of results to the STREAM benchmark web site        */
-/*         is encouraged, but not required.                              */
-/*  4. Use of this program or creation of derived works based on this    */
-/*     program constitutes acceptance of these licensing restrictions.   */
-/*  5. Absolutely no warranty is expressed or implied.                   */
+/* 1. You are free to use this program and/or to redistribute           */
+/* this program.                                                     */
+/* 2. You are free to modify this program for your own use,             */
+/* including commercial use, subject to the publication              */
+/* restrictions in item 3.                                           */
+/* 3. You are free to publish results obtained from running this        */
+/* program, or from works that you derive from this program,         */
+/* with the following limitations:                                   */
+/* 3a. In order to be referred to as "STREAM benchmark results",     */
+/* published results must be in conformance to the STREAM        */
+/* Run Rules, (briefly reviewed below) published at              */
+/* http://www.cs.virginia.edu/stream/ref.html                    */
+/* and incorporated herein by reference.                         */
+/* As the copyright holder, John McCalpin retains the            */
+/* right to determine conformity with the Run Rules.             */
+/* 3b. Results based on modified source code or on runs not in       */
+/* accordance with the STREAM Run Rules must be clearly          */
+/* labelled whenever they are published.  Examples of            */
+/* proper labelling include:                                     */
+/* "tuned STREAM benchmark results"                            */
+/* "based on a variant of the STREAM benchmark code"           */
+/* Other comparable, clear, and reasonable labelling is          */
+/* acceptable.                                                   */
+/* 3c. Submission of results to the STREAM benchmark web site        */
+/* is encouraged, but not required.                              */
+/* 4. Use of this program or creation of derived works based on this    */
+/* program constitutes acceptance of these licensing restrictions.   */
+/* 5. Absolutely no warranty is expressed or implied.                   */
 /*-----------------------------------------------------------------------*/
-# include <stdio.h>
-# include <unistd.h>
-# include <math.h>
-# include <float.h>
-# include <limits.h>
-# include <sys/time.h>
+
+// --- NEW SECTION: COMPILATION GUIDE FOR WINDOWS ---
+/*-----------------------------------------------------------------------*/
+/* How to compile with cl.exe (Microsoft Visual C++ Compiler) on Windows */
+/*-----------------------------------------------------------------------*/
+/*
+ * 1. Open the correct Developer Command Prompt from the Start Menu.
+ * This sets up the environment (paths, libraries) for the compiler.
+ *
+ * 2. To compile for x64 (standard 64-bit PCs):
+ * - Open "x64 Native Tools Command Prompt for VS"
+ * - Run the command:
+ * cl.exe /O2 /openmp /Fe:stream_x64.exe stream.c
+ *
+ * 3. To compile for ARM64 (for devices like Windows on ARM):
+ * - If compiling ON an ARM64 machine, open "ARM64 Native Tools Command Prompt".
+ * - If cross-compiling FROM an x64 machine, open "x64_arm64 Cross Tools Command Prompt".
+ * - Run the command:
+ * cl.exe /O2 /openmp /Fe:stream_arm64.exe stream.c
+ *
+ * Command-line options explained:
+ * /O2      : Enable optimizations for speed.
+ * /openmp  : Enable OpenMP support for multi-threading.
+ * /Fe:name : Set the output executable file name.
+ */
+/*-----------------------------------------------------------------------*/
+
+#include <stdio.h>
+#include <unistd.h>     // For POSIX standard functions, e.g., sysconf
+#include <math.h>
+#include <float.h>
+#include <limits.h>
+
+
+// --- MODIFICATION FOR CROSS-PLATFORM COMPATIBILITY ---
+#ifdef _MSC_VER         // If using Microsoft Visual C++ compiler
+#include <windows.h>    // Include Windows API header for timers and core count
+#else                   // For GCC and other compilers (on UNIX-like systems)
+#include <sys/time.h>   // Include header for gettimeofday()
+#endif
+
+#ifdef _OPENMP          // If compiling with OpenMP enabled
+#include <omp.h>        // Include the OpenMP library
+#endif
+// --- END MODIFICATION ---
+
 
 /*-----------------------------------------------------------------------
  * INSTRUCTIONS:
  *
- *	1) STREAM requires different amounts of memory to run on different
- *           systems, depending on both the system cache size(s) and the
- *           granularity of the system timer.
- *     You should adjust the value of 'STREAM_ARRAY_SIZE' (below)
- *           to meet *both* of the following criteria:
- *       (a) Each array must be at least 4 times the size of the
- *           available cache memory. I don't worry about the difference
- *           between 10^6 and 2^20, so in practice the minimum array size
- *           is about 3.8 times the cache size.
- *           Example 1: One Xeon E3 with 8 MB L3 cache
- *               STREAM_ARRAY_SIZE should be >= 4 million, giving
- *               an array size of 30.5 MB and a total memory requirement
- *               of 91.5 MB.  
- *           Example 2: Two Xeon E5's with 20 MB L3 cache each (using OpenMP)
- *               STREAM_ARRAY_SIZE should be >= 20 million, giving
- *               an array size of 153 MB and a total memory requirement
- *               of 458 MB.  
- *       (b) The size should be large enough so that the 'timing calibration'
- *           output by the program is at least 20 clock-ticks.  
- *           Example: most versions of Windows have a 10 millisecond timer
- *               granularity.  20 "ticks" at 10 ms/tic is 200 milliseconds.
- *               If the chip is capable of 10 GB/s, it moves 2 GB in 200 msec.
- *               This means the each array must be at least 1 GB, or 128M elements.
+ *	1) Adjust the value of 'STREAM_ARRAY_SIZE' to meet *both* of the
+ * following criteria:
+ * (a) Each array must be at least 4 times the size of the
+ * available cache memory.
+ * (b) The size should be large enough so that the 'timing calibration'
+ * output by the program is at least 20 clock-ticks.
  *
- *      Version 5.10 increases the default array size from 2 million
- *          elements to 10 million elements in response to the increasing
- *          size of L3 caches.  The new default size is large enough for caches
- *          up to 20 MB. 
- *      Version 5.10 changes the loop index variables from "register int"
- *          to "ssize_t", which allows array indices >2^32 (4 billion)
- *          on properly configured 64-bit systems.  Additional compiler options
- *          (such as "-mcmodel=medium") may be required for large memory runs.
- *
- *      Array size can be set at compile time without modifying the source
- *          code for the (many) compilers that support preprocessor definitions
- *          on the compile line.  E.g.,
- *                gcc -O -DSTREAM_ARRAY_SIZE=100000000 stream.c -o stream.100M
- *          will override the default size of 10M with a new size of 100M elements
- *          per array.
+ * This can be set on the compile line, e.g.,
+ * gcc -O -DSTREAM_ARRAY_SIZE=100000000 stream.c -o stream.100M
  */
 #ifndef STREAM_ARRAY_SIZE
-#   define STREAM_ARRAY_SIZE	10000000
+#   define STREAM_ARRAY_SIZE	10000000    // Default array size is 10 million elements
 #endif
 
-/*  2) STREAM runs each kernel "NTIMES" times and reports the *best* result
- *         for any iteration after the first, therefore the minimum value
- *         for NTIMES is 2.
- *      There are no rules on maximum allowable values for NTIMES, but
- *         values larger than the default are unlikely to noticeably
- *         increase the reported performance.
- *      NTIMES can also be set on the compile line without changing the source
- *         code using, for example, "-DNTIMES=7".
+/* 2) STREAM runs each kernel "NTIMES" times and reports the *best* result.
+ * The minimum value for NTIMES is 2. Default is 10.
  */
 #ifdef NTIMES
 #if NTIMES<=1
@@ -112,59 +116,15 @@
 #   define NTIMES	10
 #endif
 
-/*  Users are allowed to modify the "OFFSET" variable, which *may* change the
- *         relative alignment of the arrays (though compilers may change the 
- *         effective offset by making the arrays non-contiguous on some systems). 
- *      Use of non-zero values for OFFSET can be especially helpful if the
- *         STREAM_ARRAY_SIZE is set to a value close to a large power of 2.
- *      OFFSET can also be set on the compile line without changing the source
- *         code using, for example, "-DOFFSET=56".
+/* OFFSET can be used to alter the relative memory alignment of the arrays.
  */
 #ifndef OFFSET
 #   define OFFSET	0
 #endif
 
-/*
- *	3) Compile the code with optimization.  Many compilers generate
- *       unreasonably bad code before the optimizer tightens things up.  
- *     If the results are unreasonably good, on the other hand, the
- *       optimizer might be too smart for me!
- *
- *     For a simple single-core version, try compiling with:
- *            cc -O stream.c -o stream
- *     This is known to work on many, many systems....
- *
- *     To use multiple cores, you need to tell the compiler to obey the OpenMP
- *       directives in the code.  This varies by compiler, but a common example is
- *            gcc -O -fopenmp stream.c -o stream_omp
- *       The environment variable OMP_NUM_THREADS allows runtime control of the 
- *         number of threads/cores used when the resulting "stream_omp" program
- *         is executed.
- *
- *     To run with single-precision variables and arithmetic, simply add
- *         -DSTREAM_TYPE=float
- *     to the compile line.
- *     Note that this changes the minimum array sizes required --- see (1) above.
- *
- *     The preprocessor directive "TUNED" does not do much -- it simply causes the 
- *       code to call separate functions to execute each kernel.  Trivial versions
- *       of these functions are provided, but they are *not* tuned -- they just 
- *       provide predefined interfaces to be replaced with tuned code.
- *
- *
- *	4) Optional: Mail the results to mccalpin@cs.virginia.edu
- *	   Be sure to include info that will help me understand:
- *		a) the computer hardware configuration (e.g., processor model, memory type)
- *		b) the compiler name/version and compilation flags
- *      c) any run-time information (such as OMP_NUM_THREADS)
- *		d) all of the output from the test case.
- *
- * Thanks!
- *
- *-----------------------------------------------------------------------*/
-
 # define HLINE "-------------------------------------------------------------\n"
 
+// Define MIN and MAX macros for convenience
 # ifndef MIN
 # define MIN(x,y) ((x)<(y)?(x):(y))
 # endif
@@ -172,27 +132,33 @@
 # define MAX(x,y) ((x)>(y)?(x):(y))
 # endif
 
+// Define the primary data type for array elements. Default is double.
 #ifndef STREAM_TYPE
 #define STREAM_TYPE double
 #endif
 
+// Declare the three static global arrays: a, b, and c.
 static STREAM_TYPE	a[STREAM_ARRAY_SIZE+OFFSET],
 			b[STREAM_ARRAY_SIZE+OFFSET],
 			c[STREAM_ARRAY_SIZE+OFFSET];
 
+// Declare arrays to store timing results: average, max, and min times.
 static double	avgtime[4] = {0}, maxtime[4] = {0},
 		mintime[4] = {FLT_MAX,FLT_MAX,FLT_MAX,FLT_MAX};
 
+// Labels for the four tested kernels.
 static char	*label[4] = {"Copy:      ", "Scale:     ",
     "Add:       ", "Triad:     "};
 
+// Bytes transferred per iteration for each of the four kernels.
 static double	bytes[4] = {
-    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE
+    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE, // Copy: 1 read, 1 write
+    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE, // Scale: 1 read, 1 write
+    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE, // Add: 2 reads, 1 write
+    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE  // Triad: 2 reads, 1 write
     };
 
+// External function declarations.
 extern double mysecond();
 extern void checkSTREAMresults();
 #ifdef TUNED
@@ -201,16 +167,14 @@ extern void tuned_STREAM_Scale(STREAM_TYPE scalar);
 extern void tuned_STREAM_Add();
 extern void tuned_STREAM_Triad(STREAM_TYPE scalar);
 #endif
-#ifdef _OPENMP
-extern int omp_get_num_threads();
-#endif
-int
-main()
+
+// Main function entry point.
+int main()
     {
     int			quantum, checktick();
     int			BytesPerWord;
     int			k;
-    ssize_t		j;
+    ssize_t		j; // Use ssize_t to support large array indices on 64-bit systems.
     STREAM_TYPE		scalar;
     double		t, times[4][NTIMES];
 
@@ -220,36 +184,43 @@ main()
     printf("STREAM version $Revision: 5.10 $\n");
     printf(HLINE);
     BytesPerWord = sizeof(STREAM_TYPE);
-    printf("This system uses %d bytes per array element.\n",
-	BytesPerWord);
+    printf("This system uses %d bytes per array element.\n", BytesPerWord);
 
     printf(HLINE);
-#ifdef N
-    printf("*****  WARNING: ******\n");
-    printf("      It appears that you set the preprocessor variable N when compiling this code.\n");
-    printf("      This version of the code uses the preprocessor variable STREAM_ARRAY_SIZE to control the array size\n");
-    printf("      Reverting to default value of STREAM_ARRAY_SIZE=%llu\n",(unsigned long long) STREAM_ARRAY_SIZE);
-    printf("*****  WARNING: ******\n");
-#endif
-
     printf("Array size = %llu (elements), Offset = %d (elements)\n" , (unsigned long long) STREAM_ARRAY_SIZE, OFFSET);
-    printf("Memory per array = %.1f MiB (= %.1f GiB).\n", 
+    printf("Memory per array = %.1f MiB (= %.1f GiB).\n",
 	BytesPerWord * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.0),
 	BytesPerWord * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.0/1024.0));
     printf("Total memory required = %.1f MiB (= %.1f GiB).\n",
 	(3.0 * BytesPerWord) * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.),
 	(3.0 * BytesPerWord) * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024./1024.));
     printf("Each kernel will be executed %d times.\n", NTIMES);
-    printf(" The *best* time for each kernel (excluding the first iteration)\n"); 
+    printf(" The *best* time for each kernel (excluding the first iteration)\n");
     printf(" will be used to compute the reported bandwidth.\n");
+
 
 #ifdef _OPENMP
     printf(HLINE);
-#pragma omp parallel 
+    // --- MODIFICATION FOR DYNAMIC THREAD COUNT ---
+    int num_threads = 0;
+#ifdef _MSC_VER // For Windows
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);            // Get system information using Windows API.
+    num_threads = sysInfo.dwNumberOfProcessors; // Get the number of processors.
+#else // For Linux/UNIX
+    num_threads = sysconf(_SC_NPROCESSORS_ONLN); // Get the number of online processors using POSIX standard.
+#endif
+    if (num_threads > 0) {
+        omp_set_num_threads(num_threads);   // Set the number of threads for OpenMP.
+        printf("Number of threads automatically set to %d (number of available cores)\n", num_threads);
+    }
+    // --- END MODIFICATION ---
+
+#pragma omp parallel                  // Start a parallel region.
     {
-#pragma omp master
+#pragma omp master                    // This block will only be executed by the master thread.
 	{
-	    k = omp_get_num_threads();
+	    k = omp_get_num_threads();    // Get the number of threads requested by the runtime.
 	    printf ("Number of Threads requested = %i\n",k);
         }
     }
@@ -257,13 +228,13 @@ main()
 
 #ifdef _OPENMP
 	k = 0;
-#pragma omp parallel
-#pragma omp atomic 
+#pragma omp parallel                  // Start a parallel region.
+#pragma omp atomic                    // Use an atomic operation to safely increment the counter.
 		k++;
-    printf ("Number of Threads counted = %i\n",k);
+    printf ("Number of Threads counted = %i\n",k); // Print the number of threads that actually participated.
 #endif
 
-    /* Get initial value for system clock. */
+    /* Initialize arrays, parallelizing the loop with OpenMP. */
 #pragma omp parallel for
     for (j=0; j<STREAM_ARRAY_SIZE; j++) {
 	    a[j] = 1.0;
@@ -273,7 +244,8 @@ main()
 
     printf(HLINE);
 
-    if  ( (quantum = checktick()) >= 1) 
+    // Check the granularity of the system clock.
+    if  ( (quantum = checktick()) >= 1)
 	printf("Your clock granularity/precision appears to be "
 	    "%d microseconds.\n", quantum);
     else {
@@ -282,6 +254,7 @@ main()
 	quantum = 1;
     }
 
+    // Perform a sample computation to estimate the test duration.
     t = mysecond();
 #pragma omp parallel for
     for (j = 0; j < STREAM_ARRAY_SIZE; j++)
@@ -293,29 +266,25 @@ main()
     printf("   (= %d clock ticks)\n", (int) (t/quantum) );
     printf("Increase the size of the arrays if this shows that\n");
     printf("you are not getting at least 20 clock ticks per test.\n");
-
     printf(HLINE);
 
-    printf("WARNING -- The above is only a rough guideline.\n");
-    printf("For best results, please be sure you know the\n");
-    printf("precision of your system timer.\n");
-    printf(HLINE);
-    
     /*	--- MAIN LOOP --- repeat test cases NTIMES times --- */
 
-    scalar = 3.0;
+    scalar = 3.0; // Set the scalar value for Scale and Triad operations.
     for (k=0; k<NTIMES; k++)
 	{
+	// --- Copy kernel ---
 	times[0][k] = mysecond();
-#ifdef TUNED
+#ifdef TUNED      // If TUNED is defined, call the tuned version.
         tuned_STREAM_Copy();
 #else
-#pragma omp parallel for
+#pragma omp parallel for // Parallelize with OpenMP.
 	for (j=0; j<STREAM_ARRAY_SIZE; j++)
 	    c[j] = a[j];
 #endif
 	times[0][k] = mysecond() - times[0][k];
-	
+
+	// --- Scale kernel ---
 	times[1][k] = mysecond();
 #ifdef TUNED
         tuned_STREAM_Scale(scalar);
@@ -325,7 +294,8 @@ main()
 	    b[j] = scalar*c[j];
 #endif
 	times[1][k] = mysecond() - times[1][k];
-	
+
+	// --- Add kernel ---
 	times[2][k] = mysecond();
 #ifdef TUNED
         tuned_STREAM_Add();
@@ -335,7 +305,8 @@ main()
 	    c[j] = a[j]+b[j];
 #endif
 	times[2][k] = mysecond() - times[2][k];
-	
+
+	// --- Triad kernel ---
 	times[3][k] = mysecond();
 #ifdef TUNED
         tuned_STREAM_Triad(scalar);
@@ -349,7 +320,8 @@ main()
 
     /*	--- SUMMARY --- */
 
-    for (k=1; k<NTIMES; k++) /* note -- skip first iteration */
+    // Calculate avg, min, and max times, skipping the first iteration (k=0).
+    for (k=1; k<NTIMES; k++)
 	{
 	for (j=0; j<4; j++)
 	    {
@@ -358,11 +330,13 @@ main()
 	    maxtime[j] = MAX(maxtime[j], times[j][k]);
 	    }
 	}
-    
+
+    // Print the results table.
     printf("Function    Best Rate MB/s  Avg time     Min time     Max time\n");
     for (j=0; j<4; j++) {
 		avgtime[j] = avgtime[j]/(double)(NTIMES-1);
 
+		// The best rate is calculated from the minimum time.
 		printf("%s%12.1f  %11.6f  %11.6f  %11.6f\n", label[j],
 	       1.0E-06 * bytes[j]/mintime[j],
 	       avgtime[j],
@@ -378,58 +352,63 @@ main()
     return 0;
 }
 
-# define	M	20
+# define	M	20  // Number of samples to take in checktick().
 
-int
-checktick()
+// Checks the resolution (granularity) of the system clock.
+int checktick()
     {
     int		i, minDelta, Delta;
     double	t1, t2, timesfound[M];
 
-/*  Collect a sequence of M unique time values from the system. */
-
+    // Collect a sequence of M unique time values from the system.
     for (i = 0; i < M; i++) {
 	t1 = mysecond();
-	while( ((t2=mysecond()) - t1) < 1.0E-6 )
+	while( ((t2=mysecond()) - t1) < 1.0E-6 ) // Ensure we get a new time value.
 	    ;
 	timesfound[i] = t1 = t2;
 	}
 
-/*
- * Determine the minimum difference between these M values.
- * This result will be our estimate (in microseconds) for the
- * clock granularity.
- */
-
+    // Determine the minimum difference between these M values.
     minDelta = 1000000;
     for (i = 1; i < M; i++) {
 	Delta = (int)( 1.0E6 * (timesfound[i]-timesfound[i-1]));
 	minDelta = MIN(minDelta, MAX(Delta,0));
 	}
 
-   return(minDelta);
+   return(minDelta); // Return the minimum difference in microseconds.
     }
 
 
 
-/* A gettimeofday routine to give access to the wall
-   clock timer on most UNIX-like systems.  */
-
-#include <sys/time.h>
-
+/* A cross-platform timer function that provides wall-clock time. */
 double mysecond()
 {
-        struct timeval tp;
-        struct timezone tzp;
-        int i;
-
-        i = gettimeofday(&tp,&tzp);
-        return ( (double) tp.tv_sec + (double) tp.tv_usec * 1.e-6 );
+#ifdef _MSC_VER // For Microsoft Visual C++
+    LARGE_INTEGER freq, count;
+    // Query the frequency of the performance counter.
+    if (QueryPerformanceFrequency(&freq)) {
+        // Query the current value of the performance counter.
+        QueryPerformanceCounter(&count);
+        // Return the time in seconds.
+        return (double)count.QuadPart / (double)freq.QuadPart;
+    }
+    // Fallback to GetTickCount if high-resolution timer is not available.
+    return (double)GetTickCount() / 1000.0;
+#else // For GCC and other compilers on UNIX/Linux
+    struct timeval tp;
+    struct timezone tzp;
+    int i;
+    // Get the time using gettimeofday().
+    i = gettimeofday(&tp, &tzp);
+    // Convert seconds and microseconds to a single double value and return.
+    return ((double)tp.tv_sec + (double)tp.tv_usec * 1.e-6);
+#endif
 }
 
 #ifndef abs
 #define abs(a) ((a) >= 0 ? (a) : -(a))
 #endif
+// Checks if the STREAM results are valid.
 void checkSTREAMresults ()
 {
 	STREAM_TYPE aj,bj,cj,scalar;
@@ -439,13 +418,13 @@ void checkSTREAMresults ()
 	ssize_t	j;
 	int	k,ierr,err;
 
-    /* reproduce initialization */
+    /* Reproduce the initialization */
 	aj = 1.0;
 	bj = 2.0;
 	cj = 0.0;
     /* a[] is modified during timing check */
 	aj = 2.0E0 * aj;
-    /* now execute timing loop */
+    /* Now execute the same computations as in the timing loop */
 	scalar = 3.0;
 	for (k=0; k<NTIMES; k++)
         {
@@ -455,7 +434,7 @@ void checkSTREAMresults ()
             aj = bj+scalar*cj;
         }
 
-    /* accumulate deltas between observed and expected results */
+    /* Accumulate the errors between observed and expected results */
 	aSumErr = 0.0;
 	bSumErr = 0.0;
 	cSumErr = 0.0;
@@ -463,16 +442,16 @@ void checkSTREAMresults ()
 		aSumErr += abs(a[j] - aj);
 		bSumErr += abs(b[j] - bj);
 		cSumErr += abs(c[j] - cj);
-		// if (j == 417) printf("Index 417: c[j]: %f, cj: %f\n",c[j],cj);	// MCCALPIN
 	}
 	aAvgErr = aSumErr / (STREAM_TYPE) STREAM_ARRAY_SIZE;
 	bAvgErr = bSumErr / (STREAM_TYPE) STREAM_ARRAY_SIZE;
 	cAvgErr = cSumErr / (STREAM_TYPE) STREAM_ARRAY_SIZE;
 
-	if (sizeof(STREAM_TYPE) == 4) {
+    // Set the acceptable error tolerance (epsilon)
+	if (sizeof(STREAM_TYPE) == 4) { // single-precision
 		epsilon = 1.e-6;
 	}
-	else if (sizeof(STREAM_TYPE) == 8) {
+	else if (sizeof(STREAM_TYPE) == 8) { // double-precision
 		epsilon = 1.e-13;
 	}
 	else {
@@ -481,75 +460,30 @@ void checkSTREAMresults ()
 	}
 
 	err = 0;
+    // Check if the average relative error for array 'a' is within tolerance.
 	if (abs(aAvgErr/aj) > epsilon) {
 		err++;
 		printf ("Failed Validation on array a[], AvgRelAbsErr > epsilon (%e)\n",epsilon);
-		printf ("     Expected Value: %e, AvgAbsErr: %e, AvgRelAbsErr: %e\n",aj,aAvgErr,abs(aAvgErr)/aj);
-		ierr = 0;
-		for (j=0; j<STREAM_ARRAY_SIZE; j++) {
-			if (abs(a[j]/aj-1.0) > epsilon) {
-				ierr++;
-#ifdef VERBOSE
-				if (ierr < 10) {
-					printf("         array a: index: %ld, expected: %e, observed: %e, relative error: %e\n",
-						j,aj,a[j],abs((aj-a[j])/aAvgErr));
-				}
-#endif
-			}
-		}
-		printf("     For array a[], %d errors were found.\n",ierr);
 	}
+    // Check if the average relative error for array 'b' is within tolerance.
 	if (abs(bAvgErr/bj) > epsilon) {
 		err++;
 		printf ("Failed Validation on array b[], AvgRelAbsErr > epsilon (%e)\n",epsilon);
-		printf ("     Expected Value: %e, AvgAbsErr: %e, AvgRelAbsErr: %e\n",bj,bAvgErr,abs(bAvgErr)/bj);
-		printf ("     AvgRelAbsErr > Epsilon (%e)\n",epsilon);
-		ierr = 0;
-		for (j=0; j<STREAM_ARRAY_SIZE; j++) {
-			if (abs(b[j]/bj-1.0) > epsilon) {
-				ierr++;
-#ifdef VERBOSE
-				if (ierr < 10) {
-					printf("         array b: index: %ld, expected: %e, observed: %e, relative error: %e\n",
-						j,bj,b[j],abs((bj-b[j])/bAvgErr));
-				}
-#endif
-			}
-		}
-		printf("     For array b[], %d errors were found.\n",ierr);
 	}
+    // Check if the average relative error for array 'c' is within tolerance.
 	if (abs(cAvgErr/cj) > epsilon) {
 		err++;
 		printf ("Failed Validation on array c[], AvgRelAbsErr > epsilon (%e)\n",epsilon);
-		printf ("     Expected Value: %e, AvgAbsErr: %e, AvgRelAbsErr: %e\n",cj,cAvgErr,abs(cAvgErr)/cj);
-		printf ("     AvgRelAbsErr > Epsilon (%e)\n",epsilon);
-		ierr = 0;
-		for (j=0; j<STREAM_ARRAY_SIZE; j++) {
-			if (abs(c[j]/cj-1.0) > epsilon) {
-				ierr++;
-#ifdef VERBOSE
-				if (ierr < 10) {
-					printf("         array c: index: %ld, expected: %e, observed: %e, relative error: %e\n",
-						j,cj,c[j],abs((cj-c[j])/cAvgErr));
-				}
-#endif
-			}
-		}
-		printf("     For array c[], %d errors were found.\n",ierr);
 	}
+
 	if (err == 0) {
 		printf ("Solution Validates: avg error less than %e on all three arrays\n",epsilon);
 	}
-#ifdef VERBOSE
-	printf ("Results Validation Verbose Results: \n");
-	printf ("    Expected a(1), b(1), c(1): %f %f %f \n",aj,bj,cj);
-	printf ("    Observed a(1), b(1), c(1): %f %f %f \n",a[1],b[1],c[1]);
-	printf ("    Rel Errors on a, b, c:     %e %e %e \n",abs(aAvgErr/aj),abs(bAvgErr/bj),abs(cAvgErr/cj));
-#endif
 }
 
 #ifdef TUNED
-/* stubs for "tuned" versions of the kernels */
+/* Stub functions for "tuned" versions of the kernels. */
+/* Users can replace these with versions optimized for specific hardware. */
 void tuned_STREAM_Copy()
 {
 	ssize_t j;
