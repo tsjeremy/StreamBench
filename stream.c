@@ -57,7 +57,7 @@
  *      cl.exe /O2 /openmp /Fe:stream_x64.exe stream.c
  *    
  *    Optimized compilation with TUNED kernels and larger arrays:
- *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=50000000 /DNTIMES=20 /openmp /Fe:stream_x64_tuned.exe stream.c
+ *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=2000000 /DNTIMES=100 /openmp /Fe:stream_x64_tuned.exe stream.c
  *
  * 3. To compile for ARM64 (for devices like Windows on ARM):
  *    - If compiling ON an ARM64 machine, open "ARM64 Native Tools Command Prompt".
@@ -67,14 +67,14 @@
  *      cl.exe /O2 /openmp /Fe:stream_arm64.exe stream.c
  *    
  *    Optimized compilation with TUNED kernels and larger arrays:
- *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=50000000 /DNTIMES=20 /openmp /Fe:stream_arm64_tuned.exe stream.c
+ *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=2000000 /DNTIMES=100 /openmp /Fe:stream_arm64_tuned.exe stream.c
  *
  * Command-line options explained:
  *   /O2                        : Enable optimizations for speed.
  *   /openmp                    : Enable OpenMP support for multi-threading.
  *   /DTUNED                    : Enable optimized kernel functions.
- *   /DSTREAM_ARRAY_SIZE=N      : Set array size (50M elements = ~1.1GB total memory).
- *   /DNTIMES=N                 : Set number of timing iterations (20 for better statistics).
+ *   /DSTREAM_ARRAY_SIZE=N      : Set array size (8M elements = ~192MB total memory).
+ *   /DNTIMES=N                 : Set number of timing iterations (100 for better statistics).
  *   /Fe:name                   : Set the output executable file name.
  */
 /*-----------------------------------------------------------------------*/
@@ -117,20 +117,20 @@
  *    gcc -O -DSTREAM_ARRAY_SIZE=100000000 stream.c -o stream.100M
  */
 #ifndef STREAM_ARRAY_SIZE
-    #define STREAM_ARRAY_SIZE 10000000 /* Default array size is 10 million elements */
+#   define STREAM_ARRAY_SIZE    2000000
 #endif
 
 /*
  * 2) STREAM runs each kernel "NTIMES" times and reports the *best* result.
- *    The minimum value for NTIMES is 2. Default is 10.
+ *    The minimum value for NTIMES is 2. Default is 100.
  */
 #ifdef NTIMES
     #if NTIMES <= 1
-        #define NTIMES 10
+        #define NTIMES 100
     #endif
 #endif
 #ifndef NTIMES
-    #define NTIMES 10
+    #define NTIMES 100
 #endif
 
 /*
@@ -241,7 +241,7 @@ int main()
     printf("Each kernel will be executed %d times.\n", NTIMES);
     printf(" The *best* time for each kernel (excluding the first iteration)\n");
     printf(" will be used to compute the reported bandwidth.\n");
-
+    
 #ifdef _OPENMP
     printf(HLINE);
     
