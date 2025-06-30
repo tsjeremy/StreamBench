@@ -50,21 +50,32 @@
  * 1. Open the correct Developer Command Prompt from the Start Menu.
  *    This sets up the environment (paths, libraries) for the compiler.
  *
- * 2. To compile for x64 (standard 64-bit PCs):
+ * 2. To compile for x64/AMD64 (standard 64-bit PCs):
  *    - Open "x64 Native Tools Command Prompt for VS"
- *    - Run the command:
+ *    
+ *    Basic compilation:
  *      cl.exe /O2 /openmp /Fe:stream_x64.exe stream.c
+ *    
+ *    Optimized compilation with TUNED kernels and larger arrays:
+ *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=50000000 /DNTIMES=20 /openmp /Fe:stream_x64_tuned.exe stream.c
  *
  * 3. To compile for ARM64 (for devices like Windows on ARM):
  *    - If compiling ON an ARM64 machine, open "ARM64 Native Tools Command Prompt".
  *    - If cross-compiling FROM an x64 machine, open "x64_arm64 Cross Tools Command Prompt".
- *    - Run the command:
+ *    
+ *    Basic compilation:
  *      cl.exe /O2 /openmp /Fe:stream_arm64.exe stream.c
+ *    
+ *    Optimized compilation with TUNED kernels and larger arrays:
+ *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=50000000 /DNTIMES=20 /openmp /Fe:stream_arm64_tuned.exe stream.c
  *
  * Command-line options explained:
- *   /O2      : Enable optimizations for speed.
- *   /openmp  : Enable OpenMP support for multi-threading.
- *   /Fe:name : Set the output executable file name.
+ *   /O2                        : Enable optimizations for speed.
+ *   /openmp                    : Enable OpenMP support for multi-threading.
+ *   /DTUNED                    : Enable optimized kernel functions.
+ *   /DSTREAM_ARRAY_SIZE=N      : Set array size (50M elements = ~1.1GB total memory).
+ *   /DNTIMES=N                 : Set number of timing iterations (20 for better statistics).
+ *   /Fe:name                   : Set the output executable file name.
  */
 /*-----------------------------------------------------------------------*/
 
