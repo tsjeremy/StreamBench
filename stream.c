@@ -75,7 +75,17 @@
  *   /DTUNED                    : Enable optimized kernel functions.
  *   /DSTREAM_ARRAY_SIZE=N      : Set array size (50M elements = ~1.1GB total memory).
  *   /DNTIMES=N                 : Set number of timing iterations (20 for better statistics).
+ *   /DSTART_SIZE=N             : Start array size for range testing (e.g., 50000000).
+ *   /DEND_SIZE=N               : End array size for range testing (e.g., 100000000).
+ *   /DSTEP_SIZE=N              : Step size for range testing (e.g., 10000000).
  *   /Fe:name                   : Set the output executable file name.
+ *
+ * Range Testing Examples:
+ *   Test from 50M to 100M elements in 10M steps:
+ *     cl.exe /O2 /DTUNED /DSTART_SIZE=50000000 /DEND_SIZE=100000000 /DSTEP_SIZE=10000000 /DNTIMES=10 /openmp /Fe:stream_range.exe stream.c
+ *
+ *   Test from 10M to 50M elements in 5M steps:
+ *     cl.exe /O2 /DTUNED /DSTART_SIZE=10000000 /DEND_SIZE=50000000 /DSTEP_SIZE=5000000 /DNTIMES=10 /openmp /Fe:stream_range.exe stream.c
  */
 /*-----------------------------------------------------------------------*/
 
@@ -83,6 +93,7 @@
 #include <math.h>
 #include <float.h>
 #include <limits.h>
+#include <stdlib.h>
 
 /*-----------------------------------------------------------------------*/
 /* CROSS-PLATFORM COMPATIBILITY HEADERS                                 */
@@ -117,7 +128,7 @@
  *    gcc -O -DSTREAM_ARRAY_SIZE=100000000 stream.c -o stream.100M
  */
 #ifndef STREAM_ARRAY_SIZE
-    #define STREAM_ARRAY_SIZE 10000000 /* Default array size is 10 million elements */
+    #define STREAM_ARRAY_SIZE 100000000 /* Default array size is 100 million elements */
 #endif
 
 /*
@@ -147,6 +158,20 @@
     #define STREAM_TYPE double
 #endif
 
+/*
+ * Array size range testing parameters
+ * Define START_SIZE, END_SIZE, and STEP_SIZE to test multiple array sizes
+ */
+#ifndef START_SIZE
+    #define START_SIZE 0  /* If 0, use single STREAM_ARRAY_SIZE test */
+#endif
+#ifndef END_SIZE
+    #define END_SIZE 0
+#endif
+#ifndef STEP_SIZE
+    #define STEP_SIZE 10000000  /* Default step is 10M elements */
+#endif
+
 /*-----------------------------------------------------------------------*/
 /* CONSTANTS AND MACROS                                                  */
 /*-----------------------------------------------------------------------*/
@@ -171,10 +196,11 @@
 /* GLOBAL VARIABLES                                                      */
 /*-----------------------------------------------------------------------*/
 
-/* Declare the three static global arrays: a, b, and c */
-static STREAM_TYPE a[STREAM_ARRAY_SIZE + OFFSET],
-                   b[STREAM_ARRAY_SIZE + OFFSET],
-                   c[STREAM_ARRAY_SIZE + OFFSET];
+/* Declare pointers for the three dynamic arrays: a, b, and c */
+static STREAM_TYPE *a, *b, *c;
+
+/* Current array size being tested (for range testing) */
+static size_t current_array_size = STREAM_ARRAY_SIZE;
 
 /* Declare arrays to store timing results: average, max, and min times */
 static double avgtime[4] = {0}, 
@@ -186,12 +212,10 @@ static char *label[4] = {"Copy:      ", "Scale:     ",
                          "Add:       ", "Triad:     "};
 
 /* Bytes transferred per iteration for each of the four kernels */
-static double bytes[4] = {
-    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE, /* Copy: 1 read, 1 write */
-    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE, /* Scale: 1 read, 1 write */
-    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE, /* Add: 2 reads, 1 write */
-    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE  /* Triad: 2 reads, 1 write */
-};
+static double bytes[4];  /* Will be calculated dynamically based on current array size */
+
+/* Global CSV file pointer for range testing */
+static FILE *range_csv_file = NULL;
 
 /*-----------------------------------------------------------------------*/
 /* FUNCTION DECLARATIONS                                                 */
@@ -199,6 +223,10 @@ static double bytes[4] = {
 
 extern double mysecond();
 extern void checkSTREAMresults();
+extern void output_csv_results();
+extern int run_stream_test(size_t array_size);
+extern void init_range_csv();
+extern void close_range_csv();
 
 #ifdef TUNED
 extern void tuned_STREAM_Copy();
@@ -212,6 +240,64 @@ extern void tuned_STREAM_Triad(STREAM_TYPE scalar);
 /*-----------------------------------------------------------------------*/
 int main()
 {
+    /* Check if range testing is enabled */
+    if (START_SIZE > 0 && END_SIZE > START_SIZE) {
+        printf("STREAM Range Testing Mode\n");
+        printf("Testing array sizes from %zu to %zu with step %zu\n", 
+               (size_t)START_SIZE, (size_t)END_SIZE, (size_t)STEP_SIZE);
+        printf("========================================================\n");
+        
+        /* Initialize consolidated CSV file for range testing */
+        init_range_csv();
+        
+        size_t array_size;
+        int test_count = 0;
+        int successful_tests = 0;
+        
+        for (array_size = START_SIZE; array_size <= END_SIZE; array_size += STEP_SIZE) {
+            test_count++;
+            printf("\n--- Test %d: Array size %zu (%.1f M elements) ---\n", 
+                   test_count, array_size, array_size / 1000000.0);
+            
+            if (run_stream_test(array_size) == 0) {
+                successful_tests++;
+            } else {
+                printf("Test failed for array size %zu\n", array_size);
+            }
+        }
+        
+        /* Close consolidated CSV file */
+        close_range_csv();
+        
+        printf("\n========================================================\n");
+        printf("Range testing complete: %d/%d tests successful\n", successful_tests, test_count);
+        return 0;
+    } else {
+        /* Single test mode */
+        return run_stream_test(STREAM_ARRAY_SIZE);
+    }
+}
+
+/*-----------------------------------------------------------------------*/
+/* STREAM TEST FUNCTION                                                  */
+/*-----------------------------------------------------------------------*/
+int run_stream_test(size_t array_size)
+{
+    current_array_size = array_size;
+    
+    /* Reset timing arrays for each test */
+    int i;
+    for (i = 0; i < 4; i++) {
+        avgtime[i] = 0.0;
+        maxtime[i] = 0.0;
+        mintime[i] = FLT_MAX;
+    }
+    
+    /* Update bytes array for current array size */
+    bytes[0] = 2 * sizeof(STREAM_TYPE) * current_array_size; /* Copy: 1 read, 1 write */
+    bytes[1] = 2 * sizeof(STREAM_TYPE) * current_array_size; /* Scale: 1 read, 1 write */
+    bytes[2] = 3 * sizeof(STREAM_TYPE) * current_array_size; /* Add: 2 reads, 1 write */
+    bytes[3] = 3 * sizeof(STREAM_TYPE) * current_array_size; /* Triad: 2 reads, 1 write */
     int quantum, checktick();
     int BytesPerWord;
     int k;
@@ -230,17 +316,33 @@ int main()
     printf("This system uses %d bytes per array element.\n", BytesPerWord);
 
     printf(HLINE);
-    printf("Array size = %llu (elements), Offset = %d (elements)\n", 
-           (unsigned long long)STREAM_ARRAY_SIZE, OFFSET);
+    printf("Array size = %zu (elements), Offset = %d (elements)\n", 
+           current_array_size, OFFSET);
     printf("Memory per array = %.1f MiB (= %.1f GiB).\n",
-           BytesPerWord * ((double)STREAM_ARRAY_SIZE / 1024.0 / 1024.0),
-           BytesPerWord * ((double)STREAM_ARRAY_SIZE / 1024.0 / 1024.0 / 1024.0));
+           BytesPerWord * ((double)current_array_size / 1024.0 / 1024.0),
+           BytesPerWord * ((double)current_array_size / 1024.0 / 1024.0 / 1024.0));
     printf("Total memory required = %.1f MiB (= %.1f GiB).\n",
-           (3.0 * BytesPerWord) * ((double)STREAM_ARRAY_SIZE / 1024.0 / 1024.),
-           (3.0 * BytesPerWord) * ((double)STREAM_ARRAY_SIZE / 1024.0 / 1024. / 1024.));
+           (3.0 * BytesPerWord) * ((double)current_array_size / 1024.0 / 1024.),
+           (3.0 * BytesPerWord) * ((double)current_array_size / 1024.0 / 1024. / 1024.));
     printf("Each kernel will be executed %d times.\n", NTIMES);
     printf(" The *best* time for each kernel (excluding the first iteration)\n");
     printf(" will be used to compute the reported bandwidth.\n");
+
+    /* Allocate memory for arrays dynamically */
+    a = (STREAM_TYPE*) malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE));
+    b = (STREAM_TYPE*) malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE));
+    c = (STREAM_TYPE*) malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE));
+    
+    if (a == NULL || b == NULL || c == NULL) {
+        printf("Error: Failed to allocate memory for arrays\n");
+        printf("Requested memory: %.1f MB per array (%.1f MB total)\n", 
+               (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0),
+               3.0 * (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
+        return 1;
+    }
+    printf("Memory allocation successful: %.1f MB per array (%.1f MB total)\n",
+           (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0),
+           3.0 * (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
 
 #ifdef _OPENMP
     printf(HLINE);
@@ -279,7 +381,7 @@ int main()
 
     /* Initialize arrays, parallelizing the loop with OpenMP */
 #pragma omp parallel for
-    for (j = 0; j < STREAM_ARRAY_SIZE; j++) {
+    for (j = 0; j < current_array_size; j++) {
         a[j] = 1.0;
         b[j] = 2.0;
         c[j] = 0.0;
@@ -300,7 +402,7 @@ int main()
     /* Perform a sample computation to estimate the test duration */
     t = mysecond();
 #pragma omp parallel for
-    for (j = 0; j < STREAM_ARRAY_SIZE; j++)
+    for (j = 0; j < current_array_size; j++)
         a[j] = 2.0E0 * a[j];
     t = 1.0E6 * (mysecond() - t);
 
@@ -324,7 +426,7 @@ int main()
         tuned_STREAM_Copy();
 #else
 #pragma omp parallel for /* Parallelize with OpenMP */
-        for (j = 0; j < STREAM_ARRAY_SIZE; j++)
+        for (j = 0; j < current_array_size; j++)
             c[j] = a[j];
 #endif
         times[0][k] = mysecond() - times[0][k];
@@ -335,7 +437,7 @@ int main()
         tuned_STREAM_Scale(scalar);
 #else
 #pragma omp parallel for
-        for (j = 0; j < STREAM_ARRAY_SIZE; j++)
+        for (j = 0; j < current_array_size; j++)
             b[j] = scalar * c[j];
 #endif
         times[1][k] = mysecond() - times[1][k];
@@ -346,7 +448,7 @@ int main()
         tuned_STREAM_Add();
 #else
 #pragma omp parallel for
-        for (j = 0; j < STREAM_ARRAY_SIZE; j++)
+        for (j = 0; j < current_array_size; j++)
             c[j] = a[j] + b[j];
 #endif
         times[2][k] = mysecond() - times[2][k];
@@ -357,7 +459,7 @@ int main()
         tuned_STREAM_Triad(scalar);
 #else
 #pragma omp parallel for
-        for (j = 0; j < STREAM_ARRAY_SIZE; j++)
+        for (j = 0; j < current_array_size; j++)
             a[j] = b[j] + scalar * c[j];
 #endif
         times[3][k] = mysecond() - times[3][k];
@@ -393,6 +495,14 @@ int main()
     /* Check Results */
     checkSTREAMresults();
     printf(HLINE);
+
+    /* Output CSV results */
+    output_csv_results();
+
+    /* Free allocated memory */
+    free(a);
+    free(b);
+    free(c);
 
     return 0;
 }
@@ -490,14 +600,14 @@ void checkSTREAMresults()
     aSumErr = 0.0;
     bSumErr = 0.0;
     cSumErr = 0.0;
-    for (j = 0; j < STREAM_ARRAY_SIZE; j++) {
+    for (j = 0; j < current_array_size; j++) {
         aSumErr += abs(a[j] - aj);
         bSumErr += abs(b[j] - bj);
         cSumErr += abs(c[j] - cj);
     }
-    aAvgErr = aSumErr / (STREAM_TYPE)STREAM_ARRAY_SIZE;
-    bAvgErr = bSumErr / (STREAM_TYPE)STREAM_ARRAY_SIZE;
-    cAvgErr = cSumErr / (STREAM_TYPE)STREAM_ARRAY_SIZE;
+    aAvgErr = aSumErr / (STREAM_TYPE)current_array_size;
+    bAvgErr = bSumErr / (STREAM_TYPE)current_array_size;
+    cAvgErr = cSumErr / (STREAM_TYPE)current_array_size;
 
     /* Set the acceptable error tolerance (epsilon) */
     if (sizeof(STREAM_TYPE) == 4) {        /* single-precision */
@@ -531,6 +641,108 @@ void checkSTREAMresults()
     }
 }
 
+/*
+ * Output results in CSV format for easy data analysis and charting
+ */
+void output_csv_results()
+{
+    int j;
+    
+    if (range_csv_file != NULL) {
+        /* Range testing mode - append to consolidated CSV file */
+        double array_size_mb = (sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0);
+        double total_memory_gb = (3.0 * sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0 * 1024.0);
+        
+        /* Write data for each kernel to the consolidated file */
+        for (j = 0; j < 4; j++) {
+            fprintf(range_csv_file, "%zu,%.1f,%.3f,%s,%.1f,%.6f,%.6f,%.6f\n",
+                    current_array_size,
+                    array_size_mb,
+                    total_memory_gb,
+                    (j == 0) ? "Copy" : (j == 1) ? "Scale" : (j == 2) ? "Add" : "Triad",
+                    1.0E-06 * bytes[j] / mintime[j],  /* Best rate in MB/s */
+                    avgtime[j],
+                    mintime[j],
+                    maxtime[j]);
+        }
+        fflush(range_csv_file);  /* Ensure data is written immediately */
+        printf("Results appended to consolidated CSV file\n");
+    } else {
+        /* Single test mode - create individual CSV file */
+        FILE *csvfile;
+        char filename[256];
+        
+        /* Create filename with array size */
+        sprintf(filename, "stream_results_%zuM.csv", current_array_size / 1000000);
+        
+        csvfile = fopen(filename, "w");
+        if (csvfile == NULL) {
+            printf("Warning: Could not create CSV file %s\n", filename);
+            return;
+        }
+        
+        /* Write CSV header */
+        fprintf(csvfile, "Array_Size_Elements,Array_Size_MB,Total_Memory_GB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
+        
+        /* Calculate memory sizes */
+        double array_size_mb = (sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0);
+        double total_memory_gb = (3.0 * sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0 * 1024.0);
+        
+        /* Write data for each kernel */
+        for (j = 0; j < 4; j++) {
+            fprintf(csvfile, "%zu,%.1f,%.3f,%s,%.1f,%.6f,%.6f,%.6f\n",
+                    current_array_size,
+                    array_size_mb,
+                    total_memory_gb,
+                    (j == 0) ? "Copy" : (j == 1) ? "Scale" : (j == 2) ? "Add" : "Triad",
+                    1.0E-06 * bytes[j] / mintime[j],  /* Best rate in MB/s */
+                    avgtime[j],
+                    mintime[j],
+                    maxtime[j]);
+        }
+        
+        fclose(csvfile);
+        printf("CSV results written to: %s\n", filename);
+    }
+}
+
+/*
+ * Initialize consolidated CSV file for range testing
+ */
+void init_range_csv()
+{
+    char filename[256];
+    
+    /* Create filename with range information */
+    sprintf(filename, "stream_range_results_%zuM_to_%zuM_step_%zuM.csv", 
+            (size_t)START_SIZE / 1000000, 
+            (size_t)END_SIZE / 1000000, 
+            (size_t)STEP_SIZE / 1000000);
+    
+    range_csv_file = fopen(filename, "w");
+    if (range_csv_file == NULL) {
+        printf("Warning: Could not create consolidated CSV file %s\n", filename);
+        return;
+    }
+    
+    /* Write CSV header */
+    fprintf(range_csv_file, "Array_Size_Elements,Array_Size_MB,Total_Memory_GB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
+    
+    printf("Consolidated CSV file created: %s\n", filename);
+}
+
+/*
+ * Close consolidated CSV file for range testing
+ */
+void close_range_csv()
+{
+    if (range_csv_file != NULL) {
+        fclose(range_csv_file);
+        range_csv_file = NULL;
+        printf("Consolidated CSV file closed successfully\n");
+    }
+}
+
 /*-----------------------------------------------------------------------*/
 /* TUNED KERNEL FUNCTIONS                                                */
 /*-----------------------------------------------------------------------*/
@@ -545,7 +757,7 @@ void tuned_STREAM_Copy()
 {
     ssize_t j;
 #pragma omp parallel for
-    for (j = 0; j < STREAM_ARRAY_SIZE; j++)
+    for (j = 0; j < current_array_size; j++)
         c[j] = a[j];
 }
 
@@ -553,7 +765,7 @@ void tuned_STREAM_Scale(STREAM_TYPE scalar)
 {
     ssize_t j;
 #pragma omp parallel for
-    for (j = 0; j < STREAM_ARRAY_SIZE; j++)
+    for (j = 0; j < current_array_size; j++)
         b[j] = scalar * c[j];
 }
 
@@ -561,7 +773,7 @@ void tuned_STREAM_Add()
 {
     ssize_t j;
 #pragma omp parallel for
-    for (j = 0; j < STREAM_ARRAY_SIZE; j++)
+    for (j = 0; j < current_array_size; j++)
         c[j] = a[j] + b[j];
 }
 
@@ -569,7 +781,7 @@ void tuned_STREAM_Triad(STREAM_TYPE scalar)
 {
     ssize_t j;
 #pragma omp parallel for
-    for (j = 0; j < STREAM_ARRAY_SIZE; j++)
+    for (j = 0; j < current_array_size; j++)
         a[j] = b[j] + scalar * c[j];
 }
 

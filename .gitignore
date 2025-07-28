@@ -2,3 +2,4 @@
 *.exe
 stream.obj
 .vscode/settings.json
+*.csv
