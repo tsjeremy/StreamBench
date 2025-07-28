@@ -271,6 +271,15 @@ int main()
         
         printf("\n========================================================\n");
         printf("Range testing complete: %d/%d tests successful\n", successful_tests, test_count);
+        
+        if (successful_tests == test_count) {
+            printf("All tests completed successfully!\n");
+            printf("Results saved in consolidated CSV file.\n");
+        } else {
+            printf("Some tests failed due to memory allocation issues.\n");
+            printf("Try using smaller array sizes or ensure more memory is available.\n");
+        }
+        
         return 0;
     } else {
         /* Single test mode */
@@ -338,6 +347,12 @@ int run_stream_test(size_t array_size)
         printf("Requested memory: %.1f MB per array (%.1f MB total)\n", 
                (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0),
                3.0 * (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
+        
+        /* Free any successfully allocated arrays before returning */
+        if (a != NULL) { free(a); a = NULL; }
+        if (b != NULL) { free(b); b = NULL; }
+        if (c != NULL) { free(c); c = NULL; }
+        
         return 1;
     }
     printf("Memory allocation successful: %.1f MB per array (%.1f MB total)\n",
@@ -729,6 +744,7 @@ void init_range_csv()
     fprintf(range_csv_file, "Array_Size_Elements,Array_Size_MB,Total_Memory_GB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
     
     printf("Consolidated CSV file created: %s\n", filename);
+    printf("All range test results will be saved to this single file.\n");
 }
 
 /*
