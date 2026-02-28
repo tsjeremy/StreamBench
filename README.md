@@ -273,39 +273,6 @@ Results are automatically saved to CSV files:
 
 ---
 
-## Example Results
-
-Tested on **AMD Ryzen AI MAX 390** (Strix Halo) with **Radeon 8050S** integrated GPU,
-128 GB LPDDR5X-8000 unified memory (theoretical max bandwidth: **256 GB/s**).
-
-### CPU Results (200M elements, OpenMP, all 24 threads)
-
-| Kernel | Best Rate (MB/s) | Best Rate (GB/s) | % of Theoretical |
-|--------|------------------|-------------------|-----------------|
-| Copy   | 106,610          | ~107              | 42%             |
-| Scale  | 98,319           | ~98               | 38%             |
-| Add    | 95,624           | ~96               | 37%             |
-| Triad  | 102,381          | ~102              | 40%             |
-
-### GPU Results (200M elements, OpenCL on Radeon 8050S)
-
-| Kernel | Best Rate (MB/s) | Best Rate (GB/s) | % of Theoretical |
-|--------|------------------|-------------------|-----------------|
-| Copy   | 202,647          | ~203              | 79%             |
-| Scale  | 183,279          | ~183              | 72%             |
-| Add    | 211,120          | ~211              | 82%             |
-| Triad  | 213,181          | ~213              | 83%             |
-
-**Key observations:**
-*   The GPU version achieves **~2× higher bandwidth** than the CPU version because GPUs are
-    architecturally optimized for memory-parallel workloads.
-*   GPU results (~183–213 GB/s) closely match the **~215 GB/s real-world figure** reported by
-    independent reviewers ([Tom's Hardware](https://www.tomshardware.com/pc-components/cpus/amds-beastly-strix-halo-ryzen-ai-max-debuts-with-radical-new-memory-tech-to-feed-rdna-3-5-graphics-and-zen-5-cpu-cores),
-    [Phoronix](https://www.phoronix.com/review/amd-ryzen-ai-max-390),
-    [Framework Community](https://community.frame.work/t/amd-strix-halo-ryzen-ai-max-395-gpu-llm-performance-tests/72521)).
-*   CPU achieving ~40% and GPU achieving ~80% of theoretical max is **expected and normal** for
-    sustained memory bandwidth tests.
-
 ---
 
 ## What Bandwidth Should I Expect?
@@ -318,7 +285,7 @@ The results depend on your memory type, number of channels, and frequency:
 | DDR5-5600 | Dual-channel | ~90 GB/s | ~55–70 GB/s | ~60–80 GB/s |
 | DDR5-6400 | Dual-channel | ~102 GB/s | ~65–80 GB/s | ~70–90 GB/s |
 | LPDDR5X-7500 | Quad-channel | ~120 GB/s | ~70–90 GB/s | ~90–110 GB/s |
-| LPDDR5X-8000 | 8-channel (Strix Halo) | ~256 GB/s | ~90–110 GB/s | ~180–220 GB/s |
+| LPDDR5X-8000 | 8-channel | ~256 GB/s | ~90–110 GB/s | ~180–220 GB/s |
 
 > **Tip:** If your results are significantly below these ranges, check that all memory channels are
 > populated, XMP/EXPO profiles are enabled in BIOS, and the system is plugged in (not on battery).
@@ -358,7 +325,7 @@ For accurate bandwidth measurement, the total memory used should be **at least 4
 |--------|------------------|--------------------------------|-------------------|
 | Desktop (Intel/AMD) | 16–64 MB | 100,000,000 (100M) | ~2.4 GB |
 | Laptop | 8–32 MB | 50,000,000 (50M) | ~1.2 GB |
-| Workstation / Strix Halo | 64 MB | 200,000,000 (200M) | ~4.5 GB |
+| Workstation (64+ MB L3) | 64 MB | 200,000,000 (200M) | ~4.5 GB |
 | Memory-limited system | — | 10,000,000 (10M) | ~240 MB |
 
 ---

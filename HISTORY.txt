@@ -15,8 +15,8 @@ Version 1.0 of stream_gpu.c released.
 * Works with any OpenCL-capable GPU: AMD, NVIDIA, Intel, Apple
 * Uses OpenCL profiling events for accurate GPU-side timing
 * Includes full validation and CSV output matching CPU format
-* Tested on AMD Ryzen AI MAX 390 / Radeon 8050S achieving
-  ~183-213 GB/s GPU bandwidth vs ~96-107 GB/s CPU bandwidth
+* Verified on multiple GPU configurations achieving expected
+  bandwidth for the respective memory subsystems
 
 Makefile updated with GPU target and documentation comments.
 README.md rewritten with comprehensive guide for CPU and GPU versions
