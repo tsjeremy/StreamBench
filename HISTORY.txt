@@ -1,5 +1,17 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sun, Mar 01, 2026 (Jeremy Tsai)
+
+Version 5.10.08 of stream.c, stream_gpu.c, and StreamBench released.
+
+StreamBench (.NET 10 frontend):
+* Removed duplicate System Information panel when running CPU + GPU in one invocation
+* Hardened Windows NPU detection using pnputil class GUID queries with CSV parsing
+* Removed friendly-name-based NPU detection heuristics
+* Improved console readability for spinner and backend NOTE/WARNING output
+
+-------------------------------------------------------------------------
+
 Revisions as of Sat, Feb 28, 2026 (Jeremy Tsai)
 
 Version 5.10.07 of stream.c, stream_gpu.c, and StreamBench released.

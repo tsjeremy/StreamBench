@@ -26,7 +26,7 @@ displays color-formatted results, and saves files.
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.07).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.08).
 No compiler, .NET SDK, or build tools needed — just download **one file** and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
@@ -35,7 +35,7 @@ maximum performance — StreamBench extracts them automatically on first run.
 
 ### Windows — Just download and double-click
 
-1. Go to the **[v5.10.07 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.07)**
+1. Go to the **[v5.10.08 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.08)**
 2. Download **`StreamBench_win-x64.exe`** (or `StreamBench_win-arm64.exe` for ARM64)
 3. Run it:
 
@@ -56,12 +56,12 @@ maximum performance — StreamBench extracts them automatically on first run.
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.07/StreamBench_win-x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.08/StreamBench_win-x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.07 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.07)**
+1. Go to the **[v5.10.08 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.08)**
 2. Download **`StreamBench_osx-arm64`** (Apple Silicon) or **`StreamBench_osx-x64`** (Intel)
 3. Run it:
 
@@ -74,13 +74,13 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.07/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.08/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 ### Using the launcher script (alternative)
 
 The **`run_stream.ps1`** launcher script is available as a separate download on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.07).
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.08).
 It auto-detects your OS and architecture, checks for prerequisites (like the VC++ runtime
 on Windows), and runs both CPU and GPU benchmarks. Download it alongside the `StreamBench_*`
 binary and run:

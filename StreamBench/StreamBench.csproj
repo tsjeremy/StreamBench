@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
-    <Version>5.10.07</Version>
+    <Version>5.10.08</Version>
     <Description>STREAM Benchmark .NET 10 frontend — colored output, JSON/CSV saving, AI-extensible</Description>
   </PropertyGroup>
 
