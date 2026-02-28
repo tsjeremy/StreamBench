@@ -811,7 +811,8 @@ void checkSTREAMresults()
 }
 
 /*
- * Output results in CSV format for easy data analysis and charting
+ * Output results in CSV format for easy data analysis and charting.
+ * Memory sizes use binary units (MiB/GiB); bandwidth uses decimal MB/s.
  */
 void output_csv_results()
 {
@@ -819,15 +820,15 @@ void output_csv_results()
     
     if (range_csv_file != NULL) {
         /* Range testing mode - append to consolidated CSV file */
-        double array_size_mb = (sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0);
-        double total_memory_gb = (3.0 * sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0 * 1024.0);
+        double array_size_mib = (sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0);
+        double total_memory_gib = (3.0 * sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0 * 1024.0);
         
         /* Write data for each kernel to the consolidated file */
         for (j = 0; j < 4; j++) {
             fprintf(range_csv_file, "%zu,%.1f,%.3f,%s,%.1f,%.6f,%.6f,%.6f\n",
                     current_array_size,
-                    array_size_mb,
-                    total_memory_gb,
+                    array_size_mib,
+                    total_memory_gib,
                     (j == 0) ? "Copy" : (j == 1) ? "Scale" : (j == 2) ? "Add" : "Triad",
                     1.0E-06 * bytes[j] / mintime[j],  /* Best rate in MB/s */
                     avgtime[j],
@@ -850,19 +851,19 @@ void output_csv_results()
             return;
         }
         
-        /* Write CSV header */
-        fprintf(csvfile, "Array_Size_Elements,Array_Size_MB,Total_Memory_GB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
+        /* Write CSV header (sizes in MiB/GiB; bandwidth in decimal MB/s) */
+        fprintf(csvfile, "Array_Size_Elements,Array_Size_MiB,Total_Memory_GiB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
         
-        /* Calculate memory sizes */
-        double array_size_mb = (sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0);
-        double total_memory_gb = (3.0 * sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0 * 1024.0);
+        /* Calculate memory sizes (binary units: MiB and GiB) */
+        double array_size_mib = (sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0);
+        double total_memory_gib = (3.0 * sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0 * 1024.0);
         
         /* Write data for each kernel */
         for (j = 0; j < 4; j++) {
             fprintf(csvfile, "%zu,%.1f,%.3f,%s,%.1f,%.6f,%.6f,%.6f\n",
                     current_array_size,
-                    array_size_mb,
-                    total_memory_gb,
+                    array_size_mib,
+                    total_memory_gib,
                     (j == 0) ? "Copy" : (j == 1) ? "Scale" : (j == 2) ? "Add" : "Triad",
                     1.0E-06 * bytes[j] / mintime[j],  /* Best rate in MB/s */
                     avgtime[j],
@@ -894,8 +895,8 @@ void init_range_csv()
         return;
     }
     
-    /* Write CSV header */
-    fprintf(range_csv_file, "Array_Size_Elements,Array_Size_MB,Total_Memory_GB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
+    /* Write CSV header (sizes in MiB/GiB; bandwidth in decimal MB/s) */
+    fprintf(range_csv_file, "Array_Size_Elements,Array_Size_MiB,Total_Memory_GiB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
     
     printf("Consolidated CSV file created: %s\n", filename);
     printf("All range test results will be saved to this single file.\n");
