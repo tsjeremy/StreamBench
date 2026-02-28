@@ -1,9 +1,10 @@
 /*-----------------------------------------------------------------------*/
 /* Program: STREAM                                                       */
-/* Revision: $Id: stream.c,v 5.10.01 2025/06/29 17:19:00 mccalpin Exp mccalpin $ */
+/* Revision: $Id: stream.c,v 5.10.02 2026/02/28 jtsai Exp $             */
 /* Original code developed by John D. McCalpin                           */
 /* Programmers: John D. McCalpin                                         */
 /*              Joe R. Zagar                                             */
+/*              Jeremy Tsai (Windows/cross-platform/GPU enhancements)    */
 /*                                                                       */
 /* This program measures memory transfer rates in MB/s for simple        */
 /* computational kernels coded in C.                                     */
@@ -42,10 +43,16 @@
 /*-----------------------------------------------------------------------*/
 
 /*-----------------------------------------------------------------------*/
-/* COMPILATION GUIDE FOR WINDOWS                                         */
+/* COMPILATION GUIDE                                                     */
 /*-----------------------------------------------------------------------*/
 /*
- * How to compile with cl.exe (Microsoft Visual C++ Compiler) on Windows:
+ * This is the CPU version of the STREAM benchmark. For GPU memory
+ * bandwidth testing, see stream_gpu.c (OpenCL, no SDK needed).
+ *
+ * ===== Windows (cl.exe) =====
+ *
+ * Prerequisites (one-time, run in PowerShell or Command Prompt):
+ *   winget install Microsoft.VisualStudio.2022.Community --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --passive"
  *
  * 1. Open the correct Developer Command Prompt from the Start Menu.
  *    This sets up the environment (paths, libraries) for the compiler.
@@ -54,10 +61,10 @@
  *    - Open "x64 Native Tools Command Prompt for VS"
  *    
  *    Basic compilation:
- *      cl.exe /O2 /openmp /Fe:stream_x64.exe stream.c
+ *      cl.exe /O2 /openmp /Fe:stream.exe stream.c
  *    
  *    Optimized compilation with TUNED kernels and larger arrays:
- *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=2000000 /DNTIMES=100 /openmp /Fe:stream_x64_tuned.exe stream.c
+ *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp /Fe:stream.exe stream.c
  *
  * 3. To compile for ARM64 (for devices like Windows on ARM):
  *    - If compiling ON an ARM64 machine, open "ARM64 Native Tools Command Prompt".
@@ -67,25 +74,35 @@
  *      cl.exe /O2 /openmp /Fe:stream_arm64.exe stream.c
  *    
  *    Optimized compilation with TUNED kernels and larger arrays:
- *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=2000000 /DNTIMES=100 /openmp /Fe:stream_arm64_tuned.exe stream.c
+ *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp /Fe:stream_arm64.exe stream.c
  *
- * Command-line options explained:
- *   /O2                        : Enable optimizations for speed.
- *   /openmp                    : Enable OpenMP support for multi-threading.
- *   /DTUNED                    : Enable optimized kernel functions.
- *   /DSTREAM_ARRAY_SIZE=N      : Set array size (8M elements = ~192MB total memory).
- *   /DNTIMES=N                 : Set number of timing iterations (100 for better statistics).
- *   /DSTART_SIZE=N             : Start array size for range testing (e.g., 50000000).
- *   /DEND_SIZE=N               : End array size for range testing (e.g., 100000000).
- *   /DSTEP_SIZE=N              : Step size for range testing (e.g., 10000000).
- *   /Fe:name                   : Set the output executable file name.
+ * ===== Linux (gcc) =====
  *
- * Range Testing Examples:
- *   Test from 50M to 100M elements in 10M steps:
- *     cl.exe /O2 /DTUNED /DSTART_SIZE=50000000 /DEND_SIZE=100000000 /DSTEP_SIZE=10000000 /DNTIMES=10 /openmp /Fe:stream_range.exe stream.c
+ *    gcc -O2 -fopenmp -o stream stream.c
+ *    gcc -O2 -fopenmp -DTUNED -DSTREAM_ARRAY_SIZE=200000000 -o stream stream.c
  *
- *   Test from 10M to 50M elements in 5M steps:
- *     cl.exe /O2 /DTUNED /DSTART_SIZE=10000000 /DEND_SIZE=50000000 /DSTEP_SIZE=5000000 /DNTIMES=10 /openmp /Fe:stream_range.exe stream.c
+ * ===== macOS (clang) =====
+ *
+ *    brew install libomp   # One-time setup for OpenMP support
+ *    clang -O2 -Xpreprocessor -fopenmp -lomp -o stream stream.c
+ *
+ * ===== Compiler Options =====
+ *
+ *   /O2 or -O2             : Enable optimizations for speed.
+ *   /openmp or -fopenmp    : Enable OpenMP support for multi-threading.
+ *   /DTUNED or -DTUNED     : Enable optimized kernel functions.
+ *   /DSTREAM_ARRAY_SIZE=N  : Set array size (200M elements = ~4.5GB total memory).
+ *   /DNTIMES=N             : Set number of timing iterations (100 for better statistics).
+ *   /DSTART_SIZE=N         : Start array size for range testing (e.g., 50000000).
+ *   /DEND_SIZE=N           : End array size for range testing (e.g., 200000000).
+ *   /DSTEP_SIZE=N          : Step size for range testing (e.g., 50000000).
+ *   /Fe:name or -o name    : Set the output executable file name.
+ *
+ * ===== Range Testing Examples =====
+ *
+ *   Test from 50M to 200M elements in 50M steps:
+ *     cl.exe /O2 /DTUNED /DSTART_SIZE=50000000 /DEND_SIZE=200000000 /DSTEP_SIZE=50000000 /DNTIMES=20 /openmp /Fe:stream_range.exe stream.c
+ *     gcc -O2 -fopenmp -DTUNED -DSTART_SIZE=50000000 -DEND_SIZE=200000000 -DSTEP_SIZE=50000000 -DNTIMES=20 -o stream_range stream.c
  */
 /*-----------------------------------------------------------------------*/
 
@@ -319,7 +336,7 @@ int run_stream_test(size_t array_size)
     /*-------------------------------------------------------------------*/
 
     printf(HLINE);
-    printf("STREAM version $Revision: 5.10.01 $\n");
+    printf("STREAM version $Revision: 5.10.02 $\n");
     printf(HLINE);
     BytesPerWord = sizeof(STREAM_TYPE);
     printf("This system uses %d bytes per array element.\n", BytesPerWord);

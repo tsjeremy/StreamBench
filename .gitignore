@@ -1,5 +1,5 @@
 *.o
+*.obj
 *.exe
-stream.obj
 .vscode/settings.json
 *.csv

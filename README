@@ -9,13 +9,37 @@ Documentation for STREAM is on the web at:
 ===============================================
 NEWS
 ===============================================
-UPDATE: June 29, 2025:
+UPDATE: February 28, 2026 (Jeremy Tsai):
 
-Version 5.10.01 of stream.c released with Windows optimizations!
+Version 1.0 of stream_gpu.c released!
+
+GPU memory bandwidth benchmark using OpenCL:
+* Cross-platform: Windows, Linux, macOS
+* Zero SDK dependency - OpenCL loaded dynamically
+  at runtime via LoadLibrary / dlopen
+* Works with any OpenCL-capable GPU: AMD, NVIDIA,
+  Intel, Apple integrated and discrete GPUs
+* Uses OpenCL profiling events for accurate
+  GPU-side kernel timing
+* Automatic GPU discovery and device info reporting
+* Same validation and CSV output format as CPU
+* Compilation is simple - no special flags or
+  libraries needed beyond a C compiler:
+  Windows: cl.exe /O2 /Fe:stream_gpu.exe stream_gpu.c
+  Linux:   gcc -O2 -o stream_gpu stream_gpu.c -ldl -lm
+  macOS:   clang -O2 -o stream_gpu stream_gpu.c -lm
+
+===============================================
+UPDATE: February 28, 2026 (Jeremy Tsai):
+
+Version 5.10.02 of stream.c released with cross-platform
+enhancements!
 
 New features and improvements in this version:
 * Enhanced Windows compilation support with detailed 
   instructions for both x64 and ARM64 architectures
+* Cross-platform compilation guide covering Windows
+  (cl.exe), Linux (gcc), and macOS (clang)
 * Cross-platform compatibility improvements with proper
   Windows API integration for high-resolution timing
 * Automatic thread detection and configuration for
@@ -29,6 +53,10 @@ New features and improvements in this version:
   definition for Windows MSVC compiler
 * Detailed compilation guide specifically for Microsoft
   Visual C++ compiler (cl.exe) with OpenMP support
+* Dynamic memory allocation (malloc) replacing static
+  arrays for flexible array sizing
+* CSV output for easy data analysis and charting
+* Range testing mode for sweeping array sizes
 
 This version maintains full backward compatibility while
 adding significant improvements for Windows users and
@@ -125,6 +153,10 @@ so it *should* link automagically with any Fortran compiler.
 STREAM is a project of "Dr. Bandwidth":
 	John D. McCalpin, Ph.D.
 	john@mccalpin.com
+
+Windows port, cross-platform enhancements, and
+GPU (OpenCL) version by:
+	Jeremy Tsai
 
 ===============================================
 
