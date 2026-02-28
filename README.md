@@ -26,7 +26,7 @@ stream.exe
 ```
 
 > **Note:** The `/openmp` flag requires `VCOMP140.DLL` (part of the [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)) on the machine that runs the exe.
-> To build a portable exe with no DLL dependencies, omit `/openmp` — it will run single-threaded.
+> Use `run_stream.bat` to auto-detect and install it if needed.
 
 ### Windows (GPU version)
 
@@ -302,7 +302,7 @@ The results depend on your memory type, number of channels, and frequency:
 | Problem | Solution |
 |---------|----------|
 | `'cl.exe' is not recognized` | You opened a regular Command Prompt or PowerShell instead of the **Developer Command Prompt**. Search the Start Menu for **"x64 Native Tools Command Prompt for VS"**. |
-| `VCOMP140.DLL was not found` | The exe was compiled with `/openmp`, which requires the **Visual C++ Redistributable** on the target machine. **Fix:** Install [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), **or** recompile without OpenMP: `cl.exe /O2 /Fe:stream.exe stream.c` (runs single-threaded). |
+| `VCOMP140.DLL was not found` | The exe was compiled with `/openmp`, which requires the **Visual C++ Redistributable** on the target machine. **Fix:** Install [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), or use `run_stream.bat` which auto-detects and installs it. On ARM64: [VC++ Redistributable ARM64](https://aka.ms/vs/17/release/vc_redist.arm64.exe). You can also install via winget: `winget install Microsoft.VCRedist.2015+.x64` |
 | Very low bandwidth | Ensure OpenMP is enabled (`/openmp` or `-fopenmp`). Without it, only 1 thread is used. |
 | "Failed to allocate memory" | Reduce `STREAM_ARRAY_SIZE`. 100M elements needs ~2.4 GB RAM. |
 | Results vary wildly | Increase `NTIMES` (e.g., 100) and close background applications. |

@@ -113,10 +113,13 @@ REM ============================================================
 echo ============================================================
 echo  Build Summary
 echo ============================================================
-if exist "%SRCDIR%stream_cpu_win_x64.exe"   echo   [x] stream_cpu_win_x64.exe
-if exist "%SRCDIR%stream_gpu_win_x64.exe"   echo   [x] stream_gpu_win_x64.exe
-if exist "%SRCDIR%stream_cpu_win_arm64.exe" echo   [x] stream_cpu_win_arm64.exe
-if exist "%SRCDIR%stream_gpu_win_arm64.exe" echo   [x] stream_gpu_win_arm64.exe
+if exist "%SRCDIR%stream_cpu_win_x64.exe"      echo   [x] stream_cpu_win_x64.exe
+if exist "%SRCDIR%stream_gpu_win_x64.exe"      echo   [x] stream_gpu_win_x64.exe
+if exist "%SRCDIR%stream_cpu_win_arm64.exe"    echo   [x] stream_cpu_win_arm64.exe
+if exist "%SRCDIR%stream_gpu_win_arm64.exe"    echo   [x] stream_gpu_win_arm64.exe
+echo.
+echo  Note: CPU builds require Visual C++ Redistributable on the target machine.
+echo        Use run_stream.bat to auto-detect and install if needed.
 echo.
 
 REM --- Cleanup obj files ---
