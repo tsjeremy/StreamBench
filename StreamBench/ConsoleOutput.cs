@@ -15,11 +15,12 @@ public static class ConsoleOutput
     private static readonly HashSet<string> KnownTags = new(StringComparer.OrdinalIgnoreCase)
     {
         "/",
-        "white", "bold white",
-        "cyan",  "bold cyan",
-        "green", "bold green",
-        "red",   "bold red",
-        "dim",   "gray",
+        "white",  "bold white",
+        "cyan",   "bold cyan",
+        "green",  "bold green",
+        "yellow", "bold yellow",
+        "red",    "bold red",
+        "dim",    "gray",
     };
 
     /// <summary>
@@ -76,6 +77,7 @@ public static class ConsoleOutput
             case "cyan":   case "bold cyan":       Console.ForegroundColor = ConsoleColor.Cyan;     break;
             case "white":  case "bold white":      Console.ForegroundColor = ConsoleColor.White;    break;
             case "green":  case "bold green":      Console.ForegroundColor = ConsoleColor.Green;    break;
+            case "yellow": case "bold yellow":     Console.ForegroundColor = ConsoleColor.Yellow;   break;
             case "red":    case "bold red":        Console.ForegroundColor = ConsoleColor.Red;      break;
             case "dim":    case "gray":            Console.ForegroundColor = ConsoleColor.DarkGray; break;
         }
@@ -128,7 +130,11 @@ public static class ConsoleOutput
                 int    padAll  = Math.Max(0, inner - title.Length - 2); // 2 for flanking spaces
                 int    lp      = padAll / 2;
                 int    rp      = padAll - lp;
-                Console.WriteLine($"╭{Dashes(lp)} {title} {Dashes(rp)}╮");
+                Console.Write($"╭{Dashes(lp)} ");
+                Console.ResetColor();
+                WriteMarkup(_titleMarkup, newLine: false);
+                BorderColor();
+                Console.WriteLine($" {Dashes(rp)}╮");
             }
             else
             {
@@ -346,10 +352,7 @@ public static class ConsoleOutput
 
     public static void PrintResults(BenchmarkResult r)
     {
-        WriteMarkup("[bold white]══ Benchmark Results ══[/]");
-        Console.WriteLine();
-
-        var table = new SimpleTable()
+        var table = new SimpleTable("[bold white]Benchmark Results[/]")
             .AddColumn("[bold white]Kernel[/]",         10)
             .AddColumn("[bold green]Best Rate MB/s[/]", 16, rightAlign: true)
             .AddColumn("[white]Avg Time (s)[/]",        14, rightAlign: true)
@@ -358,17 +361,23 @@ public static class ConsoleOutput
 
         var kernels = new[]
         {
-            ("Copy",  r.Results.Copy),
-            ("Scale", r.Results.Scale),
-            ("Add",   r.Results.Add),
-            ("Triad", r.Results.Triad),
+            ("Copy",  r.Results.Copy,  false),
+            ("Scale", r.Results.Scale, false),
+            ("Add",   r.Results.Add,   false),
+            ("Triad", r.Results.Triad, true),   // key result — highlighted
         };
 
-        foreach (var (name, k) in kernels)
+        foreach (var (name, k, isKey) in kernels)
         {
+            // Triad is the key bandwidth number; use bold yellow to make it stand out
+            string nameCol = isKey ? $"[bold yellow]{name}[/]" : $"[cyan]{name}[/]";
+            string rateCol = isKey
+                ? $"[bold yellow]{k.BestRateMbps:N1}[/]"
+                : $"[bold green]{k.BestRateMbps:N1}[/]";
+
             table.AddRow(
-                $"[cyan]{name}[/]",
-                $"[bold green]{k.BestRateMbps:N1}[/]",
+                nameCol,
+                rateCol,
                 $"[white]{k.AvgTimeSec:F6}[/]",
                 $"[white]{k.MinTimeSec:F6}[/]",
                 $"[white]{k.MaxTimeSec:F6}[/]");

@@ -1,11 +1,15 @@
 @echo off
 REM ============================================================
-REM STREAM Benchmark - Setup & Run (for target machines)
+REM STREAM Benchmark - Setup & Run (Windows)
 REM ============================================================
-REM This script is designed for machines that RECEIVE the .exe files.
-REM It checks prerequisites, auto-detects the architecture,
-REM installs Visual C++ Redistributable if needed, and runs
-REM the correct benchmark.
+REM Runs CPU and GPU memory bandwidth benchmarks via the
+REM .NET 10 StreamBench frontend for formatted output with
+REM system info, colored tables, and CSV/JSON file saving.
+REM
+REM Prerequisites:
+REM   - .NET 10 SDK or Runtime (https://dot.net)
+REM   - Visual C++ Redistributable (for CPU OpenMP support)
+REM   - Pre-built C backend executables (build_all_windows.bat)
 REM
 REM Just double-click this file or run it from any terminal.
 REM ============================================================
@@ -52,6 +56,7 @@ echo  %C_CYAN%Detected architecture:%C_RESET% %C_BWHITE%%ARCH% [%ARCH_LABEL%]%C_
 
 REM --- Set paths ---
 set "SCRIPTDIR=%~dp0"
+set "STREAMBENCH=%SCRIPTDIR%StreamBench\StreamBench.csproj"
 set "CPU_EXE=%SCRIPTDIR%stream_cpu_win_%ARCH_LABEL%.exe"
 set "GPU_EXE=%SCRIPTDIR%stream_gpu_win_%ARCH_LABEL%.exe"
 
@@ -69,6 +74,23 @@ if "!HAS_CPU!"=="0" if "!HAS_GPU!"=="0" (
     echo            - stream_gpu_win_%ARCH_LABEL%.exe
     echo.
     echo          Run build_all_windows.bat on a build machine to compile them.
+    goto :pause_exit
+)
+
+REM --- Check for .NET 10 ---
+set "HAS_DOTNET=0"
+where dotnet >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+    set "HAS_DOTNET=1"
+    echo  %C_CYAN%.NET runtime:%C_RESET%        %C_GREEN%[OK] dotnet found%C_RESET%
+) else (
+    echo.
+    echo  %C_RED%[ERROR] .NET 10 SDK/Runtime not found.%C_RESET%
+    echo          Install from: %C_CYAN%https://dot.net%C_RESET%
+    echo.
+    echo          Or install via winget:
+    echo            %C_DIM%winget install Microsoft.DotNet.SDK.10%C_RESET%
+    echo.
     goto :pause_exit
 )
 
@@ -141,16 +163,15 @@ if "!DLL_OK!"=="1" (
 )
 
 REM ============================================================
-REM  Run CPU Benchmark
+REM  Run CPU Benchmark via StreamBench (.NET)
 REM ============================================================
 if "!HAS_CPU!"=="1" (
     if "!DLL_OK!"=="1" (
-        echo  %C_DIM%========================================%C_RESET%
-        echo  %C_BCYAN% Running CPU Benchmark%C_RESET%
-        echo   %C_DIM%!CPU_EXE!%C_RESET%
-        echo  %C_DIM%========================================%C_RESET%
-        echo.
-        "!CPU_EXE!"
+        dotnet run --project "%STREAMBENCH%" -- --cpu --exe "%CPU_EXE%" --array-size 200000000
+        if !ERRORLEVEL! NEQ 0 (
+            echo.
+            echo  %C_RED%[FAIL] CPU benchmark exited with error.%C_RESET%
+        )
         echo.
     ) else (
         echo  %C_YELLOW%[SKIP] CPU benchmark requires vcomp140.dll.%C_RESET%
@@ -161,15 +182,14 @@ if "!HAS_CPU!"=="1" (
 )
 
 REM ============================================================
-REM  Run GPU Benchmark
+REM  Run GPU Benchmark via StreamBench (.NET)
 REM ============================================================
 if "!HAS_GPU!"=="1" (
-    echo  %C_DIM%========================================%C_RESET%
-    echo  %C_BCYAN% Running GPU Benchmark%C_RESET%
-    echo   %C_DIM%!GPU_EXE!%C_RESET%
-    echo  %C_DIM%========================================%C_RESET%
-    echo.
-    "!GPU_EXE!"
+    dotnet run --project "%STREAMBENCH%" -- --gpu --exe "%GPU_EXE%" --array-size 200000000
+    if !ERRORLEVEL! NEQ 0 (
+        echo.
+        echo  %C_RED%[FAIL] GPU benchmark exited with error.%C_RESET%
+    )
     echo.
 ) else (
     echo  %C_YELLOW%[SKIP] GPU benchmark not found: stream_gpu_win_%ARCH_LABEL%.exe%C_RESET%
@@ -179,8 +199,6 @@ if "!HAS_GPU!"=="1" (
 echo  %C_DIM%========================================%C_RESET%
 echo  %C_BGREEN% Benchmark Complete%C_RESET%
 echo  %C_DIM%========================================%C_RESET%
-echo.
-echo  %C_CYAN%Results saved to CSV files in:%C_RESET% %C_BWHITE%%SCRIPTDIR%%C_RESET%
 echo.
 
 :pause_exit

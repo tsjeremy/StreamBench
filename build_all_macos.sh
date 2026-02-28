@@ -127,7 +127,9 @@ else
     if dotnet build "$SCRIPT_DIR/StreamBench/StreamBench.csproj" --configuration Release --nologo -v quiet; then
         echo "[OK] StreamBench (.NET)"
         echo ""
-        echo "  Run: dotnet run --project StreamBench -- --cpu --array-size 200M"
+        echo "  Run:  ./run_stream.sh"
+        echo "  Or:   dotnet run --project StreamBench -- --cpu --array-size 200M"
+        echo "        dotnet run --project StreamBench -- --gpu --array-size 200M"
     else
         echo "[FAIL] StreamBench (.NET)"
         ERRORS=$((ERRORS + 1))

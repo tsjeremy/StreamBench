@@ -159,7 +159,9 @@ dotnet build "%SRCDIR%StreamBench\StreamBench.csproj" --configuration Release --
 if %ERRORLEVEL% EQU 0 (
     echo [OK] StreamBench ^(.NET^)
     echo.
-    echo   Run: dotnet run --project StreamBench -- --cpu --array-size 200M
+    echo   Run:  run_stream.bat
+    echo   Or:   dotnet run --project StreamBench -- --cpu --array-size 200M
+    echo         dotnet run --project StreamBench -- --gpu --array-size 200M
 ) else (
     echo [FAIL] StreamBench ^(.NET^)
     set /a ERRORS+=1
