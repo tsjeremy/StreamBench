@@ -60,8 +60,9 @@ For range mode, run `stream_range.exe`; it writes one consolidated CSV file for 
 
 ## Interpreting output correctly
 
-- STREAM reports bandwidth in **MB/s**.
+- STREAM reports bandwidth in **MB/s** (decimal: 1 MB = 10⁶ bytes).
 - Convert to **GB/s** with `GB/s = MB/s / 1000`.
+- Memory sizes in the console output and CSV use **MiB/GiB** (binary: 1 MiB = 2²⁰ bytes).
 - Triad is typically used as the primary sustained-memory metric.
 - Bandwidth efficiency can be estimated with:
   - `efficiency = measured_bandwidth / theoretical_peak_bandwidth`
@@ -70,6 +71,9 @@ For range mode, run `stream_range.exe`; it writes one consolidated CSV file for 
 
 - This repository runs **CPU STREAM** kernels; do not compare directly to GPU-focused copy tools.
 - `rocm_bandwidth_test` primarily measures host/device and device/device transfer paths, not CPU STREAM Triad.
+- On AMD Strix Halo (Ryzen AI Max), CPU STREAM is limited by the CCD-to-SoC fabric links
+  (~128 GB/s aggregate for 16 cores), **not** by DRAM bandwidth (256 GB/s with LPDDR5x-8000).
+  Expect CPU STREAM Triad around **100–120 GB/s**; GPU memory tests can reach 215–234 GB/s.
 - On x86 with write-allocate and temporal stores, memory-interface traffic is higher than STREAM byte counting:
   - `Copy/Scale`: approximate hardware traffic is `STREAM * 1.5`
   - `Add/Triad`: approximate hardware traffic is `STREAM * 4/3`
