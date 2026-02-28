@@ -174,11 +174,11 @@ C:\Program Files\Microsoft Visual Studio\2022\Community>
 #### Step 3: Navigate to the Source Code
 
 ```cmd
-cd /d C:\path\to\STREAM_windows
+cd /d C:\path\to\StreamBench
 ```
 
-> Replace `C:\path\to\STREAM_windows` with the actual folder where you saved the source files.
-> For example: `cd /d C:\Users\YourName\Downloads\STREAM_windows`
+> Replace `C:\path\to\StreamBench` with the actual folder where you saved the source files.
+> For example: `cd /d C:\Users\YourName\Downloads\StreamBench`
 
 #### Step 4: Compile and Run
 
@@ -382,7 +382,7 @@ For accurate bandwidth measurement, the total memory used should be **at least 4
 ## Project Structure
 
 ```
-STREAM_windows/
+StreamBench/
 ├── stream.c                  # CPU benchmark (OpenMP, cross-platform)
 ├── stream_gpu.c              # GPU benchmark (OpenCL, cross-platform, no SDK needed)
 ├── stream_hwinfo.h           # Hardware detection (SMBIOS memory, cache, CPU freq)
