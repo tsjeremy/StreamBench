@@ -92,10 +92,6 @@ jobs:
         with:
           name: macos-binaries
           path: |
-            stream_cpu_macos_arm64
-            stream_cpu_macos_x64
-            stream_gpu_macos_arm64
-            stream_gpu_macos_x64
             StreamBench_osx-arm64
             StreamBench_osx-x64
 
@@ -168,10 +164,6 @@ jobs:
         with:
           name: windows-binaries
           path: |
-            stream_cpu_win_x64.exe
-            stream_gpu_win_x64.exe
-            stream_cpu_win_arm64.exe
-            stream_gpu_win_arm64.exe
             StreamBench_win-x64.exe
             StreamBench_win-arm64.exe
 
@@ -200,3 +192,11 @@ jobs:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: release-assets/*
           fail_on_unmatched_files: true
+
+      - name: Exclude source code archives from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release edit "$TAG" --repo "${{ github.repository }}" \
+            --exclude-source-code-archives
