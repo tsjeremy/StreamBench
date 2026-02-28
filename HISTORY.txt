@@ -1,5 +1,25 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sat, Feb 28, 2026 (Jeremy Tsai)
+
+Version 5.10.07 of stream.c, stream_gpu.c, and StreamBench released.
+
+stream_gpu.c (GPU):
+* Multi-GPU support — benchmarks all available GPUs by default
+* Per-device results with GPU name, vendor, and memory info
+
+StreamBench (.NET 10 frontend):
+* Run both CPU and GPU benchmarks by default when no flag specified
+* Multi-GPU: automatically discovers and benchmarks all GPU devices
+* Embedded C backend binaries for single-file distribution
+
+Release workflow:
+* run_stream.ps1 launcher script included as a release asset
+* Source code archives excluded from GitHub release page
+* Fixed StreamBench Windows binary naming (win-x64 instead of win_x64)
+
+-------------------------------------------------------------------------
+
 Revisions as of Sat, Jul 05, 2025 (Jeremy Tsai)
 
 Version 5.10.04 of stream.c, stream_gpu.c, and StreamBench released.

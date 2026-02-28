@@ -229,7 +229,12 @@ public static class ConsoleOutput
     {
         Console.WriteLine();
         WriteMarkup("[cyan]══════════════════════════════════════════════════════════════[/]");
-        WriteMarkup($"[cyan]  STREAM Benchmark v{r.Version} — {r.Type} Memory Bandwidth[/]");
+        string typeLabel = r.Type;
+        if (string.Equals(typeLabel, "GPU", StringComparison.OrdinalIgnoreCase)
+            && r.Device is not null
+            && GpuDeviceInfo.InferNpuDisplayName(r.Device.Name, r.Device.Vendor, r.System?.CpuModel) is not null)
+            typeLabel = "NPU";
+        WriteMarkup($"[cyan]  STREAM Benchmark v{r.Version} — {typeLabel} Memory Bandwidth[/]");
         WriteMarkup("[cyan]══════════════════════════════════════════════════════════════[/]");
         WriteMarkup($"[dim]  Timestamp : {r.Timestamp}[/]");
         Console.WriteLine();
@@ -312,15 +317,24 @@ public static class ConsoleOutput
             cacheTable.Render();
         }
 
-        // GPU device info
+        // GPU / NPU device info
         if (r.Device is not null)
         {
             var dev = r.Device;
-            var gpuTable = new SimpleTable("[bold white]GPU Device[/]")
+            string? cpuModel = r.System?.CpuModel;
+            string? npuName = GpuDeviceInfo.InferNpuDisplayName(dev.Name, dev.Vendor, cpuModel);
+            bool isNpu = npuName is not null;
+            string devKind = isNpu ? "NPU" : "GPU";
+            string displayName = npuName ?? dev.Name;
+
+            var gpuTable = new SimpleTable($"[bold white]{devKind} Device[/]")
                 .AddColumn("[cyan]Property[/]", 22)
                 .AddColumn("[white]Value[/]");
 
-            gpuTable.AddRow("[cyan]Device[/]",         $"[bold cyan]{dev.Name}[/]");
+            gpuTable.AddRow("[cyan]Device[/]",         $"[bold cyan]{displayName}[/]");
+            if (isNpu && !displayName.Equals(dev.Name, StringComparison.Ordinal))
+                gpuTable.AddRow("[cyan]OpenCL Name[/]", $"[dim]{dev.Name}[/]");
+            gpuTable.AddRow("[cyan]Type[/]",            $"[white]{devKind}[/]");
             gpuTable.AddRow("[cyan]Vendor[/]",          $"[white]{dev.Vendor}[/]");
             gpuTable.AddRow("[cyan]Compute Units[/]",   $"[white]{dev.ComputeUnits}[/]");
             gpuTable.AddRow("[cyan]Max Frequency[/]",   $"[white]{dev.MaxFrequencyMhz} MHz[/]");
@@ -352,13 +366,6 @@ public static class ConsoleOutput
 
     public static void PrintResults(BenchmarkResult r)
     {
-        var table = new SimpleTable("[bold white]Benchmark Results[/]")
-            .AddColumn("[bold white]Kernel[/]",         10)
-            .AddColumn("[bold green]Best Rate MB/s[/]", 16, rightAlign: true)
-            .AddColumn("[white]Avg Time (s)[/]",        14, rightAlign: true)
-            .AddColumn("[white]Min Time (s)[/]",        14, rightAlign: true)
-            .AddColumn("[white]Max Time (s)[/]",        14, rightAlign: true);
-
         var kernels = new[]
         {
             ("Copy",  r.Results.Copy,  false),
@@ -367,13 +374,29 @@ public static class ConsoleOutput
             ("Triad", r.Results.Triad, true),   // key result — highlighted
         };
 
+        // Auto-detect unit: use GB/s if all rates >= 1000 MB/s (i.e. >= 1 GB/s)
+        double maxRate = kernels.Max(k => k.Item2.BestRateMbps);
+        bool useGbps = maxRate >= 1000.0;
+        string unitLabel = useGbps ? "Best Rate GB/s" : "Best Rate MB/s";
+        double divisor = useGbps ? 1000.0 : 1.0;
+
+        var table = new SimpleTable("[bold white]Benchmark Results[/]")
+            .AddColumn("[bold white]Kernel[/]",              10)
+            .AddColumn($"[bold green]{unitLabel}[/]",        16, rightAlign: true)
+            .AddColumn("[white]Avg Time (s)[/]",             14, rightAlign: true)
+            .AddColumn("[white]Min Time (s)[/]",             14, rightAlign: true)
+            .AddColumn("[white]Max Time (s)[/]",             14, rightAlign: true);
+
         foreach (var (name, k, isKey) in kernels)
         {
+            double displayRate = k.BestRateMbps / divisor;
+            string rateFormat = useGbps ? "N2" : "N1";
+
             // Triad is the key bandwidth number; use bold yellow to make it stand out
             string nameCol = isKey ? $"[bold yellow]{name}[/]" : $"[cyan]{name}[/]";
             string rateCol = isKey
-                ? $"[bold yellow]{k.BestRateMbps:N1}[/]"
-                : $"[bold green]{k.BestRateMbps:N1}[/]";
+                ? $"[bold yellow]{displayRate.ToString(rateFormat)}[/]"
+                : $"[bold green]{displayRate.ToString(rateFormat)}[/]";
 
             table.AddRow(
                 nameCol,

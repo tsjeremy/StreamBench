@@ -26,7 +26,7 @@ displays color-formatted results, and saves files.
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.05).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.07).
 No compiler, .NET SDK, or build tools needed — just download **one file** and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
@@ -35,7 +35,7 @@ maximum performance — StreamBench extracts them automatically on first run.
 
 ### Windows — Just download and double-click
 
-1. Go to the **[v5.10.05 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.05)**
+1. Go to the **[v5.10.07 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.07)**
 2. Download **`StreamBench_win-x64.exe`** (or `StreamBench_win-arm64.exe` for ARM64)
 3. Run it:
 
@@ -56,12 +56,12 @@ maximum performance — StreamBench extracts them automatically on first run.
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.05/StreamBench_win-x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.07/StreamBench_win-x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.05 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.05)**
+1. Go to the **[v5.10.07 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.07)**
 2. Download **`StreamBench_osx-arm64`** (Apple Silicon) or **`StreamBench_osx-x64`** (Intel)
 3. Run it:
 
@@ -74,17 +74,19 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.05/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.07/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
-### Using the launcher scripts (alternative)
+### Using the launcher script (alternative)
 
-If you download the **Source code (zip)** from the release page, it includes launcher scripts
-that auto-detect architecture, check for prerequisites, and run both CPU and GPU benchmarks.
-Place the `StreamBench_*` binary in the extracted folder and run:
+The **`run_stream.ps1`** launcher script is available as a separate download on the
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.07).
+It auto-detects your OS and architecture, checks for prerequisites (like the VC++ runtime
+on Windows), and runs both CPU and GPU benchmarks. Download it alongside the `StreamBench_*`
+binary and run:
 
-- **Windows**: Double-click **`run_stream.bat`**
-- **macOS/Linux**: `chmod +x run_stream.sh && ./run_stream.sh`
+- **Windows**: `.\run_stream.ps1`
+- **macOS/Linux**: `pwsh ./run_stream.ps1`
 
 ### Standalone C backend binaries (advanced)
 
@@ -112,13 +114,13 @@ release page for users who want to run them directly without the StreamBench fro
 
 ### 1. Build everything
 
-```bash
-# macOS / Linux
-./build_all_macos.sh   # or build_all_linux.sh
+```powershell
+# macOS / Linux  (requires PowerShell 7+: https://aka.ms/powershell)
+pwsh ./build_all_macos.ps1   # or build_all_linux.ps1
 # -> produces stream_cpu_macos_arm64, stream_gpu_macos_arm64, and builds StreamBench/
 
 # Windows (run in any terminal — script auto-finds MSVC)
-build_all_windows.bat
+.\build_all_windows.ps1
 # -> produces stream_cpu_win_x64.exe, stream_gpu_win_x64.exe, and builds StreamBench/
 ```
 
@@ -425,7 +427,7 @@ The results depend on your memory type, number of channels, and frequency:
 | Problem | Solution |
 |---------|----------|
 | `'cl.exe' is not recognized` | You opened a regular Command Prompt or PowerShell instead of the **Developer Command Prompt**. Search the Start Menu for **"x64 Native Tools Command Prompt for VS"**. |
-| `VCOMP140.DLL was not found` | The exe was compiled with `/openmp`, which requires the **Visual C++ Redistributable** on the target machine. **Fix:** Install [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), or use `run_stream.bat` which auto-detects and installs it. On ARM64: [VC++ Redistributable ARM64](https://aka.ms/vs/17/release/vc_redist.arm64.exe). You can also install via winget: `winget install Microsoft.VCRedist.2015+.x64` |
+| `VCOMP140.DLL was not found` | The exe was compiled with `/openmp`, which requires the **Visual C++ Redistributable** on the target machine. **Fix:** Install [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), or use `run_stream.ps1` which auto-detects and installs it. On ARM64: [VC++ Redistributable ARM64](https://aka.ms/vs/17/release/vc_redist.arm64.exe). You can also install via winget: `winget install Microsoft.VCRedist.2015+.x64` |
 | Very low bandwidth | Ensure OpenMP is enabled (`/openmp` or `-fopenmp`). Without it, only 1 thread is used. |
 | "Failed to allocate memory" | Reduce `STREAM_ARRAY_SIZE`. 100M elements needs ~2.4 GB RAM. |
 | Results vary wildly | Increase `NTIMES` (e.g., 100) and close background applications. |
@@ -469,10 +471,10 @@ StreamBench/
 ├── stream.f                  # Original Fortran version
 ├── mysecond.c                # Timer for Fortran version
 ├── Makefile                  # Build targets for Linux/macOS
-├── build_all_windows.bat     # Build script for Windows (x64 + ARM64)
-├── build_all_macos.sh        # Build script for macOS (Intel + Apple Silicon)
-├── build_all_linux.sh        # Build script for Linux (x64 + ARM64)
-├── run_stream.bat            # Smart launcher for Windows (checks prerequisites)
+├── build_all_windows.ps1     # Build script for Windows (x64 + ARM64)
+├── build_all_macos.ps1       # Build script for macOS (Intel + Apple Silicon)
+├── build_all_linux.ps1       # Build script for Linux (x64 + ARM64)
+├── run_stream.ps1            # Cross-platform launcher (checks prerequisites)
 ├── README.md                 # This file
 ├── README                    # Original STREAM project notes
 ├── LICENSE.txt               # License information

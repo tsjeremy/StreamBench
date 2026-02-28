@@ -140,14 +140,25 @@ async Task<int> RunGpuBenchmarksAsync(string? exePath, long? arraySize,
             noSave, outputDir, gpus[0].Index, null);
     }
 
-    // Multiple GPUs — enumerate and run each
-    ConsoleOutput.WriteMarkup($"[bold cyan]Discovered {gpus.Count} GPU(s):[/]");
+    // Multiple devices — enumerate and run each
+    int gpuCount = gpus.Count(g => g.DeviceKind == "GPU");
+    int npuCount = gpus.Count(g => g.DeviceKind == "NPU");
+    string deviceSummary = (gpuCount, npuCount) switch
+    {
+        ( > 0, > 0) => $"{gpuCount} GPU(s) + {npuCount} NPU(s)",
+        (_, > 0)     => $"{npuCount} NPU(s)",
+        _            => $"{gpuCount} GPU(s)",
+    };
+    ConsoleOutput.WriteMarkup($"[bold cyan]Discovered {deviceSummary}:[/]");
     for (int i = 0; i < gpus.Count; i++)
     {
         var g = gpus[i];
         double memGb = g.GlobalMemoryBytes / (1024.0 * 1024.0 * 1024.0);
+        string displayName = g.DeviceKind == "NPU"
+            ? (GpuDeviceInfo.InferNpuDisplayName(g.Name, g.Vendor) ?? g.Name)
+            : g.Name;
         ConsoleOutput.WriteMarkup(
-            $"  [white]#{g.Index}[/] [bold white]{g.Name}[/] [dim]({g.Vendor}, {memGb:F1} GB)[/]");
+            $"  [white]#{g.Index}[/] [bold white]{displayName}[/] [dim]({g.DeviceKind}, {g.Vendor}, {memGb:F1} GB)[/]");
     }
     Console.WriteLine();
 
@@ -156,10 +167,13 @@ async Task<int> RunGpuBenchmarksAsync(string? exePath, long? arraySize,
     {
         if (i > 0) Console.WriteLine();
         var g = gpus[i];
-        ConsoleOutput.WriteMarkup($"[bold cyan]── GPU #{g.Index}: {g.Name} ──[/]");
+        string displayName = g.DeviceKind == "NPU"
+            ? (GpuDeviceInfo.InferNpuDisplayName(g.Name, g.Vendor) ?? g.Name)
+            : g.Name;
+        ConsoleOutput.WriteMarkup($"[bold cyan]── {g.DeviceKind} #{g.Index}: {displayName} ──[/]");
 
         int code = await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
-            noSave, outputDir, g.Index, $"GPU #{g.Index} ({g.Name})");
+            noSave, outputDir, g.Index, $"{g.DeviceKind} #{g.Index} ({displayName})");
         if (code != 0) exitCode = code;
     }
     return exitCode;

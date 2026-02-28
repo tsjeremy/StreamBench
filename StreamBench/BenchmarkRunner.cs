@@ -91,11 +91,20 @@ public static class BenchmarkRunner
 
         using var process = new Process { StartInfo = psi };
 
-        // Forward stderr to our stderr in real time
+        // Forward only error/warning messages from stderr; suppress informational noise
         process.ErrorDataReceived += (_, e) =>
         {
-            if (e.Data is not null)
-                Console.Error.WriteLine(e.Data);
+            if (e.Data is null) return;
+            // Only show lines that indicate errors, warnings, or important notes
+            var line = e.Data;
+            if (line.Contains("Error", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("Failed", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("Warning", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("NOTE:", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("FAIL", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine(line);
+            }
         };
 
         process.Start();
@@ -185,7 +194,7 @@ public static class BenchmarkRunner
 }
 
 /// <summary>
-/// Represents a GPU device discovered via --list-gpus.
+/// Represents a GPU/NPU device discovered via --list-gpus.
 /// </summary>
 public record GpuDeviceInfo
 {
@@ -195,4 +204,130 @@ public record GpuDeviceInfo
     public int ComputeUnits { get; init; }
     public int MaxFrequencyMhz { get; init; }
     public long GlobalMemoryBytes { get; init; }
+
+    /// <summary>
+    /// Returns "NPU" if the device appears to be a Neural Processing Unit, otherwise "GPU".
+    /// </summary>
+    public string DeviceKind => IsNpu(Name, Vendor) ? "NPU" : "GPU";
+
+    /// <summary>
+    /// Detects whether a device is an NPU rather than a GPU.
+    /// Matches by:
+    ///   - Device name keywords: "AI Boost", "NPU", "Neural", "Hexagon", "VPU".
+    ///   - Vendor "Microsoft" (on Qualcomm Snapdragon X the NPU is exposed via
+    ///     OpenCL with vendor "Microsoft", while the real Adreno GPU has vendor "Qualcomm").
+    ///     Excludes the Microsoft Basic Render Driver (WARP) software rasterizer.
+    /// </summary>
+    public static bool IsNpu(string? deviceName, string? vendor = null)
+    {
+        if (string.IsNullOrEmpty(deviceName)) return false;
+        var n = deviceName.ToUpperInvariant();
+
+        // Name-based detection
+        if (n.Contains("AI BOOST")
+            || n.Contains("NPU")
+            || n.Contains("NEURAL")
+            || n.Contains("HEXAGON")
+            || n.Contains("VPU"))
+            return true;
+
+        // Vendor-based detection: "Microsoft" vendor on OpenCL typically
+        // indicates an NPU driver, not a real GPU — except for WARP.
+        if (!string.IsNullOrEmpty(vendor)
+            && vendor.Contains("Microsoft", StringComparison.OrdinalIgnoreCase)
+            && !n.Contains("BASIC RENDER"))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Derives the correct NPU display name without hardcoded naming rules.
+    /// 1. On Windows, queries pnputil for the OS-registered NPU device name (ground truth).
+    /// 2. Falls back to transforming the OpenCL device name (replaces "GPU" → "NPU").
+    /// Returns null if the device is not an NPU.
+    /// </summary>
+    public static string? InferNpuDisplayName(string? deviceName, string? vendor = null, string? cpuModel = null)
+    {
+        if (!IsNpu(deviceName, vendor))
+            return null;
+
+        // Strategy 1: Ask the OS for the real NPU device name (Windows only)
+        string? osName = DetectNpuFromOs();
+        if (osName is not null)
+            return osName;
+
+        // Strategy 2: Transform the OpenCL device name
+        if (!string.IsNullOrEmpty(deviceName))
+        {
+            string cleaned = deviceName
+                .Replace("GPU", "NPU", StringComparison.OrdinalIgnoreCase)
+                .Trim();
+            // If nothing changed (no "GPU" was in the name), just append " (NPU)"
+            if (cleaned.Equals(deviceName.Trim(), StringComparison.Ordinal))
+                cleaned += " (NPU)";
+            return cleaned;
+        }
+
+        return "NPU";
+    }
+
+    // Cache the OS-detected NPU name (null = not queried, "" = queried but not found)
+    private static string? _cachedOsNpuName;
+    private static bool _osNpuQueried;
+    private static readonly object _osNpuLock = new();
+
+    /// <summary>
+    /// Queries the OS for registered NPU devices.
+    /// On Windows, uses "pnputil /enum-devices /connected" and looks for device
+    /// descriptions containing "NPU", "Neural", or "AI Boost".
+    /// Returns the first matching device description, or null if none found.
+    /// </summary>
+    private static string? DetectNpuFromOs()
+    {
+        lock (_osNpuLock)
+        {
+            if (_osNpuQueried)
+                return _cachedOsNpuName;
+            _osNpuQueried = true;
+        }
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return null;
+
+        try
+        {
+            var psi = new ProcessStartInfo("pnputil", "/enum-devices /connected")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute  = false,
+                CreateNoWindow   = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+            };
+            using var p = Process.Start(psi);
+            if (p is null) return null;
+            string output = p.StandardOutput.ReadToEnd();
+            p.WaitForExit(5000);
+
+            // Parse "Device Description:" lines for NPU keywords
+            foreach (var rawLine in output.Split('\n'))
+            {
+                string line = rawLine.Trim();
+                if (!line.StartsWith("Device Description:", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string desc = line["Device Description:".Length..].Trim();
+                var d = desc.ToUpperInvariant();
+                if (d.Contains("NPU") || d.Contains("NEURAL") || d.Contains("AI BOOST"))
+                {
+                    lock (_osNpuLock) { _cachedOsNpuName = desc; }
+                    return desc;
+                }
+            }
+        }
+        catch { /* pnputil not available or failed — fall through */ }
+
+        return null;
+    }
 }

@@ -1,0 +1,167 @@
+#!/usr/bin/env pwsh
+# ============================================================
+# STREAM Benchmark - Setup & Run (Cross-platform)
+# ============================================================
+# Runs CPU and GPU memory bandwidth benchmarks via the
+# StreamBench frontend for formatted output with system info,
+# colored tables, and CSV/JSON file saving.
+#
+# Works on Windows, macOS, and Linux.
+#
+# Prerequisites:
+#   - Pre-built C backend executables (build_all_*.ps1)
+#   - StreamBench self-contained binary
+#
+# Usage:
+#   pwsh ./run_stream.ps1          (or .\run_stream.ps1 on Windows)
+# ============================================================
+
+$ErrorActionPreference = 'Continue'
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+
+# ------------------------------------------------------------------
+#  Detect OS and architecture
+# ------------------------------------------------------------------
+if ($IsWindows) {
+    $osTag   = 'win'
+    $archTag = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    $ext     = '.exe'
+} elseif ($IsMacOS) {
+    $osTag   = 'macos'
+    $archTag = if ((uname -m) -eq 'arm64') { 'arm64' } else { 'x64' }
+    $ext     = ''
+} else {
+    $osTag   = 'linux'
+    $archTag = if ((uname -m) -eq 'aarch64') { 'arm64' } else { 'x64' }
+    $ext     = ''
+}
+
+Write-Host ''
+Write-Host '  ========================================' -ForegroundColor DarkGray
+Write-Host '   STREAM Memory Bandwidth Benchmark' -ForegroundColor Cyan
+Write-Host '  ========================================' -ForegroundColor DarkGray
+Write-Host ''
+
+# ------------------------------------------------------------------
+#  Resolve executable paths
+# ------------------------------------------------------------------
+# StreamBench naming convention differs between platforms:
+#   Windows:  StreamBench_win-x64.exe    / StreamBench_win-arm64.exe
+#   macOS:    StreamBench_osx-arm64      / StreamBench_osx-x64
+#   Linux:    StreamBench_linux-arm64    / StreamBench_linux-x64
+if ($osTag -eq 'win') {
+    $benchName = "StreamBench_win-${archTag}${ext}"
+} elseif ($osTag -eq 'macos') {
+    $benchName = "StreamBench_osx-${archTag}${ext}"
+} else {
+    $benchName = "StreamBench_linux-${archTag}${ext}"
+}
+
+$cpuExe   = Join-Path $ScriptDir "stream_cpu_${osTag}_${archTag}${ext}"
+$gpuExe   = Join-Path $ScriptDir "stream_gpu_${osTag}_${archTag}${ext}"
+$benchExe = Join-Path $ScriptDir $benchName
+
+$hasCpu = Test-Path $cpuExe
+$hasGpu = Test-Path $gpuExe
+
+if (-not $hasCpu -and -not $hasGpu) {
+    Write-Host ''
+    Write-Host "  [ERROR] No benchmark executables found for ${osTag}_${archTag}." -ForegroundColor Red
+    Write-Host "          Expected in: $ScriptDir"
+    Write-Host "            - stream_cpu_${osTag}_${archTag}${ext}"
+    Write-Host "            - stream_gpu_${osTag}_${archTag}${ext}"
+    Write-Host ''
+    Write-Host "          Run the appropriate build script first."
+    exit 1
+}
+
+# ------------------------------------------------------------------
+#  Find StreamBench runner
+# ------------------------------------------------------------------
+$benchCmd = $null
+if (Test-Path $benchExe) {
+    $benchCmd = $benchExe
+} else {
+    # Fallback: dotnet run
+    $csproj = Join-Path $ScriptDir 'StreamBench/StreamBench.csproj'
+    if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj)) {
+        $benchCmd = "dotnet run --project `"$csproj`" --"
+    } else {
+        Write-Host ''
+        Write-Host "  [ERROR] StreamBench frontend not found: $benchName" -ForegroundColor Red
+        Write-Host '          Or: .NET 10 SDK + StreamBench/ project folder'
+        Write-Host '          Install .NET from: https://dot.net'
+        exit 1
+    }
+}
+
+# ------------------------------------------------------------------
+#  Windows: check for vcomp140.dll (OpenMP runtime)
+# ------------------------------------------------------------------
+if ($IsWindows) {
+    $dllOk = (Test-Path "$env:SystemRoot\System32\vcomp140.dll") -or
+             [bool](Get-Command vcomp140.dll -ErrorAction SilentlyContinue)
+
+    if (-not $dllOk) {
+        Write-Host ''
+        Write-Host '  [!] MISSING: vcomp140.dll' -ForegroundColor Yellow
+        Write-Host '  The CPU benchmark requires the Visual C++ Redistributable.'
+        Write-Host ''
+
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            $choice = Read-Host '  Install VC++ Redistributable now? [Y/n]'
+            if ($choice -ne 'n') {
+                winget install "Microsoft.VCRedist.2015+.$archTag" --accept-package-agreements --accept-source-agreements
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host '  [OK] Installation succeeded!' -ForegroundColor Green
+                    $dllOk = $true
+                } else {
+                    Write-Host '  [!] Installation may have failed. Download manually:' -ForegroundColor Red
+                    Write-Host "       https://aka.ms/vs/17/release/vc_redist.$archTag.exe"
+                }
+            } else {
+                Write-Host '  Skipped. CPU benchmark will not run without vcomp140.dll.' -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "  Download manually: https://aka.ms/vs/17/release/vc_redist.$archTag.exe"
+        }
+        Write-Host ''
+    }
+}
+
+Write-Host ''
+
+# ------------------------------------------------------------------
+#  Run benchmarks
+# ------------------------------------------------------------------
+function Invoke-Bench {
+    param([string]$Mode, [string]$Exe)
+    if ($benchCmd -match '^dotnet ') {
+        Invoke-Expression "$benchCmd --$Mode --exe `"$Exe`" --array-size 200000000"
+    } else {
+        & $benchCmd "--$Mode" --exe "$Exe" --array-size 200000000
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  [FAIL] $Mode benchmark exited with error." -ForegroundColor Red
+    }
+    Write-Host ''
+}
+
+if ($hasCpu) {
+    $skipCpu = $IsWindows -and -not $dllOk
+    if ($skipCpu) {
+        Write-Host '  [SKIP] CPU benchmark requires vcomp140.dll.' -ForegroundColor Yellow
+    } else {
+        Invoke-Bench -Mode 'cpu' -Exe $cpuExe
+    }
+}
+
+if ($hasGpu) {
+    Invoke-Bench -Mode 'gpu' -Exe $gpuExe
+}
+
+Write-Host ''
+Write-Host '  ========================================' -ForegroundColor DarkGray
+Write-Host '   Benchmark Complete' -ForegroundColor Green
+Write-Host '  ========================================' -ForegroundColor DarkGray
+Write-Host ''
