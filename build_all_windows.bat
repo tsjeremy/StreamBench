@@ -55,7 +55,9 @@ set "ERRORS=0"
 
 REM --- Build options ---
 set "CPU_OPTS=/O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp"
+set "CPU_LIBS=advapi32.lib"
 set "GPU_OPTS=/O2 /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=20"
+set "GPU_LIBS=advapi32.lib"
 
 REM ============================================================
 REM  x64 Builds
@@ -64,7 +66,7 @@ echo ============================================================
 echo  Building for x64 (AMD64)
 echo ============================================================
 
-cmd /c ""%VCVARSALL%" x64 >nul 2>&1 && cl.exe %CPU_OPTS% /Fe:"%SRCDIR%stream_cpu_win_x64.exe" "%SRCDIR%stream.c""
+cmd /c ""%VCVARSALL%" x64 >nul 2>&1 && cl.exe %CPU_OPTS% /Fe:"%SRCDIR%stream_cpu_win_x64.exe" "%SRCDIR%stream.c" /link %CPU_LIBS%"
 if %ERRORLEVEL% EQU 0 (
     echo [OK] stream_cpu_win_x64.exe
 ) else (
@@ -72,7 +74,7 @@ if %ERRORLEVEL% EQU 0 (
     set /a ERRORS+=1
 )
 
-cmd /c ""%VCVARSALL%" x64 >nul 2>&1 && cl.exe %GPU_OPTS% /Fe:"%SRCDIR%stream_gpu_win_x64.exe" "%SRCDIR%stream_gpu.c""
+cmd /c ""%VCVARSALL%" x64 >nul 2>&1 && cl.exe %GPU_OPTS% /Fe:"%SRCDIR%stream_gpu_win_x64.exe" "%SRCDIR%stream_gpu.c" /link %GPU_LIBS%"
 if %ERRORLEVEL% EQU 0 (
     echo [OK] stream_gpu_win_x64.exe
 ) else (
@@ -89,7 +91,7 @@ echo ============================================================
 echo  Building for ARM64 (cross-compile from x64)
 echo ============================================================
 
-cmd /c ""%VCVARSALL%" x64_arm64 >nul 2>&1 && cl.exe %CPU_OPTS% /Fe:"%SRCDIR%stream_cpu_win_arm64.exe" "%SRCDIR%stream.c""
+cmd /c ""%VCVARSALL%" x64_arm64 >nul 2>&1 && cl.exe %CPU_OPTS% /Fe:"%SRCDIR%stream_cpu_win_arm64.exe" "%SRCDIR%stream.c" /link %CPU_LIBS%"
 if %ERRORLEVEL% EQU 0 (
     echo [OK] stream_cpu_win_arm64.exe
 ) else (
@@ -97,7 +99,7 @@ if %ERRORLEVEL% EQU 0 (
     set /a ERRORS+=1
 )
 
-cmd /c ""%VCVARSALL%" x64_arm64 >nul 2>&1 && cl.exe %GPU_OPTS% /Fe:"%SRCDIR%stream_gpu_win_arm64.exe" "%SRCDIR%stream_gpu.c""
+cmd /c ""%VCVARSALL%" x64_arm64 >nul 2>&1 && cl.exe %GPU_OPTS% /Fe:"%SRCDIR%stream_gpu_win_arm64.exe" "%SRCDIR%stream_gpu.c" /link %GPU_LIBS%"
 if %ERRORLEVEL% EQU 0 (
     echo [OK] stream_gpu_win_arm64.exe
 ) else (

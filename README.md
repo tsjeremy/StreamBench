@@ -274,6 +274,21 @@ Results are automatically saved to CSV files:
 *   GPU: `stream_gpu_results_<size>M.csv`
 *   Range testing: `stream_range_results_<start>M_to_<end>M_step_<step>M.csv`
 
+### JSON Output
+
+Results are also saved as JSON files with full system/device information for easy side-by-side comparison across different machines:
+*   CPU: `stream_cpu_results_<size>M.json`
+*   GPU: `stream_gpu_results_<size>M.json`
+
+JSON files include:
+*   **System info**: hostname, OS, architecture, CPU model, logical CPUs, CPU frequency, total RAM, NUMA nodes
+*   **Memory hardware** (via SMBIOS): memory type (DDR4/DDR5/LPDDR5X), speed (MT/s), configured speed, slots populated/total, per-module details (size, rank, manufacturer, part number, data width, form factor)
+*   **Cache hierarchy**: L1 data/instruction (per core), L2 (per core), L3 (total)
+*   **Device info** (GPU only): GPU name, vendor, compute units, frequency, VRAM, work group size
+*   **Config**: array size, bytes per element, total memory used, iterations
+*   **Results**: best rate (MB/s), avg/min/max time for Copy, Scale, Add, Triad
+*   **Timestamp**: ISO 8601 format for tracking when benchmarks were run
+
 ---
 
 ---
@@ -340,9 +355,15 @@ For accurate bandwidth measurement, the total memory used should be **at least 4
 STREAM_windows/
 ├── stream.c                  # CPU benchmark (OpenMP, cross-platform)
 ├── stream_gpu.c              # GPU benchmark (OpenCL, cross-platform, no SDK needed)
+├── stream_hwinfo.h           # Hardware detection (SMBIOS memory, cache, CPU freq)
+├── stream_output.h           # Output formatting (CSV & JSON file generation)
 ├── stream.f                  # Original Fortran version
 ├── mysecond.c                # Timer for Fortran version
 ├── Makefile                  # Build targets for Linux/macOS
+├── build_all_windows.bat     # Build script for Windows (x64 + ARM64)
+├── build_all_macos.sh        # Build script for macOS (Intel + Apple Silicon)
+├── build_all_linux.sh        # Build script for Linux (x64 + ARM64)
+├── run_stream.bat            # Smart launcher for Windows (checks prerequisites)
 ├── README.md                 # This file
 ├── README                    # Original STREAM project notes
 ├── LICENSE.txt               # License information

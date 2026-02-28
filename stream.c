@@ -1,6 +1,6 @@
 /*-----------------------------------------------------------------------*/
 /* Program: STREAM                                                       */
-/* Revision: $Id: stream.c,v 5.10.02 2026/02/28 jtsai Exp $             */
+/* Revision: $Id: stream.c,v 5.10.03 2026/02/28 jtsai Exp $             */
 /* Original code developed by John D. McCalpin                           */
 /* Programmers: John D. McCalpin                                         */
 /*              Joe R. Zagar                                             */
@@ -119,13 +119,15 @@
     #include <windows.h> /* Include Windows API header for timers and core count */
     typedef long long ssize_t; /* Define ssize_t for Windows */
 #else                    /* For GCC and other compilers (on UNIX-like systems) */
-    #include <unistd.h>  /* For POSIX standard functions, e.g., sysconf */
     #include <sys/time.h> /* Include header for gettimeofday() */
 #endif
 
 #ifdef _OPENMP     /* If compiling with OpenMP enabled */
     #include <omp.h> /* Include the OpenMP library */
 #endif
+
+#include "stream_hwinfo.h" /* System & hardware info detection */
+#include "stream_output.h" /* CSV & JSON output formatting */
 
 /*-----------------------------------------------------------------------*/
 /* CONFIGURATION PARAMETERS                                              */
@@ -234,16 +236,16 @@ static double bytes[4];  /* Will be calculated dynamically based on current arra
 /* Global CSV file pointer for range testing */
 static FILE *range_csv_file = NULL;
 
+/* Hardware & system info (populated by detect_hardware_info in stream_hwinfo.h) */
+static HWInfo hw_info;
+
 /*-----------------------------------------------------------------------*/
 /* FUNCTION DECLARATIONS                                                 */
 /*-----------------------------------------------------------------------*/
 
 extern double mysecond();
 extern void checkSTREAMresults();
-extern void output_csv_results();
 extern int run_stream_test(size_t array_size);
-extern void init_range_csv();
-extern void close_range_csv();
 
 #ifdef TUNED
 extern void tuned_STREAM_Copy();
@@ -257,6 +259,9 @@ extern void tuned_STREAM_Triad(STREAM_TYPE scalar);
 /*-----------------------------------------------------------------------*/
 int main()
 {
+    /* Gather all system and hardware information */
+    detect_hardware_info(&hw_info);
+
     /* Check if range testing is enabled */
     if (START_SIZE > 0 && END_SIZE > START_SIZE) {
         printf("STREAM Range Testing Mode\n");
@@ -265,7 +270,14 @@ int main()
         printf("========================================================\n");
         
         /* Initialize consolidated CSV file for range testing */
-        init_range_csv();
+        {
+            char range_filename[256];
+            sprintf(range_filename, "stream_range_results_%zuM_to_%zuM_step_%zuM.csv",
+                    (size_t)START_SIZE / 1000000,
+                    (size_t)END_SIZE / 1000000,
+                    (size_t)STEP_SIZE / 1000000);
+            range_csv_file = stream_output_range_csv_open(range_filename);
+        }
         
         size_t array_size;
         int test_count = 0;
@@ -284,7 +296,8 @@ int main()
         }
         
         /* Close consolidated CSV file */
-        close_range_csv();
+        stream_output_range_csv_close(range_csv_file);
+        range_csv_file = NULL;
         
         printf("\n========================================================\n");
         printf("Range testing complete: %d/%d tests successful\n", successful_tests, test_count);
@@ -336,7 +349,12 @@ int run_stream_test(size_t array_size)
     /*-------------------------------------------------------------------*/
 
     printf(HLINE);
-    printf("STREAM version $Revision: 5.10.02 $\n");
+    printf("STREAM version $Revision: 5.10.03 $\n");
+    printf(HLINE);
+
+    /* Print system information for comparison */
+    print_system_info(&hw_info);
+    print_hardware_info(&hw_info);
     printf(HLINE);
     BytesPerWord = sizeof(STREAM_TYPE);
     printf("This system uses %d bytes per array element.\n", BytesPerWord);
@@ -528,8 +546,27 @@ int run_stream_test(size_t array_size)
     checkSTREAMresults();
     printf(HLINE);
 
-    /* Output CSV results */
-    output_csv_results();
+    /* Build result struct for output */
+    {
+        StreamBenchResult result;
+        result.benchmark_type = "CPU";
+        result.version = "5.10.03";
+        result.array_size = current_array_size;
+        result.bytes_per_element = (int)sizeof(STREAM_TYPE);
+        result.ntimes = NTIMES;
+        memcpy(result.bytes, bytes, sizeof(bytes));
+        memcpy(result.avgtime, avgtime, sizeof(avgtime));
+        memcpy(result.mintime, mintime, sizeof(mintime));
+        memcpy(result.maxtime, maxtime, sizeof(maxtime));
+
+        /* CSV output */
+        if (range_csv_file != NULL) {
+            stream_output_range_csv_append(range_csv_file, &result);
+        } else {
+            stream_output_csv("stream_results", &result);
+            stream_output_cpu_json("stream_cpu_results", &result, &hw_info);
+        }
+    }
 
     /* Free allocated memory */
     free(a);
@@ -670,109 +707,6 @@ void checkSTREAMresults()
 
     if (err == 0) {
         printf("Solution Validates: avg error less than %e on all three arrays\n", epsilon);
-    }
-}
-
-/*
- * Output results in CSV format for easy data analysis and charting
- */
-void output_csv_results()
-{
-    int j;
-    
-    if (range_csv_file != NULL) {
-        /* Range testing mode - append to consolidated CSV file */
-        double array_size_mb = (sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0);
-        double total_memory_gb = (3.0 * sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0 * 1024.0);
-        
-        /* Write data for each kernel to the consolidated file */
-        for (j = 0; j < 4; j++) {
-            fprintf(range_csv_file, "%zu,%.1f,%.3f,%s,%.1f,%.6f,%.6f,%.6f\n",
-                    current_array_size,
-                    array_size_mb,
-                    total_memory_gb,
-                    (j == 0) ? "Copy" : (j == 1) ? "Scale" : (j == 2) ? "Add" : "Triad",
-                    1.0E-06 * bytes[j] / mintime[j],  /* Best rate in MB/s */
-                    avgtime[j],
-                    mintime[j],
-                    maxtime[j]);
-        }
-        fflush(range_csv_file);  /* Ensure data is written immediately */
-        printf("Results appended to consolidated CSV file\n");
-    } else {
-        /* Single test mode - create individual CSV file */
-        FILE *csvfile;
-        char filename[256];
-        
-        /* Create filename with array size */
-        sprintf(filename, "stream_results_%zuM.csv", current_array_size / 1000000);
-        
-        csvfile = fopen(filename, "w");
-        if (csvfile == NULL) {
-            printf("Warning: Could not create CSV file %s\n", filename);
-            return;
-        }
-        
-        /* Write CSV header */
-        fprintf(csvfile, "Array_Size_Elements,Array_Size_MB,Total_Memory_GB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
-        
-        /* Calculate memory sizes */
-        double array_size_mb = (sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0);
-        double total_memory_gb = (3.0 * sizeof(STREAM_TYPE) * (double)current_array_size) / (1024.0 * 1024.0 * 1024.0);
-        
-        /* Write data for each kernel */
-        for (j = 0; j < 4; j++) {
-            fprintf(csvfile, "%zu,%.1f,%.3f,%s,%.1f,%.6f,%.6f,%.6f\n",
-                    current_array_size,
-                    array_size_mb,
-                    total_memory_gb,
-                    (j == 0) ? "Copy" : (j == 1) ? "Scale" : (j == 2) ? "Add" : "Triad",
-                    1.0E-06 * bytes[j] / mintime[j],  /* Best rate in MB/s */
-                    avgtime[j],
-                    mintime[j],
-                    maxtime[j]);
-        }
-        
-        fclose(csvfile);
-        printf("CSV results written to: %s\n", filename);
-    }
-}
-
-/*
- * Initialize consolidated CSV file for range testing
- */
-void init_range_csv()
-{
-    char filename[256];
-    
-    /* Create filename with range information */
-    sprintf(filename, "stream_range_results_%zuM_to_%zuM_step_%zuM.csv", 
-            (size_t)START_SIZE / 1000000, 
-            (size_t)END_SIZE / 1000000, 
-            (size_t)STEP_SIZE / 1000000);
-    
-    range_csv_file = fopen(filename, "w");
-    if (range_csv_file == NULL) {
-        printf("Warning: Could not create consolidated CSV file %s\n", filename);
-        return;
-    }
-    
-    /* Write CSV header */
-    fprintf(range_csv_file, "Array_Size_Elements,Array_Size_MB,Total_Memory_GB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
-    
-    printf("Consolidated CSV file created: %s\n", filename);
-    printf("All range test results will be saved to this single file.\n");
-}
-
-/*
- * Close consolidated CSV file for range testing
- */
-void close_range_csv()
-{
-    if (range_csv_file != NULL) {
-        fclose(range_csv_file);
-        range_csv_file = NULL;
-        printf("Consolidated CSV file closed successfully\n");
     }
 }
 

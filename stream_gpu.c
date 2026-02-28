@@ -1,6 +1,6 @@
 /*-----------------------------------------------------------------------*/
 /* Program: STREAM (GPU Version)                                         */
-/* Revision: $Id: stream_gpu.c,v 1.0.0 2026/02/28 jtsai Exp $           */
+/* Revision: $Id: stream_gpu.c,v 5.10.03 2026/02/28 jtsai Exp $         */
 /* Original CPU code developed by John D. McCalpin                       */
 /* GPU/OpenCL version by Jeremy Tsai                                     */
 /*                                                                       */
@@ -81,7 +81,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <math.h>
 #include <float.h>
 #include <stdint.h>
@@ -96,8 +95,10 @@
 #else
     #include <sys/time.h>
     #include <dlfcn.h>
-    #include <unistd.h>
 #endif
+
+#include "stream_hwinfo.h" /* Hardware & system info detection */
+#include "stream_output.h" /* CSV & JSON output formatting */
 
 /*-----------------------------------------------------------------------*/
 /* CONFIGURATION                                                         */
@@ -434,6 +435,9 @@ static void print_build_log(cl_program program, cl_device_id device)
     }
 }
 
+/* Hardware & system info (populated by detect_hardware_info in stream_hwinfo.h) */
+static HWInfo hw_info;
+
 /*-----------------------------------------------------------------------*/
 /* MAIN                                                                  */
 /*-----------------------------------------------------------------------*/
@@ -455,9 +459,14 @@ int main(void)
                                     "Add:       ", "Triad:     "};
 
     printf(HLINE);
-    printf("GPU STREAM version 1.0 (based on STREAM Revision 5.10.01)\n");
+    printf("GPU STREAM version 5.10.03 (based on STREAM Revision 5.10.03)\n");
     printf("GPU variant of the STREAM benchmark code\n");
     printf(HLINE);
+
+    /* Gather all system and hardware information */
+    detect_hardware_info(&hw_info);
+    print_system_info(&hw_info);
+    print_hardware_info(&hw_info);
 
     /*-------------------------------------------------------------------*/
     /* Load OpenCL                                                       */
@@ -838,30 +847,34 @@ int main(void)
     printf(HLINE);
 
     /*-------------------------------------------------------------------*/
-    /* CSV OUTPUT                                                        */
+    /* FILE OUTPUT (CSV & JSON)                                          */
     /*-------------------------------------------------------------------*/
 
     {
-        FILE *csvfile;
-        char filename[256];
-        double array_size_mib = (sizeof(STREAM_TYPE) * (double)array_size) / (1024.0 * 1024.0);
-        double total_memory_gib = (3.0 * sizeof(STREAM_TYPE) * (double)array_size) / (1024.0 * 1024.0 * 1024.0);
-        int j;
+        StreamBenchResult result;
+        StreamGpuDevice gpu_dev;
 
-        sprintf(filename, "stream_gpu_results_%zuM.csv", array_size / 1000000);
-        csvfile = fopen(filename, "w");
-        if (csvfile) {
-            fprintf(csvfile, "Array_Size_Elements,Array_Size_MiB,Total_Memory_GiB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
-            for (j = 0; j < 4; j++) {
-                fprintf(csvfile, "%zu,%.1f,%.3f,%s,%.1f,%.6f,%.6f,%.6f\n",
-                        array_size, array_size_mib, total_memory_gib,
-                        (j == 0) ? "Copy" : (j == 1) ? "Scale" : (j == 2) ? "Add" : "Triad",
-                        1.0E-06 * bytes[j] / mintime[j],
-                        avgtime[j], mintime[j], maxtime[j]);
-            }
-            fclose(csvfile);
-            printf("CSV results written to: %s\n", filename);
-        }
+        result.benchmark_type = "GPU";
+        result.version = "5.10.03";
+        result.array_size = array_size;
+        result.bytes_per_element = (int)sizeof(STREAM_TYPE);
+        result.ntimes = NTIMES;
+        memcpy(result.bytes, bytes, sizeof(bytes));
+        memcpy(result.avgtime, avgtime, sizeof(avgtime));
+        memcpy(result.mintime, mintime, sizeof(mintime));
+        memcpy(result.maxtime, maxtime, sizeof(maxtime));
+
+        strncpy(gpu_dev.name, dev_name, sizeof(gpu_dev.name) - 1);
+        gpu_dev.name[sizeof(gpu_dev.name) - 1] = '\0';
+        strncpy(gpu_dev.vendor, dev_vendor, sizeof(gpu_dev.vendor) - 1);
+        gpu_dev.vendor[sizeof(gpu_dev.vendor) - 1] = '\0';
+        gpu_dev.compute_units = compute_units;
+        gpu_dev.max_frequency_mhz = max_freq;
+        gpu_dev.global_memory_bytes = (double)global_mem;
+        gpu_dev.max_work_group_size = max_wg_size;
+
+        stream_output_csv("stream_gpu_results", &result);
+        stream_output_gpu_json("stream_gpu_results", &result, &hw_info, &gpu_dev);
     }
 
     /*-------------------------------------------------------------------*/
