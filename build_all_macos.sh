@@ -53,6 +53,8 @@ echo "============================================================"
 
 if clang -arch x86_64 $CPU_FLAGS $CPU_DEFS -o stream_cpu_macos_x64 stream.c 2>/dev/null; then
     echo "[OK] stream_cpu_macos_x64"
+elif clang -arch x86_64 -O2 $CPU_DEFS -o stream_cpu_macos_x64 stream.c 2>/dev/null; then
+    echo "[OK] stream_cpu_macos_x64 (single-threaded; arm64 libomp cannot cross-link to x86_64)"
 else
     echo "[FAIL] stream_cpu_macos_x64"
     ERRORS=$((ERRORS + 1))

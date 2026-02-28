@@ -273,13 +273,14 @@ public static class ConsoleOutput
 
             foreach (var m in modules)
             {
-                string speed = m.ConfiguredSpeedMts > 0 && m.ConfiguredSpeedMts != m.SpeedMts
-                    ? $"{m.SpeedMts} / {m.ConfiguredSpeedMts} MT/s"
-                    : $"{m.SpeedMts} MT/s";
+                string speed = m.SpeedMts == 0 ? "N/A"
+                    : m.ConfiguredSpeedMts > 0 && m.ConfiguredSpeedMts != m.SpeedMts
+                        ? $"{m.SpeedMts} / {m.ConfiguredSpeedMts} MT/s"
+                        : $"{m.SpeedMts} MT/s";
 
                 memTable.AddRow(
                     $"[dim]{m.Locator}[/]",
-                    $"[white]{m.SizeMb} MB[/]",
+                    $"[white]{FormatSizeMb(m.SizeMb)}[/]",
                     $"[white]{m.Type}[/]",
                     $"[white]{speed}[/]",
                     $"[white]{m.Manufacturer}[/]",
@@ -422,4 +423,7 @@ public static class ConsoleOutput
 
     private static string FormatKb(int kb) =>
         kb >= 1024 ? $"{kb / 1024} MB" : $"{kb} KB";
+
+    private static string FormatSizeMb(int mb) =>
+        mb >= 1024 ? $"{mb / 1024} GB" : $"{mb} MB";
 }

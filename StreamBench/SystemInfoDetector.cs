@@ -264,18 +264,29 @@ $cpu = Get-WmiObject Win32_Processor | Select-Object -First 1
         var modules = new List<MemoryModule>();
         foreach (var item in arr.EnumerateArray())
         {
-            // Skip header entries that don't describe a memory module
-            if (!item.TryGetProperty("dimm_size", out _)) continue;
-
-            string locator = StrProp(item, "_name") ?? StrProp(item, "dimm_bank") ?? "";
-            int    sizeMb  = ParseSizeMb(StrProp(item, "dimm_size") ?? "");
-            string type    = StrProp(item, "dimm_type") ?? "";
-            int    speed   = ParseSpeedMts(StrProp(item, "dimm_speed") ?? "");
-            string mfr     = StrProp(item, "dimm_manufacturer") ?? "";
-            string part    = StrProp(item, "dimm_part") ?? "";
-
-            if (sizeMb > 0)
-                modules.Add(MakeModule(locator, sizeMb, type, "SO-DIMM", speed, speed, mfr, part));
+            if (item.TryGetProperty("dimm_size", out _))
+            {
+                // Standard DIMM entry (Intel Mac / Mac Pro)
+                string locator = StrProp(item, "_name") ?? StrProp(item, "dimm_bank") ?? "";
+                int    sizeMb  = ParseSizeMb(StrProp(item, "dimm_size") ?? "");
+                string type    = StrProp(item, "dimm_type") ?? "";
+                int    speed   = ParseSpeedMts(StrProp(item, "dimm_speed") ?? "");
+                string mfr     = StrProp(item, "dimm_manufacturer") ?? "";
+                string part    = StrProp(item, "dimm_part") ?? "";
+                if (sizeMb > 0)
+                    modules.Add(MakeModule(locator, sizeMb, type, "SO-DIMM", speed, speed, mfr, part));
+            }
+            else
+            {
+                // Apple Silicon unified memory: total is in "SPMemoryDataType"; no per-slot info
+                string? dimmType = StrProp(item, "dimm_type");
+                string? totalStr = StrProp(item, "SPMemoryDataType");
+                if (dimmType is null || totalStr is null) continue;
+                int    sizeMb = ParseSizeMb(totalStr);
+                string mfr    = StrProp(item, "dimm_manufacturer") ?? "";
+                if (sizeMb > 0)
+                    modules.Add(MakeModule("Unified", sizeMb, dimmType, "Unified", 0, 0, mfr, ""));
+            }
         }
         return BuildMemoryInfo(modules);
     }
