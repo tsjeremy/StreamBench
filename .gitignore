@@ -21,6 +21,7 @@ stream_gpu_linux_arm64
 # .NET build artifacts
 bin/
 obj/
+publish/
 *.user
 
 # Visual Studio

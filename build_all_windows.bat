@@ -158,14 +158,40 @@ if %ERRORLEVEL% NEQ 0 (
 dotnet build "%SRCDIR%StreamBench\StreamBench.csproj" --configuration Release --nologo -v quiet
 if %ERRORLEVEL% EQU 0 (
     echo [OK] StreamBench ^(.NET^)
-    echo.
-    echo   Run:  run_stream.bat
-    echo   Or:   dotnet run --project StreamBench -- --cpu --array-size 200M
-    echo         dotnet run --project StreamBench -- --gpu --array-size 200M
 ) else (
     echo [FAIL] StreamBench ^(.NET^)
     set /a ERRORS+=1
+    goto :done
 )
+
+REM --- Publish self-contained single-file executables ---
+echo.
+echo ============================================================
+echo  Publishing StreamBench (self-contained)
+echo ============================================================
+
+dotnet publish "%SRCDIR%StreamBench\StreamBench.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "%SRCDIR%publish\win-x64" --nologo -v quiet
+if %ERRORLEVEL% EQU 0 (
+    copy /y "%SRCDIR%publish\win-x64\StreamBench.exe" "%SRCDIR%StreamBench_win_x64.exe" >nul
+    echo [OK] StreamBench_win_x64.exe
+) else (
+    echo [FAIL] StreamBench_win_x64.exe
+    set /a ERRORS+=1
+)
+
+dotnet publish "%SRCDIR%StreamBench\StreamBench.csproj" -c Release -r win-arm64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "%SRCDIR%publish\win-arm64" --nologo -v quiet
+if %ERRORLEVEL% EQU 0 (
+    copy /y "%SRCDIR%publish\win-arm64\StreamBench.exe" "%SRCDIR%StreamBench_win_arm64.exe" >nul
+    echo [OK] StreamBench_win_arm64.exe
+) else (
+    echo [FAIL] StreamBench_win_arm64.exe
+    set /a ERRORS+=1
+)
+
+echo.
+echo   Run:  run_stream.bat
+echo   Or:   StreamBench_win_x64.exe --cpu --array-size 200M
+echo         StreamBench_win_x64.exe --gpu --array-size 200M
 
 :done
 echo.

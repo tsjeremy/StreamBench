@@ -3,13 +3,14 @@
 # STREAM Benchmark - Setup & Run (Linux / macOS)
 # ============================================================
 # Runs CPU and GPU memory bandwidth benchmarks via the
-# .NET 10 StreamBench frontend for formatted output with
-# system info, colored tables, and CSV/JSON file saving.
+# StreamBench frontend for formatted output with system
+# info, colored tables, and CSV/JSON file saving.
 #
 # Prerequisites:
-#   - .NET 10 SDK or Runtime (https://dot.net)
 #   - Pre-built C backend executables (build_all_linux.sh or
 #     build_all_macos.sh)
+#   - StreamBench_${os}_${arch} self-contained binary
+#     OR .NET 10 SDK/Runtime (https://dot.net) as fallback
 #
 # Usage:
 #   chmod +x run_stream.sh
@@ -66,6 +67,7 @@ echo -e " ${C_CYAN}Architecture:${C_RESET}  ${C_BWHITE}${ARCH_NAME} [${ARCH_TAG}
 # --- Set executable paths ---
 CPU_EXE="${SCRIPT_DIR}/stream_cpu_${OS_TAG}_${ARCH_TAG}"
 GPU_EXE="${SCRIPT_DIR}/stream_gpu_${OS_TAG}_${ARCH_TAG}"
+BENCH_EXE="${SCRIPT_DIR}/StreamBench_${OS_TAG}_${ARCH_TAG}"
 STREAMBENCH="${SCRIPT_DIR}/StreamBench/StreamBench.csproj"
 
 HAS_CPU=0
@@ -84,31 +86,30 @@ if [ $HAS_CPU -eq 0 ] && [ $HAS_GPU -eq 0 ]; then
     exit 1
 fi
 
-# --- Check for .NET ---
-if ! command -v dotnet &>/dev/null; then
+# --- Determine StreamBench runner ---
+# Prefer self-contained binary; fall back to dotnet run
+if [ -f "$BENCH_EXE" ] && [ -x "$BENCH_EXE" ]; then
+    BENCH_CMD="$BENCH_EXE"
+    echo -e " ${C_CYAN}StreamBench:${C_RESET}   ${C_GREEN}[OK] StreamBench_${OS_TAG}_${ARCH_TAG} (standalone)${C_RESET}"
+elif command -v dotnet &>/dev/null && [ -f "$STREAMBENCH" ]; then
+    BENCH_CMD="dotnet run --project $STREAMBENCH --"
+    echo -e " ${C_CYAN}StreamBench:${C_RESET}   ${C_GREEN}[OK] dotnet run (fallback)${C_RESET}"
+else
     echo ""
-    echo -e " ${C_RED}[ERROR] .NET 10 SDK/Runtime not found.${C_RESET}"
-    echo -e "         Install from: ${C_CYAN}https://dot.net${C_RESET}"
+    echo -e " ${C_RED}[ERROR] StreamBench frontend not found.${C_RESET}"
+    echo "         Expected: StreamBench_${OS_TAG}_${ARCH_TAG} (standalone)"
+    echo "         Or: .NET 10 SDK + StreamBench/ project folder"
     echo ""
-    if [ "$OS_TAG" = "macos" ]; then
-        echo "         Or install via Homebrew:"
-        echo -e "           ${C_DIM}brew install dotnet${C_RESET}"
-    else
-        echo "         Or install via package manager:"
-        echo -e "           ${C_DIM}sudo apt install dotnet-sdk-10.0${C_RESET}"
-    fi
-    echo ""
+    echo -e "         Install .NET from: ${C_CYAN}https://dot.net${C_RESET}"
     exit 1
 fi
-
-echo -e " ${C_CYAN}.NET runtime:${C_RESET}  ${C_GREEN}[OK] dotnet found${C_RESET}"
 echo ""
 
 # ============================================================
 #  Run CPU Benchmark via StreamBench (.NET)
 # ============================================================
 if [ $HAS_CPU -eq 1 ]; then
-    dotnet run --project "$STREAMBENCH" -- --cpu --exe "$CPU_EXE" --array-size 200000000
+    $BENCH_CMD --cpu --exe "$CPU_EXE" --array-size 200000000
     echo ""
 else
     echo -e " ${C_YELLOW}[SKIP] CPU executable not found: stream_cpu_${OS_TAG}_${ARCH_TAG}${C_RESET}"
@@ -119,7 +120,7 @@ fi
 #  Run GPU Benchmark via StreamBench (.NET)
 # ============================================================
 if [ $HAS_GPU -eq 1 ]; then
-    dotnet run --project "$STREAMBENCH" -- --gpu --exe "$GPU_EXE" --array-size 200000000
+    $BENCH_CMD --gpu --exe "$GPU_EXE" --array-size 200000000
     echo ""
 else
     echo -e " ${C_YELLOW}[SKIP] GPU executable not found: stream_gpu_${OS_TAG}_${ARCH_TAG}${C_RESET}"

@@ -3,13 +3,13 @@ REM ============================================================
 REM STREAM Benchmark - Setup & Run (Windows)
 REM ============================================================
 REM Runs CPU and GPU memory bandwidth benchmarks via the
-REM .NET 10 StreamBench frontend for formatted output with
-REM system info, colored tables, and CSV/JSON file saving.
+REM StreamBench frontend for formatted output with system
+REM info, colored tables, and CSV/JSON file saving.
 REM
 REM Prerequisites:
-REM   - .NET 10 SDK or Runtime (https://dot.net)
 REM   - Visual C++ Redistributable (for CPU OpenMP support)
 REM   - Pre-built C backend executables (build_all_windows.bat)
+REM   - StreamBench_win_{x64|arm64}.exe (self-contained, no .NET needed)
 REM
 REM Just double-click this file or run it from any terminal.
 REM ============================================================
@@ -56,7 +56,7 @@ echo  %C_CYAN%Detected architecture:%C_RESET% %C_BWHITE%%ARCH% [%ARCH_LABEL%]%C_
 
 REM --- Set paths ---
 set "SCRIPTDIR=%~dp0"
-set "STREAMBENCH=%SCRIPTDIR%StreamBench\StreamBench.csproj"
+set "BENCH_EXE=%SCRIPTDIR%StreamBench_win_%ARCH_LABEL%.exe"
 set "CPU_EXE=%SCRIPTDIR%stream_cpu_win_%ARCH_LABEL%.exe"
 set "GPU_EXE=%SCRIPTDIR%stream_gpu_win_%ARCH_LABEL%.exe"
 
@@ -77,22 +77,15 @@ if "!HAS_CPU!"=="0" if "!HAS_GPU!"=="0" (
     goto :pause_exit
 )
 
-REM --- Check for .NET 10 ---
-set "HAS_DOTNET=0"
-where dotnet >nul 2>&1
-if !ERRORLEVEL! EQU 0 (
-    set "HAS_DOTNET=1"
-    echo  %C_CYAN%.NET runtime:%C_RESET%        %C_GREEN%[OK] dotnet found%C_RESET%
-) else (
+REM --- Check for StreamBench frontend ---
+if not exist "%BENCH_EXE%" (
     echo.
-    echo  %C_RED%[ERROR] .NET 10 SDK/Runtime not found.%C_RESET%
-    echo          Install from: %C_CYAN%https://dot.net%C_RESET%
-    echo.
-    echo          Or install via winget:
-    echo            %C_DIM%winget install Microsoft.DotNet.SDK.10%C_RESET%
-    echo.
+    echo  %C_RED%[ERROR] StreamBench frontend not found: StreamBench_win_%ARCH_LABEL%.exe%C_RESET%
+    echo          Expected in: %SCRIPTDIR%
+    echo          Run build_all_windows.bat to build it.
     goto :pause_exit
 )
+echo  %C_CYAN%StreamBench frontend:%C_RESET% %C_GREEN%[OK] StreamBench_win_%ARCH_LABEL%.exe%C_RESET%
 
 REM --- Check for VCOMP140.DLL (OpenMP runtime) ---
 set "DLL_OK=0"
@@ -167,7 +160,7 @@ REM  Run CPU Benchmark via StreamBench (.NET)
 REM ============================================================
 if "!HAS_CPU!"=="1" (
     if "!DLL_OK!"=="1" (
-        dotnet run --project "%STREAMBENCH%" -- --cpu --exe "%CPU_EXE%" --array-size 200000000
+        "%BENCH_EXE%" --cpu --exe "%CPU_EXE%" --array-size 200000000
         if !ERRORLEVEL! NEQ 0 (
             echo.
             echo  %C_RED%[FAIL] CPU benchmark exited with error.%C_RESET%
@@ -185,7 +178,7 @@ REM ============================================================
 REM  Run GPU Benchmark via StreamBench (.NET)
 REM ============================================================
 if "!HAS_GPU!"=="1" (
-    dotnet run --project "%STREAMBENCH%" -- --gpu --exe "%GPU_EXE%" --array-size 200000000
+    "%BENCH_EXE%" --gpu --exe "%GPU_EXE%" --array-size 200000000
     if !ERRORLEVEL! NEQ 0 (
         echo.
         echo  %C_RED%[FAIL] GPU benchmark exited with error.%C_RESET%
