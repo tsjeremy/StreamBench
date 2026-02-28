@@ -333,7 +333,9 @@ static int load_opencl(void)
 /*-----------------------------------------------------------------------*/
 
 static const char *kernel_source =
+    "#ifdef USE_FP64\n"
     "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n"
+    "#endif\n"
     "\n"
     "__kernel void stream_copy(__global STYPE* restrict c,\n"
     "                          __global const STYPE* restrict a,\n"
@@ -382,6 +384,20 @@ static const char *kernel_source =
     "    size_t i = get_global_id(0);\n"
     "    if (i < n) { a[i] = a_val; b[i] = b_val; c[i] = c_val; }\n"
     "}\n";
+
+/*-----------------------------------------------------------------------*/
+/* HELPER: Set a scalar kernel argument (float or double at runtime)     */
+/*-----------------------------------------------------------------------*/
+
+static void set_scalar_arg(cl_kernel k, cl_uint idx, int use_float, double val)
+{
+    if (use_float) {
+        float fval = (float)val;
+        ocl_SetKernelArg(k, idx, sizeof(float), &fval);
+    } else {
+        ocl_SetKernelArg(k, idx, sizeof(double), &val);
+    }
+}
 
 /*-----------------------------------------------------------------------*/
 /* HOST TIMER                                                            */
@@ -448,6 +464,8 @@ int main(void)
     int BytesPerWord = sizeof(STREAM_TYPE);
     int k;
     cl_int err;
+    int gpu_use_float = 0;
+    size_t gpu_elem_size;
 
     /* Timing arrays */
     double times[4][NTIMES];
@@ -553,6 +571,34 @@ int main(void)
     printf("Max Work Group Size: %zu\n", max_wg_size);
 
     /*-------------------------------------------------------------------*/
+    /* Check for double precision (fp64) support                         */
+    /*-------------------------------------------------------------------*/
+
+    {
+        size_t ext_size = 0;
+        ocl_GetDeviceInfo(device, CL_DEVICE_EXTENSIONS, 0, NULL, &ext_size);
+        if (ext_size > 0) {
+            char *extensions = (char*)malloc(ext_size + 1);
+            if (extensions) {
+                ocl_GetDeviceInfo(device, CL_DEVICE_EXTENSIONS, ext_size, extensions, NULL);
+                extensions[ext_size] = '\0';
+#ifndef GPU_USE_FLOAT
+                if (strstr(extensions, "cl_khr_fp64") == NULL) {
+                    printf("\nNOTE: GPU does not support double precision (cl_khr_fp64).\n");
+                    printf("      Automatically using single precision (float).\n\n");
+                    gpu_use_float = 1;
+                }
+#else
+                gpu_use_float = 1;
+#endif
+                free(extensions);
+            }
+        }
+    }
+    gpu_elem_size = gpu_use_float ? sizeof(float) : sizeof(STREAM_TYPE);
+    if (gpu_use_float) BytesPerWord = (int)sizeof(float);
+
+    /*-------------------------------------------------------------------*/
     /* Print test configuration                                          */
     /*-------------------------------------------------------------------*/
 
@@ -570,10 +616,10 @@ int main(void)
     printf(" will be used to compute the reported bandwidth.\n");
 
     /* Calculate bytes transferred */
-    bytes[0] = 2 * sizeof(STREAM_TYPE) * (double)array_size; /* Copy */
-    bytes[1] = 2 * sizeof(STREAM_TYPE) * (double)array_size; /* Scale */
-    bytes[2] = 3 * sizeof(STREAM_TYPE) * (double)array_size; /* Add */
-    bytes[3] = 3 * sizeof(STREAM_TYPE) * (double)array_size; /* Triad */
+    bytes[0] = 2 * gpu_elem_size * (double)array_size; /* Copy */
+    bytes[1] = 2 * gpu_elem_size * (double)array_size; /* Scale */
+    bytes[2] = 3 * gpu_elem_size * (double)array_size; /* Add */
+    bytes[3] = 3 * gpu_elem_size * (double)array_size; /* Triad */
 
     /*-------------------------------------------------------------------*/
     /* Create OpenCL context, queue, buffers                             */
@@ -592,7 +638,7 @@ int main(void)
         return 1;
     }
 
-    size_t buf_size = (array_size + OFFSET) * sizeof(STREAM_TYPE);
+    size_t buf_size = (array_size + OFFSET) * gpu_elem_size;
     printf(HLINE);
     printf("Allocating GPU buffers: %.1f MiB each (%.1f MiB total)\n",
            buf_size / (1024.0 * 1024.0), 3.0 * buf_size / (1024.0 * 1024.0));
@@ -612,9 +658,13 @@ int main(void)
     /* Build OpenCL program                                              */
     /*-------------------------------------------------------------------*/
 
-    /* Build options: define STYPE to match host STREAM_TYPE */
+    /* Build options: define STYPE to match GPU precision */
     char build_opts[256];
-    sprintf(build_opts, "-DSTYPE=%s", OPENCL_TYPE_STR);
+    if (gpu_use_float) {
+        sprintf(build_opts, "-DSTYPE=float");
+    } else {
+        sprintf(build_opts, "-DSTYPE=double -DUSE_FP64");
+    }
 
     cl_program program = ocl_CreateProgramWithSource(context, 1, &kernel_source, NULL, &err);
     if (err != CL_SUCCESS) {
@@ -662,13 +712,12 @@ int main(void)
 
     {
         cl_ulong n = (cl_ulong)array_size;
-        STREAM_TYPE a_val = 1.0, b_val = 2.0, c_val = 0.0;
         ocl_SetKernelArg(k_init, 0, sizeof(cl_mem), &d_a);
         ocl_SetKernelArg(k_init, 1, sizeof(cl_mem), &d_b);
         ocl_SetKernelArg(k_init, 2, sizeof(cl_mem), &d_c);
-        ocl_SetKernelArg(k_init, 3, sizeof(STREAM_TYPE), &a_val);
-        ocl_SetKernelArg(k_init, 4, sizeof(STREAM_TYPE), &b_val);
-        ocl_SetKernelArg(k_init, 5, sizeof(STREAM_TYPE), &c_val);
+        set_scalar_arg(k_init, 3, gpu_use_float, 1.0);
+        set_scalar_arg(k_init, 4, gpu_use_float, 2.0);
+        set_scalar_arg(k_init, 5, gpu_use_float, 0.0);
         ocl_SetKernelArg(k_init, 6, sizeof(cl_ulong), &n);
         err = ocl_EnqueueNDRangeKernel(queue, k_init, 1, NULL, &global_size, &local_size, 0, NULL, NULL);
         if (err != CL_SUCCESS) { printf("Error: Init kernel failed (%d)\n", err); return 1; }
@@ -678,10 +727,9 @@ int main(void)
     /* Warm-up: a[j] = 2.0 * a[j] (matches CPU version's timing calibration) */
     {
         cl_ulong n = (cl_ulong)array_size;
-        STREAM_TYPE scalar = 2.0;
         ocl_SetKernelArg(k_scale, 0, sizeof(cl_mem), &d_a);  /* output = a */
         ocl_SetKernelArg(k_scale, 1, sizeof(cl_mem), &d_a);  /* input = a */
-        ocl_SetKernelArg(k_scale, 2, sizeof(STREAM_TYPE), &scalar);
+        set_scalar_arg(k_scale, 2, gpu_use_float, 2.0);
         ocl_SetKernelArg(k_scale, 3, sizeof(cl_ulong), &n);
         ocl_EnqueueNDRangeKernel(queue, k_scale, 1, NULL, &global_size, &local_size, 0, NULL, NULL);
         ocl_Finish(queue);
@@ -695,7 +743,6 @@ int main(void)
     /* MAIN LOOP                                                         */
     /*-------------------------------------------------------------------*/
 
-    STREAM_TYPE scalar = 3.0;
     cl_ulong n = (cl_ulong)array_size;
 
     for (k = 0; k < NTIMES; k++) {
@@ -713,7 +760,7 @@ int main(void)
         /* Scale: b[j] = scalar * c[j] */
         ocl_SetKernelArg(k_scale, 0, sizeof(cl_mem), &d_b);
         ocl_SetKernelArg(k_scale, 1, sizeof(cl_mem), &d_c);
-        ocl_SetKernelArg(k_scale, 2, sizeof(STREAM_TYPE), &scalar);
+        set_scalar_arg(k_scale, 2, gpu_use_float, 3.0);
         ocl_SetKernelArg(k_scale, 3, sizeof(cl_ulong), &n);
         err = ocl_EnqueueNDRangeKernel(queue, k_scale, 1, NULL, &global_size, &local_size, 0, NULL, &ev);
         if (err != CL_SUCCESS) { printf("Error: Scale kernel launch failed (%d) at iter %d\n", err, k); return 1; }
@@ -734,7 +781,7 @@ int main(void)
         ocl_SetKernelArg(k_triad, 0, sizeof(cl_mem), &d_a);
         ocl_SetKernelArg(k_triad, 1, sizeof(cl_mem), &d_b);
         ocl_SetKernelArg(k_triad, 2, sizeof(cl_mem), &d_c);
-        ocl_SetKernelArg(k_triad, 3, sizeof(STREAM_TYPE), &scalar);
+        set_scalar_arg(k_triad, 3, gpu_use_float, 3.0);
         ocl_SetKernelArg(k_triad, 4, sizeof(cl_ulong), &n);
         err = ocl_EnqueueNDRangeKernel(queue, k_triad, 1, NULL, &global_size, &local_size, 0, NULL, &ev);
         if (err != CL_SUCCESS) { printf("Error: Triad kernel launch failed (%d) at iter %d\n", err, k); return 1; }
@@ -781,41 +828,68 @@ int main(void)
         double epsilon;
         ssize_t j;
 
-        /* Reproduce expected values */
-        aj = 1.0;
-        bj = 2.0;
-        cj = 0.0;
-        aj = 2.0E0 * aj; /* warm-up scaling */
-        scalar_v = 3.0;
-        for (k = 0; k < NTIMES; k++) {
-            cj = aj;
-            bj = scalar_v * cj;
-            cj = aj + bj;
-            aj = bj + scalar_v * cj;
+        /* Reproduce expected values in the precision used by the GPU */
+        if (gpu_use_float && sizeof(STREAM_TYPE) != sizeof(float)) {
+            float faj = 1.0f, fbj = 2.0f, fcj = 0.0f;
+            float fscalar = 3.0f;
+            faj = 2.0f * faj;
+            for (k = 0; k < NTIMES; k++) {
+                fcj = faj;
+                fbj = fscalar * fcj;
+                fcj = faj + fbj;
+                faj = fbj + fscalar * fcj;
+            }
+            aj = (STREAM_TYPE)faj;
+            bj = (STREAM_TYPE)fbj;
+            cj = (STREAM_TYPE)fcj;
+        } else {
+            aj = 1.0;
+            bj = 2.0;
+            cj = 0.0;
+            aj = 2.0E0 * aj; /* warm-up scaling */
+            scalar_v = 3.0;
+            for (k = 0; k < NTIMES; k++) {
+                cj = aj;
+                bj = scalar_v * cj;
+                cj = aj + bj;
+                aj = bj + scalar_v * cj;
+            }
         }
 
         /* Read back from GPU */
-        STREAM_TYPE *h_a = (STREAM_TYPE*)malloc(array_size * sizeof(STREAM_TYPE));
-        STREAM_TYPE *h_b = (STREAM_TYPE*)malloc(array_size * sizeof(STREAM_TYPE));
-        STREAM_TYPE *h_c = (STREAM_TYPE*)malloc(array_size * sizeof(STREAM_TYPE));
+        {
+        size_t read_size = array_size * gpu_elem_size;
+        void *h_a = malloc(read_size);
+        void *h_b = malloc(read_size);
+        void *h_c = malloc(read_size);
 
         if (!h_a || !h_b || !h_c) {
             printf("Error: Could not allocate host memory for validation\n");
         } else {
-            ocl_EnqueueReadBuffer(queue, d_a, CL_TRUE, 0, array_size * sizeof(STREAM_TYPE), h_a, 0, NULL, NULL);
-            ocl_EnqueueReadBuffer(queue, d_b, CL_TRUE, 0, array_size * sizeof(STREAM_TYPE), h_b, 0, NULL, NULL);
-            ocl_EnqueueReadBuffer(queue, d_c, CL_TRUE, 0, array_size * sizeof(STREAM_TYPE), h_c, 0, NULL, NULL);
+            ocl_EnqueueReadBuffer(queue, d_a, CL_TRUE, 0, read_size, h_a, 0, NULL, NULL);
+            ocl_EnqueueReadBuffer(queue, d_b, CL_TRUE, 0, read_size, h_b, 0, NULL, NULL);
+            ocl_EnqueueReadBuffer(queue, d_c, CL_TRUE, 0, read_size, h_c, 0, NULL, NULL);
 
             for (j = 0; j < (ssize_t)array_size; j++) {
-                aSumErr += fabs(h_a[j] - aj);
-                bSumErr += fabs(h_b[j] - bj);
-                cSumErr += fabs(h_c[j] - cj);
+                STREAM_TYPE va, vb, vc;
+                if (gpu_use_float && sizeof(STREAM_TYPE) != sizeof(float)) {
+                    va = (STREAM_TYPE)((float*)h_a)[j];
+                    vb = (STREAM_TYPE)((float*)h_b)[j];
+                    vc = (STREAM_TYPE)((float*)h_c)[j];
+                } else {
+                    va = ((STREAM_TYPE*)h_a)[j];
+                    vb = ((STREAM_TYPE*)h_b)[j];
+                    vc = ((STREAM_TYPE*)h_c)[j];
+                }
+                aSumErr += fabs(va - aj);
+                bSumErr += fabs(vb - bj);
+                cSumErr += fabs(vc - cj);
             }
             aAvgErr = aSumErr / (STREAM_TYPE)array_size;
             bAvgErr = bSumErr / (STREAM_TYPE)array_size;
             cAvgErr = cSumErr / (STREAM_TYPE)array_size;
 
-            if (sizeof(STREAM_TYPE) == 4)
+            if (gpu_use_float || sizeof(STREAM_TYPE) == 4)
                 epsilon = 1.e-6;
             else
                 epsilon = 1.e-13;
@@ -843,6 +917,7 @@ int main(void)
             free(h_b);
             free(h_c);
         }
+        }
     }
     printf(HLINE);
 
@@ -857,7 +932,7 @@ int main(void)
         result.benchmark_type = "GPU";
         result.version = "5.10.03";
         result.array_size = array_size;
-        result.bytes_per_element = (int)sizeof(STREAM_TYPE);
+        result.bytes_per_element = (int)gpu_elem_size;
         result.ntimes = NTIMES;
         memcpy(result.bytes, bytes, sizeof(bytes));
         memcpy(result.avgtime, avgtime, sizeof(avgtime));
