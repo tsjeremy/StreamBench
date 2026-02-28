@@ -61,7 +61,9 @@ For range mode, run `stream_range.exe`; it writes one consolidated CSV file for 
 ## Interpreting output correctly
 
 - STREAM reports bandwidth in **MB/s** (decimal: 1 MB = 10⁶ bytes).
+- STREAM reports bandwidth in **MB/s** (decimal: 1 MB = 10⁶ bytes).
 - Convert to **GB/s** with `GB/s = MB/s / 1000`.
+- Memory sizes in the console output and CSV use **MiB/GiB** (binary: 1 MiB = 2²⁰ bytes).
 - Memory sizes in the console output and CSV use **MiB/GiB** (binary: 1 MiB = 2²⁰ bytes).
 - Triad is typically used as the primary sustained-memory metric.
 - Bandwidth efficiency can be estimated with:
