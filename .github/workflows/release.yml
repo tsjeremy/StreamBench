@@ -1,0 +1,183 @@
+# .github/workflows/release.yml
+#
+# Builds CPU and GPU C binaries + StreamBench .NET 10 frontend for
+# macOS (arm64, x64) and Windows (x64, arm64), then attaches all
+# binaries to the corresponding GitHub Release.
+#
+# Triggers:
+#   - Push of a tag matching v*.*.*  (e.g. git push origin v5.10.03)
+#   - Manual dispatch (Actions tab -> Run workflow, supply the tag name)
+#     Use manual dispatch to add binaries to a release that was created
+#     before this workflow existed (e.g. v5.10.03).
+
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to attach assets to (e.g. v5.10.03)'
+        required: true
+
+permissions:
+  contents: write
+
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── macOS: arm64 (Apple Silicon) + x64 (Intel) ───────────────────────────
+  build-macos:
+    name: Build (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libomp
+        run: brew install libomp
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Build C binaries
+        run: |
+          OMP_PREFIX="$(brew --prefix libomp)"
+          OMP="-Xpreprocessor -fopenmp -I${OMP_PREFIX}/include -L${OMP_PREFIX}/lib -lomp"
+          CPU_DEFS="-DTUNED -DSTREAM_ARRAY_SIZE=200000000 -DNTIMES=100"
+          GPU_DEFS="-DSTREAM_ARRAY_SIZE=200000000 -DNTIMES=100"
+
+          # ARM64 — native on this runner, full OpenMP support
+          clang -arch arm64 -O2 ${OMP} ${CPU_DEFS} -o stream_cpu_macos_arm64 stream.c
+          clang -arch arm64 -O2         ${GPU_DEFS} -o stream_gpu_macos_arm64 stream_gpu.c -lm
+
+          # x64 — cross-compiled; try with OpenMP, fall back to single-threaded
+          # (arm64 Homebrew libomp may not link against an x86_64 target)
+          clang -arch x86_64 -O2 ${OMP} ${CPU_DEFS} -o stream_cpu_macos_x64 stream.c 2>/dev/null \
+            || clang -arch x86_64 -O2 ${CPU_DEFS} -o stream_cpu_macos_x64 stream.c
+          clang -arch x86_64 -O2 ${GPU_DEFS} -o stream_gpu_macos_x64 stream_gpu.c -lm
+
+      - name: Publish StreamBench (osx-arm64)
+        run: |
+          dotnet publish StreamBench/StreamBench.csproj \
+            -c Release -r osx-arm64 --self-contained true \
+            -p:PublishSingleFile=true --nologo -v quiet \
+            -o _pub/osx-arm64
+          cp _pub/osx-arm64/StreamBench StreamBench_osx-arm64
+          chmod +x StreamBench_osx-arm64
+
+      - name: Publish StreamBench (osx-x64)
+        run: |
+          dotnet publish StreamBench/StreamBench.csproj \
+            -c Release -r osx-x64 --self-contained true \
+            -p:PublishSingleFile=true --nologo -v quiet \
+            -o _pub/osx-x64
+          cp _pub/osx-x64/StreamBench StreamBench_osx-x64
+          chmod +x StreamBench_osx-x64
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: |
+            stream_cpu_macos_arm64
+            stream_cpu_macos_x64
+            stream_gpu_macos_arm64
+            stream_gpu_macos_x64
+            StreamBench_osx-arm64
+            StreamBench_osx-x64
+
+  # ── Windows: x64 + ARM64 (cross-compiled via MSVC) ───────────────────────
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Setup MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build C binaries (x64)
+        shell: cmd
+        run: |
+          cl.exe /nologo /O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp /Fe:stream_cpu_win_x64.exe stream.c /link advapi32.lib
+          cl.exe /nologo /O2           /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100         /Fe:stream_gpu_win_x64.exe stream_gpu.c /link advapi32.lib
+
+      - name: Setup MSVC (x64 -> ARM64 cross-compile)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm64
+
+      - name: Build C binaries (ARM64)
+        shell: cmd
+        run: |
+          cl.exe /nologo /O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp /Fe:stream_cpu_win_arm64.exe stream.c /link advapi32.lib
+          cl.exe /nologo /O2           /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100         /Fe:stream_gpu_win_arm64.exe stream_gpu.c /link advapi32.lib
+
+      - name: Publish StreamBench (win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish StreamBench/StreamBench.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true --nologo -v quiet `
+            -o _pub/win-x64
+          Copy-Item _pub/win-x64/StreamBench.exe StreamBench_win-x64.exe
+
+      - name: Publish StreamBench (win-arm64)
+        shell: pwsh
+        run: |
+          dotnet publish StreamBench/StreamBench.csproj `
+            -c Release -r win-arm64 --self-contained true `
+            -p:PublishSingleFile=true --nologo -v quiet `
+            -o _pub/win-arm64
+          Copy-Item _pub/win-arm64/StreamBench.exe StreamBench_win-arm64.exe
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            stream_cpu_win_x64.exe
+            stream_gpu_win_x64.exe
+            stream_cpu_win_arm64.exe
+            stream_gpu_win_arm64.exe
+            StreamBench_win-x64.exe
+            StreamBench_win-arm64.exe
+
+  # ── Attach all binaries to the GitHub Release ────────────────────────────
+  release:
+    name: Upload Release Assets
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download macOS binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-binaries
+          path: release-assets/
+
+      - name: Download Windows binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-binaries
+          path: release-assets/
+
+      - name: Attach assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: release-assets/*
+          fail_on_unmatched_files: true
