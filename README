@@ -32,7 +32,7 @@ GPU memory bandwidth benchmark using OpenCL:
 ===============================================
 UPDATE: February 28, 2026 (Jeremy Tsai):
 
-Version 5.10.03 of stream.c released with cross-platform
+Version 5.10.04 of stream.c released with cross-platform
 enhancements!
 
 New features and improvements in this version:

@@ -26,7 +26,7 @@
 /* Benchmark result data — filled by the benchmark loop */
 typedef struct {
     const char *benchmark_type;   /* "CPU" or "GPU" */
-    const char *version;          /* e.g., "5.10.03" */
+    const char *version;          /* e.g., "5.10.04" */
     size_t array_size;            /* elements */
     int bytes_per_element;        /* sizeof(STREAM_TYPE) */
     int ntimes;                   /* iteration count */

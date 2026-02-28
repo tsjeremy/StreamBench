@@ -1,5 +1,32 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sat, Jul 05, 2025 (Jeremy Tsai)
+
+Version 5.10.04 of stream.c, stream_gpu.c, and StreamBench released.
+
+StreamBench (.NET 10 frontend):
+* Fixed table title colors rendering DarkGray instead of markup colors
+* Added yellow/bold-yellow color tag support for warnings and emphasis
+* Results table now uses titled table style for clearer output
+* Triad row highlighted in bold yellow to emphasize key bandwidth number
+* Copy/Scale/Add rows shown in bold green for visual distinction
+
+run_stream.bat (Windows launcher):
+* Complete rewrite to use StreamBench .NET frontend for both CPU and GPU
+* Replaces raw C executable output with formatted, colored tables
+* Adds prerequisite checks for .NET runtime and VC++ Redistributable
+
+run_stream.sh (Linux/macOS launcher):
+* New cross-platform launcher script for Linux and macOS
+* Detects OS (Linux/Darwin) and architecture (x64/arm64) automatically
+* Runs CPU and GPU benchmarks via StreamBench .NET frontend
+
+Build scripts:
+* build_all_windows.bat, build_all_linux.sh, build_all_macos.sh updated
+  with post-build hints referencing run_stream launcher scripts
+
+-------------------------------------------------------------------------
+
 Revisions as of Sat, Feb 28, 2026 (Jeremy Tsai)
 
 Version 5.10.03 of stream.c and stream_gpu.c released.

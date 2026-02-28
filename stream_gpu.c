@@ -1,6 +1,6 @@
 /*-----------------------------------------------------------------------*/
 /* Program: STREAM (GPU Version)                                         */
-/* Revision: $Id: stream_gpu.c,v 5.10.03 2026/02/28 jtsai Exp $         */
+/* Revision: $Id: stream_gpu.c,v 5.10.04 2026/02/28 jtsai Exp $         */
 /* Original CPU code developed by John D. McCalpin                       */
 /* GPU/OpenCL version by Jeremy Tsai                                     */
 /*                                                                       */
@@ -935,7 +935,7 @@ int main(int argc, char **argv)
         StreamGpuDevice gpu_dev;
 
         result.benchmark_type = "GPU";
-        result.version = "5.10.03";
+        result.version = "5.10.04";
         result.array_size = array_size;
         result.bytes_per_element = (int)gpu_elem_size;
         result.ntimes = NTIMES;

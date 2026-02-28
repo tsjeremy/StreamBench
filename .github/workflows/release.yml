@@ -5,10 +5,10 @@
 # binaries to the corresponding GitHub Release.
 #
 # Triggers:
-#   - Push of a tag matching v*.*.*  (e.g. git push origin v5.10.03)
+#   - Push of a tag matching v*.*.*  (e.g. git push origin v5.10.04)
 #   - Manual dispatch (Actions tab -> Run workflow, supply the tag name)
 #     Use manual dispatch to add binaries to a release that was created
-#     before this workflow existed (e.g. v5.10.03).
+#     before this workflow existed (e.g. v5.10.04).
 
 name: Build and Release
 
@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to attach assets to (e.g. v5.10.03)'
+        description: 'Release tag to attach assets to (e.g. v5.10.04)'
         required: true
 
 permissions:
