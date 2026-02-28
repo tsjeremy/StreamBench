@@ -223,13 +223,19 @@ public record GpuDeviceInfo
         if (string.IsNullOrEmpty(deviceName)) return false;
         var n = deviceName.ToUpperInvariant();
 
-        // Name-based detection
+        // Name-based detection: explicit NPU keywords always win
         if (n.Contains("AI BOOST")
             || n.Contains("NPU")
             || n.Contains("NEURAL")
             || n.Contains("HEXAGON")
             || n.Contains("VPU"))
             return true;
+
+        // If the device name explicitly says "GPU", treat it as a GPU
+        // even if the vendor is Microsoft (e.g. Qualcomm Adreno GPU
+        // exposed via Microsoft OpenCL driver on Snapdragon X2).
+        if (n.Contains("GPU"))
+            return false;
 
         // Vendor-based detection: "Microsoft" vendor on OpenCL typically
         // indicates an NPU driver, not a real GPU — except for WARP.
