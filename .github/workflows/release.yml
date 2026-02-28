@@ -72,7 +72,8 @@ jobs:
             -o _pub/osx-arm64
           cp _pub/osx-arm64/StreamBench StreamBench_osx-arm64
           chmod +x StreamBench_osx-arm64
-          rm -rf StreamBench/backends
+          # Clean up backends and build cache so x64 publish embeds fresh resources
+          rm -rf StreamBench/backends StreamBench/obj
 
       - name: Publish StreamBench (osx-x64, self-contained with embedded backends)
         run: |
@@ -133,7 +134,9 @@ jobs:
             -p:PublishSingleFile=true --nologo -v quiet `
             -o _pub/win-x64
           Copy-Item _pub/win-x64/StreamBench.exe StreamBench_win-x64.exe
+          # Clean up backends and build cache so ARM64 publish embeds fresh resources
           Remove-Item StreamBench/backends -Recurse -Force
+          Remove-Item StreamBench/obj -Recurse -Force
 
       - name: Setup MSVC (x64 -> ARM64 cross-compile)
         uses: ilammy/msvc-dev-cmd@v1

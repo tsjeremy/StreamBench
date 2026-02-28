@@ -85,7 +85,15 @@ It auto-detects your OS and architecture, checks for prerequisites (like the VC+
 on Windows), and runs both CPU and GPU benchmarks. Download it alongside the `StreamBench_*`
 binary and run:
 
-- **Windows**: `.\run_stream.ps1`
+- **Windows**:
+  ```powershell
+  # If blocked by execution policy ("not digitally signed" error), unblock first:
+  Unblock-File .\run_stream.ps1
+  .\run_stream.ps1
+
+  # Or run directly with bypass:
+  pwsh -ExecutionPolicy Bypass -File .\run_stream.ps1
+  ```
 - **macOS/Linux**: `pwsh ./run_stream.ps1`
 
 ### Standalone C backend binaries (advanced)

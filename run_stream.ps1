@@ -9,11 +9,20 @@
 # Works on Windows, macOS, and Linux.
 #
 # Prerequisites:
-#   - Pre-built C backend executables (build_all_*.ps1)
-#   - StreamBench self-contained binary
+#   - StreamBench self-contained binary (same folder as this script)
 #
 # Usage:
 #   pwsh ./run_stream.ps1          (or .\run_stream.ps1 on Windows)
+#
+# Windows note: If you downloaded this file from the internet,
+# Windows may block it. Fix with ONE of these:
+#
+#   Option 1 - Unblock the file first (recommended):
+#     Unblock-File .\run_stream.ps1
+#     .\run_stream.ps1
+#
+#   Option 2 - Run with bypass flag:
+#     pwsh -ExecutionPolicy Bypass -File .\run_stream.ps1
 # ============================================================
 
 $ErrorActionPreference = 'Continue'
