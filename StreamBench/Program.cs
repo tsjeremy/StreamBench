@@ -86,6 +86,7 @@ if (outputDir is not null)
 
 // ── Run benchmarks ─────────────────────────────────────────────────────────
 int exitCode = 0;
+bool systemInfoPrinted = false;
 
 if (wantCpu)
 {
@@ -172,8 +173,10 @@ async Task<int> RunGpuBenchmarksAsync(string? exePath, long? arraySize,
             : g.Name;
         ConsoleOutput.WriteMarkup($"[bold cyan]── {g.DeviceKind} #{g.Index}: {displayName} ──[/]");
 
+        // Only print system info for the first device (it's the same for all)
         int code = await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
-            noSave, outputDir, g.Index, $"{g.DeviceKind} #{g.Index} ({displayName})");
+            noSave, outputDir, g.Index, $"{g.DeviceKind} #{g.Index} ({displayName})",
+            printSystemInfo: i == 0);
         if (code != 0) exitCode = code;
     }
     return exitCode;
@@ -182,7 +185,8 @@ async Task<int> RunGpuBenchmarksAsync(string? exePath, long? arraySize,
 // ── Run a single GPU benchmark ─────────────────────────────────────────────
 async Task<int> RunSingleGpuAsync(string exe, long? arraySize,
     long rangeStart, long rangeEnd, long rangeStep,
-    bool noSave, string? outputDir, int? gpuDeviceIndex, string? gpuLabel)
+    bool noSave, string? outputDir, int? gpuDeviceIndex, string? gpuLabel,
+    bool printSystemInfo = true)
 {
     if (rangeStart > 0 && rangeEnd > rangeStart)
     {
@@ -199,7 +203,7 @@ async Task<int> RunSingleGpuAsync(string exe, long? arraySize,
             ConsoleOutput.WriteMarkup("[red]Error:[/] GPU benchmark failed or returned no output.");
             return 1;
         }
-        DisplayAndSave(result, noSave, outputDir);
+        DisplayAndSave(result, noSave, outputDir, printSystemInfo);
     }
     return 0;
 }
@@ -299,10 +303,16 @@ async Task RunRangeAsync(string exe, bool isGpu,
 }
 
 // ── Single result display + save ───────────────────────────────────────────
-void DisplayAndSave(BenchmarkResult result, bool noSave, string? outputDir)
+void DisplayAndSave(BenchmarkResult result, bool noSave, string? outputDir, bool printSystemInfo = true)
 {
     ConsoleOutput.PrintBanner(result);
-    ConsoleOutput.PrintSystemInfo(result);
+    if (printSystemInfo && !systemInfoPrinted)
+    {
+        ConsoleOutput.PrintSystemInfo(result);
+        systemInfoPrinted = true;
+    }
+    else
+        ConsoleOutput.PrintDeviceInfo(result);   // always show device box
     ConsoleOutput.PrintConfig(result);
     ConsoleOutput.PrintResults(result);
 

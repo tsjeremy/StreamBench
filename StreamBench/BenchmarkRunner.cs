@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Linq;
 using StreamBench.Models;
 
 namespace StreamBench;
@@ -96,13 +97,16 @@ public static class BenchmarkRunner
         {
             if (e.Data is null) return;
             // Only show lines that indicate errors, warnings, or important notes
-            var line = e.Data;
+            var line = e.Data.Trim();
             if (line.Contains("Error", StringComparison.OrdinalIgnoreCase)
                 || line.Contains("Failed", StringComparison.OrdinalIgnoreCase)
                 || line.Contains("Warning", StringComparison.OrdinalIgnoreCase)
                 || line.Contains("NOTE:", StringComparison.OrdinalIgnoreCase)
                 || line.Contains("FAIL", StringComparison.OrdinalIgnoreCase))
             {
+                // Spinner redraws on the same console row; clear that row so backend
+                // notes/warnings appear as clean standalone lines.
+                Console.Error.Write("\r" + new string(' ', 180) + "\r");
                 Console.Error.WriteLine(line);
             }
         };
@@ -214,34 +218,24 @@ public record GpuDeviceInfo
     /// Detects whether a device is an NPU rather than a GPU.
     /// Matches by:
     ///   - Device name keywords: "AI Boost", "NPU", "Neural", "Hexagon", "VPU".
-    ///   - Vendor "Microsoft" (on Qualcomm Snapdragon X the NPU is exposed via
-    ///     OpenCL with vendor "Microsoft", while the real Adreno GPU has vendor "Qualcomm").
-    ///     Excludes the Microsoft Basic Render Driver (WARP) software rasterizer.
+    ///   - OS-level detection via pnputil class GUID for Neural Processors:
+    ///     if the OS has a registered NPU and the OpenCL vendor is "Microsoft",
+    ///     the device is the NPU (on Snapdragon X the NPU is exposed via OpenCL
+    ///     with vendor "Microsoft").
     /// </summary>
     public static bool IsNpu(string? deviceName, string? vendor = null)
     {
         if (string.IsNullOrEmpty(deviceName)) return false;
         var n = deviceName.ToUpperInvariant();
 
-        // Name-based detection: explicit NPU keywords always win
-        if (n.Contains("AI BOOST")
-            || n.Contains("NPU")
-            || n.Contains("NEURAL")
-            || n.Contains("HEXAGON")
-            || n.Contains("VPU"))
-            return true;
-
-        // If the device name explicitly says "GPU", treat it as a GPU
-        // even if the vendor is Microsoft (e.g. Qualcomm Adreno GPU
-        // exposed via Microsoft OpenCL driver on Snapdragon X2).
-        if (n.Contains("GPU"))
-            return false;
-
-        // Vendor-based detection: "Microsoft" vendor on OpenCL typically
-        // indicates an NPU driver, not a real GPU — except for WARP.
+        // Strategy 1 — OS-level class GUID (highest priority, ground truth).
+        // If Windows has a registered NPU device (ComputeAccelerator or Neural
+        // Processors class) and this OpenCL device has vendor "Microsoft" (not
+        // the WARP software rasterizer), it's the NPU.
         if (!string.IsNullOrEmpty(vendor)
             && vendor.Contains("Microsoft", StringComparison.OrdinalIgnoreCase)
-            && !n.Contains("BASIC RENDER"))
+            && !n.Contains("BASIC RENDER")
+            && DetectNpuFromOs() is not null)
             return true;
 
         return false;
@@ -258,24 +252,13 @@ public record GpuDeviceInfo
         if (!IsNpu(deviceName, vendor))
             return null;
 
-        // Strategy 1: Ask the OS for the real NPU device name (Windows only)
+        // Ask the OS for the real NPU device name (Windows only)
         string? osName = DetectNpuFromOs();
         if (osName is not null)
             return osName;
 
-        // Strategy 2: Transform the OpenCL device name
-        if (!string.IsNullOrEmpty(deviceName))
-        {
-            string cleaned = deviceName
-                .Replace("GPU", "NPU", StringComparison.OrdinalIgnoreCase)
-                .Trim();
-            // If nothing changed (no "GPU" was in the name), just append " (NPU)"
-            if (cleaned.Equals(deviceName.Trim(), StringComparison.Ordinal))
-                cleaned += " (NPU)";
-            return cleaned;
-        }
-
-        return "NPU";
+        // No name-derived fallback: classification/display should be based on OS class-guid evidence only.
+        return null;
     }
 
     // Cache the OS-detected NPU name (null = not queried, "" = queried but not found)
@@ -283,10 +266,18 @@ public record GpuDeviceInfo
     private static bool _osNpuQueried;
     private static readonly object _osNpuLock = new();
 
+    // Windows class GUIDs that may host NPU devices
+    private static readonly string[] NpuClassGuids =
+    [
+        "{f01a9d53-3ff6-48d2-9f97-c8a7004be10c}",   // ComputeAccelerator (Snapdragon X2 Hexagon NPU, etc.)
+        "{d3540260-d950-4922-a562-3aafcab6e49a}",    // Neural Processors (older/Intel NPU class)
+    ];
+
     /// <summary>
-    /// Queries the OS for registered NPU devices.
-    /// On Windows, uses "pnputil /enum-devices /connected" and looks for device
-    /// descriptions containing "NPU", "Neural", or "AI Boost".
+    /// Queries the OS for registered NPU devices using known NPU class GUIDs.
+    /// On Windows, uses "pnputil /enum-devices /connected /class {GUID}" to directly
+    /// enumerate only NPU-class devices — no keyword matching needed.
+    /// Checks ComputeAccelerator (Snapdragon X2) and Neural Processors (Intel) classes.
     /// Returns the first matching device description, or null if none found.
     /// </summary>
     private static string? DetectNpuFromOs()
@@ -301,39 +292,108 @@ public record GpuDeviceInfo
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             return null;
 
-        try
+        foreach (var guid in NpuClassGuids)
         {
-            var psi = new ProcessStartInfo("pnputil", "/enum-devices /connected")
+            try
             {
-                RedirectStandardOutput = true,
-                RedirectStandardError  = true,
-                UseShellExecute  = false,
-                CreateNoWindow   = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-            };
-            using var p = Process.Start(psi);
-            if (p is null) return null;
-            string output = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(5000);
-
-            // Parse "Device Description:" lines for NPU keywords
-            foreach (var rawLine in output.Split('\n'))
-            {
-                string line = rawLine.Trim();
-                if (!line.StartsWith("Device Description:", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                string desc = line["Device Description:".Length..].Trim();
-                var d = desc.ToUpperInvariant();
-                if (d.Contains("NPU") || d.Contains("NEURAL") || d.Contains("AI BOOST"))
+                var psi = new ProcessStartInfo("pnputil",
+                    $"/enum-devices /connected /class \"{guid}\" /format csv")
                 {
-                    lock (_osNpuLock) { _cachedOsNpuName = desc; }
-                    return desc;
+                    RedirectStandardOutput = true,
+                    RedirectStandardError  = true,
+                    UseShellExecute  = false,
+                    CreateNoWindow   = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                };
+                using var p = Process.Start(psi);
+                if (p is null) continue;
+                string output = p.StandardOutput.ReadToEnd();
+                _ = p.StandardError.ReadToEnd(); // drain stderr to avoid deadlocks on noisy systems
+                p.WaitForExit(5000);
+
+                // Parse machine-readable CSV output first.
+                // Headers are expected to include DeviceDescription.
+                var lines = output
+                    .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                    .Select(l => l.Trim())
+                    .ToList();
+
+                if (lines.Count >= 2)
+                {
+                    var header = ParseCsvLine(lines[0]);
+                    int descIndex = Array.FindIndex(header,
+                        h => h.Equals("DeviceDescription", StringComparison.OrdinalIgnoreCase));
+
+                    if (descIndex >= 0)
+                    {
+                        for (int i = 1; i < lines.Count; i++)
+                        {
+                            var row = ParseCsvLine(lines[i]);
+                            if (descIndex >= row.Length) continue;
+                            string desc = row[descIndex].Trim();
+                            if (string.IsNullOrEmpty(desc)) continue;
+
+                            lock (_osNpuLock) { _cachedOsNpuName = desc; }
+                            return desc;
+                        }
+                    }
+                }
+
+                // Fallback for older pnputil variants without /format csv support.
+                foreach (var rawLine in output.Split('\n'))
+                {
+                    string line = rawLine.Trim();
+                    if (!line.StartsWith("Device Description:", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string desc = line["Device Description:".Length..].Trim();
+                    if (!string.IsNullOrEmpty(desc))
+                    {
+                        lock (_osNpuLock) { _cachedOsNpuName = desc; }
+                        return desc;
+                    }
                 }
             }
+            catch { /* pnputil not available or failed — try next GUID */ }
         }
-        catch { /* pnputil not available or failed — fall through */ }
 
         return null;
+    }
+
+    private static string[] ParseCsvLine(string line)
+    {
+        var values = new List<string>();
+        var sb = new StringBuilder();
+        bool inQuotes = false;
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    sb.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+                continue;
+            }
+
+            if (c == ',' && !inQuotes)
+            {
+                values.Add(sb.ToString());
+                sb.Clear();
+                continue;
+            }
+
+            sb.Append(c);
+        }
+
+        values.Add(sb.ToString());
+        return values.ToArray();
     }
 }

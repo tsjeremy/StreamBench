@@ -317,34 +317,41 @@ public static class ConsoleOutput
             cacheTable.Render();
         }
 
-        // GPU / NPU device info
-        if (r.Device is not null)
-        {
-            var dev = r.Device;
-            string? cpuModel = r.System?.CpuModel;
-            string? npuName = GpuDeviceInfo.InferNpuDisplayName(dev.Name, dev.Vendor, cpuModel);
-            bool isNpu = npuName is not null;
-            string devKind = isNpu ? "NPU" : "GPU";
-            string displayName = npuName ?? dev.Name;
-
-            var gpuTable = new SimpleTable($"[bold white]{devKind} Device[/]")
-                .AddColumn("[cyan]Property[/]", 22)
-                .AddColumn("[white]Value[/]");
-
-            gpuTable.AddRow("[cyan]Device[/]",         $"[bold cyan]{displayName}[/]");
-            if (isNpu && !displayName.Equals(dev.Name, StringComparison.Ordinal))
-                gpuTable.AddRow("[cyan]OpenCL Name[/]", $"[dim]{dev.Name}[/]");
-            gpuTable.AddRow("[cyan]Type[/]",            $"[white]{devKind}[/]");
-            gpuTable.AddRow("[cyan]Vendor[/]",          $"[white]{dev.Vendor}[/]");
-            gpuTable.AddRow("[cyan]Compute Units[/]",   $"[white]{dev.ComputeUnits}[/]");
-            gpuTable.AddRow("[cyan]Max Frequency[/]",   $"[white]{dev.MaxFrequencyMhz} MHz[/]");
-            gpuTable.AddRow("[cyan]Global Memory[/]",   $"[white]{dev.GlobalMemoryGib:F1} GiB[/]");
-            gpuTable.AddRow("[cyan]Max Work Group[/]",  $"[white]{dev.MaxWorkGroupSize}[/]");
-
-            gpuTable.Render();
-        }
+        PrintDeviceInfo(r);
 
         Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Prints the GPU/NPU device info box. Called separately so it can be
+    /// shown for every device even when system info is printed only once.
+    /// </summary>
+    public static void PrintDeviceInfo(BenchmarkResult r)
+    {
+        if (r.Device is null) return;
+
+        var dev = r.Device;
+        string? cpuModel = r.System?.CpuModel;
+        string? npuName = GpuDeviceInfo.InferNpuDisplayName(dev.Name, dev.Vendor, cpuModel);
+        bool isNpu = npuName is not null;
+        string devKind = isNpu ? "NPU" : "GPU";
+        string displayName = npuName ?? dev.Name;
+
+        var gpuTable = new SimpleTable($"[bold white]{devKind} Device[/]")
+            .AddColumn("[cyan]Property[/]", 22)
+            .AddColumn("[white]Value[/]");
+
+        gpuTable.AddRow("[cyan]Device[/]",         $"[bold cyan]{displayName}[/]");
+        if (isNpu && !displayName.Equals(dev.Name, StringComparison.Ordinal))
+            gpuTable.AddRow("[cyan]OpenCL Name[/]", $"[dim]{dev.Name}[/]");
+        gpuTable.AddRow("[cyan]Type[/]",            $"[white]{devKind}[/]");
+        gpuTable.AddRow("[cyan]Vendor[/]",          $"[white]{dev.Vendor}[/]");
+        gpuTable.AddRow("[cyan]Compute Units[/]",   $"[white]{dev.ComputeUnits}[/]");
+        gpuTable.AddRow("[cyan]Max Frequency[/]",   $"[white]{dev.MaxFrequencyMhz} MHz[/]");
+        gpuTable.AddRow("[cyan]Global Memory[/]",   $"[white]{dev.GlobalMemoryGib:F1} GiB[/]");
+        gpuTable.AddRow("[cyan]Max Work Group[/]",  $"[white]{dev.MaxWorkGroupSize}[/]");
+
+        gpuTable.Render();
     }
 
     // ── Benchmark configuration summary ───────────────────────────────────
