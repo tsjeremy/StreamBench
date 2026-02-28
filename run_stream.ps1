@@ -54,7 +54,7 @@ Write-Host ''
 # ------------------------------------------------------------------
 #  Resolve executable paths
 # ------------------------------------------------------------------
-# StreamBench naming convention differs between platforms:
+# StreamBench self-contained binary (has CPU+GPU backends embedded):
 #   Windows:  StreamBench_win-x64.exe    / StreamBench_win-arm64.exe
 #   macOS:    StreamBench_osx-arm64      / StreamBench_osx-x64
 #   Linux:    StreamBench_linux-arm64    / StreamBench_linux-x64
@@ -66,42 +66,51 @@ if ($osTag -eq 'win') {
     $benchName = "StreamBench_linux-${archTag}${ext}"
 }
 
-$cpuExe   = Join-Path $ScriptDir "stream_cpu_${osTag}_${archTag}${ext}"
-$gpuExe   = Join-Path $ScriptDir "stream_gpu_${osTag}_${archTag}${ext}"
 $benchExe = Join-Path $ScriptDir $benchName
 
-$hasCpu = Test-Path $cpuExe
-$hasGpu = Test-Path $gpuExe
+# Also check for standalone C backend executables (build-from-source scenario)
+$cpuExe = Join-Path $ScriptDir "stream_cpu_${osTag}_${archTag}${ext}"
+$gpuExe = Join-Path $ScriptDir "stream_gpu_${osTag}_${archTag}${ext}"
 
-if (-not $hasCpu -and -not $hasGpu) {
-    Write-Host ''
-    Write-Host "  [ERROR] No benchmark executables found for ${osTag}_${archTag}." -ForegroundColor Red
-    Write-Host "          Expected in: $ScriptDir"
-    Write-Host "            - stream_cpu_${osTag}_${archTag}${ext}"
-    Write-Host "            - stream_gpu_${osTag}_${archTag}${ext}"
-    Write-Host ''
-    Write-Host "          Run the appropriate build script first."
-    exit 1
-}
+$hasBench = Test-Path $benchExe
+$hasCpu   = Test-Path $cpuExe
+$hasGpu   = Test-Path $gpuExe
 
 # ------------------------------------------------------------------
 #  Find StreamBench runner
 # ------------------------------------------------------------------
 $benchCmd = $null
-if (Test-Path $benchExe) {
+$useSelfContained = $false
+
+if ($hasBench) {
+    # Preferred: self-contained binary with embedded backends
     $benchCmd = $benchExe
-} else {
-    # Fallback: dotnet run
+    $useSelfContained = $true
+    Write-Host "  [OK] Found $benchName" -ForegroundColor Green
+} elseif ($hasCpu -or $hasGpu) {
+    # Fallback: StreamBench frontend + separate C backend executables
+    # (build-from-source / dev scenario)
     $csproj = Join-Path $ScriptDir 'StreamBench/StreamBench.csproj'
     if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj)) {
-        $benchCmd = "dotnet run --project `"$csproj`" --"
+        $benchCmd = '__dotnet__'
+        Write-Host '  [OK] Using dotnet run (dev mode)' -ForegroundColor Green
     } else {
         Write-Host ''
         Write-Host "  [ERROR] StreamBench frontend not found: $benchName" -ForegroundColor Red
-        Write-Host '          Or: .NET 10 SDK + StreamBench/ project folder'
+        Write-Host '          Or: .NET 10 SDK + StreamBench/ project folder' -ForegroundColor Red
         Write-Host '          Install .NET from: https://dot.net'
         exit 1
     }
+} else {
+    Write-Host ''
+    Write-Host "  [ERROR] StreamBench binary not found: $benchName" -ForegroundColor Red
+    Write-Host "          Expected in: $ScriptDir" -ForegroundColor Red
+    Write-Host ''
+    Write-Host '  Download it from:' -ForegroundColor Yellow
+    Write-Host '    https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.07'
+    Write-Host ''
+    Write-Host "  Place $benchName in the same folder as this script and re-run."
+    exit 1
 }
 
 # ------------------------------------------------------------------
@@ -143,30 +152,38 @@ Write-Host ''
 # ------------------------------------------------------------------
 #  Run benchmarks
 # ------------------------------------------------------------------
-function Invoke-Bench {
-    param([string]$Mode, [string]$Exe)
-    if ($benchCmd -match '^dotnet ') {
-        Invoke-Expression "$benchCmd --$Mode --exe `"$Exe`" --array-size 200000000"
-    } else {
-        & $benchCmd "--$Mode" --exe "$Exe" --array-size 200000000
-    }
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  [FAIL] $Mode benchmark exited with error." -ForegroundColor Red
-    }
+if ($useSelfContained) {
+    # Self-contained binary handles both CPU + GPU automatically
     Write-Host ''
-}
+    & $benchCmd --array-size 200000000
 
-if ($hasCpu) {
-    $skipCpu = $IsWindows -and -not $dllOk
-    if ($skipCpu) {
-        Write-Host '  [SKIP] CPU benchmark requires vcomp140.dll.' -ForegroundColor Yellow
-    } else {
-        Invoke-Bench -Mode 'cpu' -Exe $cpuExe
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  [FAIL] Benchmark exited with error code $LASTEXITCODE." -ForegroundColor Red
     }
-}
+} else {
+    # Dev mode: run separate backends via dotnet run
+    function Invoke-Bench {
+        param([string]$Mode, [string]$Exe)
+        $csproj = Join-Path $ScriptDir 'StreamBench/StreamBench.csproj'
+        dotnet run --project "$csproj" -- "--$Mode" --exe "$Exe" --array-size 200000000
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [FAIL] $Mode benchmark exited with error." -ForegroundColor Red
+        }
+        Write-Host ''
+    }
 
-if ($hasGpu) {
-    Invoke-Bench -Mode 'gpu' -Exe $gpuExe
+    if ($hasCpu) {
+        $skipCpu = $IsWindows -and -not $dllOk
+        if ($skipCpu) {
+            Write-Host '  [SKIP] CPU benchmark requires vcomp140.dll.' -ForegroundColor Yellow
+        } else {
+            Invoke-Bench -Mode 'cpu' -Exe $cpuExe
+        }
+    }
+
+    if ($hasGpu) {
+        Invoke-Bench -Mode 'gpu' -Exe $gpuExe
+    }
 }
 
 Write-Host ''
