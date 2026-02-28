@@ -62,18 +62,21 @@ public static class BenchmarkRunner
     }
 
     /// <summary>
-    /// Runs the C backend with optional --array-size argument, returns parsed result.
+    /// Runs the C backend with optional --array-size and --gpu-device arguments.
     /// Progress messages from the backend (stderr) are forwarded to the console.
     /// System, memory, and cache info are detected by .NET and merged into the result.
     /// </summary>
     public static async Task<BenchmarkResult?> RunAsync(
         string executablePath,
         long? arraySize = null,
+        int? gpuDeviceIndex = null,
         CancellationToken cancellationToken = default)
     {
         var args = new List<string>();
         if (arraySize.HasValue)
             args.AddRange(["--array-size", arraySize.Value.ToString()]);
+        if (gpuDeviceIndex.HasValue)
+            args.AddRange(["--gpu-device", gpuDeviceIndex.Value.ToString()]);
 
         var psi = new ProcessStartInfo
         {
@@ -137,8 +140,59 @@ public static class BenchmarkRunner
         {
             Architecture.Arm64 => "arm64",
             Architecture.X64   => "x64",
-            // Only x64 and ARM64 are supported on Windows.
-            // Other architectures fall through to the unsupported path below.
             _ => RuntimeInformation.ProcessArchitecture.ToString().ToLower()
         };
+
+    /// <summary>
+    /// Calls the GPU backend with --list-gpus to discover all available GPU devices.
+    /// Returns a list of GpuDeviceInfo, or empty if the backend is unavailable.
+    /// </summary>
+    public static async Task<List<GpuDeviceInfo>> ListGpusAsync(
+        string executablePath,
+        CancellationToken cancellationToken = default)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = executablePath,
+            Arguments = "--list-gpus",
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute        = false,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding  = Encoding.UTF8,
+        };
+
+        try
+        {
+            using var process = new Process { StartInfo = psi };
+            process.ErrorDataReceived += (_, _) => { }; // discard stderr
+            process.Start();
+            process.BeginErrorReadLine();
+
+            var json = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (string.IsNullOrWhiteSpace(json))
+                return [];
+
+            return JsonSerializer.Deserialize<List<GpuDeviceInfo>>(json, JsonOptions) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+}
+
+/// <summary>
+/// Represents a GPU device discovered via --list-gpus.
+/// </summary>
+public record GpuDeviceInfo
+{
+    public int Index { get; init; }
+    public string Name { get; init; } = "";
+    public string Vendor { get; init; } = "";
+    public int ComputeUnits { get; init; }
+    public int MaxFrequencyMhz { get; init; }
+    public long GlobalMemoryBytes { get; init; }
 }

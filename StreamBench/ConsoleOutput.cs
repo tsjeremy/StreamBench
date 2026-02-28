@@ -402,9 +402,11 @@ public static class ConsoleOutput
         long? arraySize,
         bool isGpu,
         int testIndex = 0,
-        int totalTests = 1)
+        int totalTests = 1,
+        int? gpuDeviceIndex = null,
+        string? gpuLabel = null)
     {
-        string label = isGpu ? "GPU" : "CPU";
+        string label = gpuLabel ?? (isGpu ? "GPU" : "CPU");
         string sizeLabel = arraySize.HasValue ? $"{arraySize.Value / 1_000_000.0:F0}M elements" : "default size";
         string progressText = totalTests > 1
             ? $"Running {label} STREAM [{testIndex + 1}/{totalTests}] — {sizeLabel}"
@@ -413,7 +415,8 @@ public static class ConsoleOutput
         using var cts = new CancellationTokenSource();
         Task spinnerTask = SpinAsync(progressText, cts.Token);
 
-        BenchmarkResult? result = await BenchmarkRunner.RunAsync(executablePath, arraySize);
+        BenchmarkResult? result = await BenchmarkRunner.RunAsync(
+            executablePath, arraySize, gpuDeviceIndex);
 
         await cts.CancelAsync();
         await spinnerTask;

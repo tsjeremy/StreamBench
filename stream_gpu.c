@@ -504,9 +504,17 @@ int main(int argc, char **argv)
 
     /* Parse command-line arguments */
     array_size = STREAM_ARRAY_SIZE;
+    int gpu_device_index = -1;   /* -1 = auto (first GPU found) */
+    int list_gpus_only = 0;
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--array-size") == 0 && i + 1 < argc) {
             array_size = (size_t)strtoull(argv[++i], NULL, 10);
+        }
+        else if (strcmp(argv[i], "--gpu-device") == 0 && i + 1 < argc) {
+            gpu_device_index = atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--list-gpus") == 0) {
+            list_gpus_only = 1;
         }
     }
 
@@ -537,9 +545,11 @@ int main(int argc, char **argv)
     cl_platform_id *platforms = (cl_platform_id*)malloc(num_platforms * sizeof(cl_platform_id));
     ocl_GetPlatformIDs(num_platforms, platforms, NULL);
 
-    /* Find a GPU device, trying each platform */
-    cl_platform_id chosen_platform = NULL;
-    cl_device_id device = NULL;
+    /* Enumerate ALL GPU devices across all platforms */
+    #define MAX_GPUS 16
+    cl_device_id   all_gpus[MAX_GPUS];
+    cl_platform_id all_gpu_plats[MAX_GPUS];
+    int            num_gpus = 0;
 
     for (i = 0; i < (int)num_platforms; i++) {
         char plat_name[256] = {0};
@@ -547,11 +557,68 @@ int main(int argc, char **argv)
         fprintf(stderr, "Platform %d: %s\n", i, plat_name);
 
         cl_uint num_devs = 0;
-        err = ocl_GetDeviceIDs(platforms[i], CL_DEVICE_TYPE_GPU, 1, &device, &num_devs);
+        cl_device_id devs[MAX_GPUS];
+        cl_uint max_devs = (cl_uint)(MAX_GPUS - num_gpus);
+        if (max_devs == 0) break;
+        err = ocl_GetDeviceIDs(platforms[i], CL_DEVICE_TYPE_GPU, max_devs, devs, &num_devs);
         if (err == CL_SUCCESS && num_devs > 0) {
-            chosen_platform = platforms[i];
-            fprintf(stderr, "  -> GPU device found on this platform\n");
-            break;
+            int j;
+            for (j = 0; j < (int)num_devs && num_gpus < MAX_GPUS; j++) {
+                all_gpus[num_gpus] = devs[j];
+                all_gpu_plats[num_gpus] = platforms[i];
+                num_gpus++;
+            }
+            fprintf(stderr, "  -> %u GPU device(s) found\n", num_devs);
+        }
+    }
+
+    /* --list-gpus: output JSON array of all GPUs to stdout, then exit */
+    if (list_gpus_only) {
+        printf("[");
+        for (i = 0; i < num_gpus; i++) {
+            char name[256] = {0}, vendor[256] = {0};
+            cl_uint cu = 0, freq = 0;
+            cl_ulong gmem = 0;
+            ocl_GetDeviceInfo(all_gpus[i], CL_DEVICE_NAME, sizeof(name), name, NULL);
+            ocl_GetDeviceInfo(all_gpus[i], CL_DEVICE_VENDOR, sizeof(vendor), vendor, NULL);
+            ocl_GetDeviceInfo(all_gpus[i], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cu), &cu, NULL);
+            ocl_GetDeviceInfo(all_gpus[i], CL_DEVICE_MAX_CLOCK_FREQUENCY, sizeof(freq), &freq, NULL);
+            ocl_GetDeviceInfo(all_gpus[i], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(gmem), &gmem, NULL);
+            /* Escape any quotes in device name/vendor */
+            if (i > 0) printf(",");
+            printf("{\"index\":%d,\"name\":\"%s\",\"vendor\":\"%s\","
+                   "\"compute_units\":%u,\"max_frequency_mhz\":%u,"
+                   "\"global_memory_bytes\":%llu}",
+                   i, name, vendor, cu, freq, (unsigned long long)gmem);
+        }
+        printf("]\n");
+        free(platforms);
+        CLOSE_OCL();
+        return 0;
+    }
+
+    /* Select GPU device */
+    cl_platform_id chosen_platform = NULL;
+    cl_device_id device = NULL;
+
+    if (num_gpus > 0) {
+        if (gpu_device_index >= 0) {
+            /* User-specified device index */
+            if (gpu_device_index < num_gpus) {
+                device = all_gpus[gpu_device_index];
+                chosen_platform = all_gpu_plats[gpu_device_index];
+                fprintf(stderr, "  -> Using GPU device %d (user-selected)\n", gpu_device_index);
+            } else {
+                fprintf(stderr, "Error: --gpu-device %d out of range (found %d GPU(s), valid: 0-%d)\n",
+                        gpu_device_index, num_gpus, num_gpus - 1);
+                free(platforms);
+                return 1;
+            }
+        } else {
+            /* Auto-select first GPU */
+            device = all_gpus[0];
+            chosen_platform = all_gpu_plats[0];
+            fprintf(stderr, "  -> Auto-selected GPU device 0 of %d\n", num_gpus);
         }
     }
 

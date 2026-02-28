@@ -1,11 +1,12 @@
 // Program.cs — STREAM Benchmark .NET 10 CLI entry point
 //
 // Usage:
-//   StreamBench [--cpu] [--gpu] [--array-size N] [--ntimes N]
+//   StreamBench [--cpu] [--gpu] [--gpu-device N] [--array-size N] [--ntimes N]
 //               [--range START:END:STEP] [--no-save] [--output-dir DIR]
 //               [--exe PATH]
 //
-// If neither --cpu nor --gpu is specified, both benchmarks run automatically.
+// If neither --cpu nor --gpu is specified, both benchmarks run automatically
+// and all available GPUs are benchmarked.
 //
 // Examples:
 //   StreamBench                              # runs both CPU and GPU
@@ -28,6 +29,7 @@ long?  arraySize  = null;
 bool   noSave     = false;
 string? outputDir = null;
 string? exePath   = null;
+int?   gpuDevice  = null;    // specific GPU device index (null = all)
 long   rangeStart = 0, rangeEnd = 0, rangeStep = 50_000_000;
 
 for (int i = 0; i < args.Length; i++)
@@ -48,6 +50,10 @@ for (int i = 0; i < args.Length; i++)
 
         case "--exe" when i + 1 < args.Length:
             exePath = args[++i];
+            break;
+
+        case "--gpu-device" when i + 1 < args.Length:
+            gpuDevice = int.Parse(args[++i]);
             break;
 
         case "--range" when i + 1 < args.Length:
@@ -90,12 +96,99 @@ if (wantCpu)
 
 if (wantGpu)
 {
-    int gpuCode = await RunBenchmarkAsync(isGpu: true, exePath, arraySize,
-        rangeStart, rangeEnd, rangeStep, noSave, outputDir);
+    int gpuCode = await RunGpuBenchmarksAsync(exePath, arraySize,
+        rangeStart, rangeEnd, rangeStep, noSave, outputDir, gpuDevice);
     if (gpuCode != 0) exitCode = gpuCode;
 }
 
 return exitCode;
+
+// ── Run all GPU benchmarks (discovers GPUs, loops over each) ───────────────
+async Task<int> RunGpuBenchmarksAsync(string? exePath, long? arraySize,
+    long rangeStart, long rangeEnd, long rangeStep,
+    bool noSave, string? outputDir, int? gpuDevice)
+{
+    string? exe = exePath ?? BenchmarkRunner.FindExecutable(isGpu: true);
+    if (exe is null)
+    {
+        ConsoleOutput.WriteMarkup("[yellow][SKIP][/] GPU benchmark backend not found.");
+        ConsoleOutput.WriteMarkup("[dim]No embedded backend found and no external binary in the current directory.[/]");
+        return modeSet ? 1 : 0;
+    }
+
+    // If user specified a single GPU device, run just that one
+    if (gpuDevice.HasValue)
+    {
+        return await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
+            noSave, outputDir, gpuDevice.Value, $"GPU #{gpuDevice.Value}");
+    }
+
+    // Discover all GPUs
+    var gpus = await BenchmarkRunner.ListGpusAsync(exe);
+
+    if (gpus.Count == 0)
+    {
+        // Fallback: no --list-gpus support or no GPUs found — run without device index
+        return await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
+            noSave, outputDir, null, null);
+    }
+
+    if (gpus.Count == 1)
+    {
+        // Single GPU — run directly
+        return await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
+            noSave, outputDir, gpus[0].Index, null);
+    }
+
+    // Multiple GPUs — enumerate and run each
+    ConsoleOutput.WriteMarkup($"[bold cyan]Discovered {gpus.Count} GPU(s):[/]");
+    for (int i = 0; i < gpus.Count; i++)
+    {
+        var g = gpus[i];
+        double memGb = g.GlobalMemoryBytes / (1024.0 * 1024.0 * 1024.0);
+        ConsoleOutput.WriteMarkup(
+            $"  [white]#{g.Index}[/] [bold white]{g.Name}[/] [dim]({g.Vendor}, {memGb:F1} GB)[/]");
+    }
+    Console.WriteLine();
+
+    int exitCode = 0;
+    for (int i = 0; i < gpus.Count; i++)
+    {
+        if (i > 0) Console.WriteLine();
+        var g = gpus[i];
+        ConsoleOutput.WriteMarkup($"[bold cyan]── GPU #{g.Index}: {g.Name} ──[/]");
+
+        int code = await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
+            noSave, outputDir, g.Index, $"GPU #{g.Index} ({g.Name})");
+        if (code != 0) exitCode = code;
+    }
+    return exitCode;
+}
+
+// ── Run a single GPU benchmark ─────────────────────────────────────────────
+async Task<int> RunSingleGpuAsync(string exe, long? arraySize,
+    long rangeStart, long rangeEnd, long rangeStep,
+    bool noSave, string? outputDir, int? gpuDeviceIndex, string? gpuLabel)
+{
+    if (rangeStart > 0 && rangeEnd > rangeStart)
+    {
+        await RunRangeAsync(exe, isGpu: true, rangeStart, rangeEnd, rangeStep,
+            noSave, outputDir, gpuDeviceIndex, gpuLabel);
+    }
+    else
+    {
+        var result = await ConsoleOutput.RunWithSpinnerAsync(
+            exe, arraySize, isGpu: true,
+            gpuDeviceIndex: gpuDeviceIndex, gpuLabel: gpuLabel);
+        if (result is null)
+        {
+            ConsoleOutput.WriteMarkup("[red]Error:[/] GPU benchmark failed or returned no output.");
+            return 1;
+        }
+        DisplayAndSave(result, noSave, outputDir);
+    }
+    return 0;
+}
 
 // ── Run a single benchmark (CPU or GPU) ────────────────────────────────────
 async Task<int> RunBenchmarkAsync(bool isGpu, string? exePath, long? arraySize,
@@ -132,7 +225,8 @@ async Task<int> RunBenchmarkAsync(bool isGpu, string? exePath, long? arraySize,
 // ── Range testing loop ─────────────────────────────────────────────────────
 async Task RunRangeAsync(string exe, bool isGpu,
     long start, long end, long step,
-    bool noSave, string? outputDir)
+    bool noSave, string? outputDir,
+    int? gpuDeviceIndex = null, string? gpuLabel = null)
 {
     var sizes = new List<long>();
     for (long s = start; s <= end; s += step)
@@ -160,7 +254,8 @@ async Task RunRangeAsync(string exe, bool isGpu,
     for (int idx = 0; idx < sizes.Count; idx++)
     {
         var result = await ConsoleOutput.RunWithSpinnerAsync(
-            exe, sizes[idx], isGpu, idx, sizes.Count);
+            exe, sizes[idx], isGpu, idx, sizes.Count,
+            gpuDeviceIndex, gpuLabel);
 
         if (result is null)
         {
@@ -228,7 +323,8 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("[bold white]Options:[/]");
     ConsoleOutput.WriteMarkup("  [cyan]--cpu[/]                    Run CPU benchmark only");
     ConsoleOutput.WriteMarkup("  [cyan]--gpu[/]                    Run GPU benchmark only");
-    ConsoleOutput.WriteMarkup("  [dim](no flag)[/]                 Run both CPU and GPU benchmarks (default)");
+    ConsoleOutput.WriteMarkup("  [cyan]--gpu-device[/] N           Select a specific GPU by index (use with --gpu)");
+    ConsoleOutput.WriteMarkup("  [dim](no flag)[/]                 Run CPU + all GPUs (default)");
     ConsoleOutput.WriteMarkup("  [cyan]--array-size[/] N           Array size in elements (e.g. 200M, 100000000)");
     ConsoleOutput.WriteMarkup("  [cyan]--range[/] START:END:STEP   Range test multiple array sizes (e.g. 50M:200M:50M)");
     ConsoleOutput.WriteMarkup("  [cyan]--no-save[/]                Don't write CSV/JSON files");
@@ -237,9 +333,10 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Examples:[/]");
-    ConsoleOutput.WriteMarkup("  StreamBench                          Run both CPU and GPU");
+    ConsoleOutput.WriteMarkup("  StreamBench                          Run CPU + all GPUs");
     ConsoleOutput.WriteMarkup("  StreamBench --cpu --array-size 200M");
     ConsoleOutput.WriteMarkup("  StreamBench --gpu --array-size 100M");
+    ConsoleOutput.WriteMarkup("  StreamBench --gpu --gpu-device 0     Benchmark a specific GPU");
     ConsoleOutput.WriteMarkup("  StreamBench --cpu --range 50M:200M:50M");
     ConsoleOutput.WriteMarkup("  StreamBench --cpu --no-save");
 }
