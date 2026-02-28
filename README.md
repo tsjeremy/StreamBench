@@ -23,7 +23,57 @@ displays color-formatted results, and saves files.
 
 ---
 
-## Quick Start
+## Download & Run (Pre-built Binaries — No Build Required)
+
+Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/latest).
+No compiler, .NET SDK, or build tools needed — just download, extract, and run.
+
+### Windows
+
+```powershell
+# 1. Download and extract the latest release
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/latest/download/StreamBench_win-x64.exe" -OutFile StreamBench_win-x64.exe
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/latest/download/stream_cpu_win_x64.exe" -OutFile stream_cpu_win_x64.exe
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/latest/download/stream_gpu_win_x64.exe" -OutFile stream_gpu_win_x64.exe
+
+# 2. Run the benchmark
+.\StreamBench_win-x64.exe --cpu --exe .\stream_cpu_win_x64.exe --array-size 200000000
+.\StreamBench_win-x64.exe --gpu --exe .\stream_gpu_win_x64.exe --array-size 200000000
+```
+
+> **ARM64 users** (Snapdragon/Qualcomm laptops): Replace `x64` with `arm64` in the commands above.
+
+**Or even easier** — download the full source zip which includes `run_stream.bat`:
+
+1. Go to the [latest release](https://github.com/tsjeremy/StreamBench/releases/latest)
+2. Download **Source code (zip)** and the **4 Windows binaries** (`StreamBench_win-x64.exe`, `stream_cpu_win_x64.exe`, `stream_gpu_win_x64.exe`, `stream_cpu_win_arm64.exe` etc.)
+3. Extract the zip, place the `.exe` files in the extracted folder
+4. Double-click **`run_stream.bat`** — it auto-detects your architecture, checks prerequisites (installs VC++ Redistributable if needed), and runs both CPU and GPU benchmarks
+
+### macOS
+
+```bash
+# 1. Download binaries (Apple Silicon example — use x64 for Intel Macs)
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/latest/download/StreamBench_osx-arm64
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/latest/download/stream_cpu_macos_arm64
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/latest/download/stream_gpu_macos_arm64
+chmod +x StreamBench_osx-arm64 stream_cpu_macos_arm64 stream_gpu_macos_arm64
+
+# 2. Run the benchmark
+./StreamBench_osx-arm64 --cpu --exe ./stream_cpu_macos_arm64 --array-size 200000000
+./StreamBench_osx-arm64 --gpu --exe ./stream_gpu_macos_arm64 --array-size 200000000
+```
+
+> **Intel Mac users**: Replace `arm64` with `x64` in the commands above.
+
+**Or use the launcher script:** Download the source zip, place downloaded binaries in the folder, then run `./run_stream.sh`.
+
+---
+
+## Build from Source
+
+### Quick Start
 
 ### Prerequisites
 
