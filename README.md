@@ -70,7 +70,7 @@ clang -O2 -o stream_gpu stream_gpu.c -lm                     # GPU
 *   **GPU Version (`stream_gpu.c`)**
     *   **Zero SDK dependency** — OpenCL is loaded dynamically at runtime via `LoadLibrary` (Windows) / `dlopen` (Linux/macOS)
     *   Works with any OpenCL-capable GPU: AMD, NVIDIA, Intel, Apple
-    *   OpenCL profiling events for accurate GPU-side timing
+    *   Wall-clock timing (`clock_gettime` / `QueryPerformanceCounter`) + `clFinish` for reliable cross-platform GPU measurement (OpenCL event profiling is broken on Apple Silicon's Metal-backed OpenCL layer)
     *   Automatic GPU discovery and device info reporting
     *   Validation and CSV output identical to CPU version
 
@@ -304,6 +304,7 @@ The results depend on your memory type, number of channels, and frequency:
 | DDR5-6400 | Dual-channel | ~102 GB/s | ~65–80 GB/s | ~70–90 GB/s |
 | LPDDR5X-7500 | Quad-channel | ~120 GB/s | ~70–90 GB/s | ~90–110 GB/s |
 | LPDDR5X-8000 | 8-channel | ~256 GB/s | ~90–110 GB/s | ~180–220 GB/s |
+| LPDDR5-6400 (Apple M1 Ultra) | 1024-bit unified | ~819 GB/s | ~280–300 GB/s (20-thread) | ~600–680 GB/s |
 
 > **Tip:** If your results are significantly below these ranges, check that all memory channels are
 > populated, XMP/EXPO profiles are enabled in BIOS, and the system is plugged in (not on battery).
@@ -333,6 +334,7 @@ The results depend on your memory type, number of channels, and frequency:
 | "Failed to build program" | Your GPU may not support `cl_khr_fp64` (double precision). Compile with `/DGPU_USE_FLOAT` to use single precision. |
 | Low GPU bandwidth | Ensure you're not on battery power. Some laptops throttle GPU on battery. |
 | macOS OpenCL deprecation warning | Safe to ignore — OpenCL still works on current macOS. |
+| Inflated GPU bandwidth on Apple Silicon (e.g. 30+ TB/s) | This is a known bug in Apple's Metal-backed OpenCL layer, which returns bogus profiling timestamps. Fixed in `stream_gpu.c` v1.0.1 — rebuild from source. |
 
 ---
 

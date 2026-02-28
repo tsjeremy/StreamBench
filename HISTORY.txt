@@ -2,21 +2,25 @@
 
 Revisions as of Sat, Feb 28, 2026 (Jeremy Tsai)
 
-Version 5.10.02 of stream.c released.
+Version 5.10.03 of stream.c and stream_gpu.c released.
+
+stream.c (CPU):
 * Cross-platform compilation guide for Windows (cl.exe), Linux (gcc),
   and macOS (clang) added to source code comments
 * Updated example STREAM_ARRAY_SIZE values to 200M for modern systems
-* Version number bumped from 5.10.01 to 5.10.02
+* Version number bumped from 5.10.01 to 5.10.03
 
-Version 1.0 of stream_gpu.c released.
-* GPU memory bandwidth benchmark using OpenCL
+stream_gpu.c (GPU):
+* GPU memory bandwidth benchmark using OpenCL — initial release
 * Cross-platform: Windows, Linux, macOS — no SDK needed
 * OpenCL library loaded dynamically at runtime (LoadLibrary / dlopen)
 * Works with any OpenCL-capable GPU: AMD, NVIDIA, Intel, Apple
-* Uses OpenCL profiling events for accurate GPU-side timing
-* Includes full validation and CSV output matching CPU format
-* Verified on multiple GPU configurations achieving expected
-  bandwidth for the respective memory subsystems
+* Wall-clock timing (clock_gettime/QueryPerformanceCounter) + clFinish
+  for reliable cross-platform GPU measurement; replaces OpenCL event
+  profiling which returns bogus timestamps on Apple Silicon (M1/M2/M3/M4)
+  causing bandwidth to be reported as tens of TB/s instead of ~600-800 GB/s
+* Includes full validation and CSV/JSON output matching CPU format
+* Verified on Apple M1 Ultra: ~280-300 GB/s CPU, ~650 GB/s GPU
 
 Makefile updated with GPU target and documentation comments.
 README.md rewritten with comprehensive guide for CPU and GPU versions

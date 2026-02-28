@@ -95,6 +95,7 @@
     typedef long long ssize_t;
 #else
     #include <sys/time.h>
+    #include <time.h>
     #include <dlfcn.h>
 #endif
 
@@ -440,16 +441,23 @@ static double mysecond(void)
 }
 
 /*-----------------------------------------------------------------------*/
-/* HELPER: Get event elapsed time in seconds                             */
+/* HELPER: Wall-clock time in seconds                                    */
+/* Used instead of OpenCL event profiling, which is unreliable on some  */
+/* platforms (e.g. Apple Silicon's Metal-backed OpenCL layer).          */
 /*-----------------------------------------------------------------------*/
 
-static double event_time_sec(cl_event ev)
+static double wtime(void)
 {
-    cl_ulong t_start, t_end;
-    ocl_WaitForEvents(1, &ev);
-    ocl_GetEventProfilingInfo(ev, CL_PROFILING_COMMAND_START, sizeof(t_start), &t_start, NULL);
-    ocl_GetEventProfilingInfo(ev, CL_PROFILING_COMMAND_END, sizeof(t_end), &t_end, NULL);
-    return (double)(t_end - t_start) * 1.0e-9;
+#ifdef _WIN32
+    LARGE_INTEGER freq, count;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&count);
+    return (double)count.QuadPart / (double)freq.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + 1.0e-9 * (double)ts.tv_nsec;
+#endif
 }
 
 /*-----------------------------------------------------------------------*/
@@ -780,36 +788,39 @@ int main(void)
     /*-------------------------------------------------------------------*/
 
     for (k = 0; k < NTIMES; k++) {
-        cl_event ev;
+        double t0;
 
         /* Copy: c[j] = a[j] */
         ocl_SetKernelArg(k_copy, 0, sizeof(cl_mem), &d_c);
         ocl_SetKernelArg(k_copy, 1, sizeof(cl_mem), &d_a);
         ocl_SetKernelArg(k_copy, 2, sizeof(cl_uint), &n_vec);
-        err = ocl_EnqueueNDRangeKernel(queue, k_copy, 1, NULL, &global_size, NULL, 0, NULL, &ev);
+        t0 = wtime();
+        err = ocl_EnqueueNDRangeKernel(queue, k_copy, 1, NULL, &global_size, NULL, 0, NULL, NULL);
         if (err != CL_SUCCESS) { printf(C_ERR "Error: Copy kernel launch failed (%d) at iter %d" C_R "\n", err, k); return 1; }
-        times[0][k] = event_time_sec(ev);
-        ocl_ReleaseEvent(ev);
+        ocl_Finish(queue);
+        times[0][k] = wtime() - t0;
 
         /* Scale: b[j] = scalar * c[j] */
         ocl_SetKernelArg(k_scale, 0, sizeof(cl_mem), &d_b);
         ocl_SetKernelArg(k_scale, 1, sizeof(cl_mem), &d_c);
         set_scalar_arg(k_scale, 2, gpu_use_float, 3.0);
         ocl_SetKernelArg(k_scale, 3, sizeof(cl_uint), &n_vec);
-        err = ocl_EnqueueNDRangeKernel(queue, k_scale, 1, NULL, &global_size, NULL, 0, NULL, &ev);
+        t0 = wtime();
+        err = ocl_EnqueueNDRangeKernel(queue, k_scale, 1, NULL, &global_size, NULL, 0, NULL, NULL);
         if (err != CL_SUCCESS) { printf(C_ERR "Error: Scale kernel launch failed (%d) at iter %d" C_R "\n", err, k); return 1; }
-        times[1][k] = event_time_sec(ev);
-        ocl_ReleaseEvent(ev);
+        ocl_Finish(queue);
+        times[1][k] = wtime() - t0;
 
         /* Add: c[j] = a[j] + b[j] */
         ocl_SetKernelArg(k_add, 0, sizeof(cl_mem), &d_c);
         ocl_SetKernelArg(k_add, 1, sizeof(cl_mem), &d_a);
         ocl_SetKernelArg(k_add, 2, sizeof(cl_mem), &d_b);
         ocl_SetKernelArg(k_add, 3, sizeof(cl_uint), &n_vec);
-        err = ocl_EnqueueNDRangeKernel(queue, k_add, 1, NULL, &global_size, NULL, 0, NULL, &ev);
+        t0 = wtime();
+        err = ocl_EnqueueNDRangeKernel(queue, k_add, 1, NULL, &global_size, NULL, 0, NULL, NULL);
         if (err != CL_SUCCESS) { printf(C_ERR "Error: Add kernel launch failed (%d) at iter %d" C_R "\n", err, k); return 1; }
-        times[2][k] = event_time_sec(ev);
-        ocl_ReleaseEvent(ev);
+        ocl_Finish(queue);
+        times[2][k] = wtime() - t0;
 
         /* Triad: a[j] = b[j] + scalar * c[j] */
         ocl_SetKernelArg(k_triad, 0, sizeof(cl_mem), &d_a);
@@ -817,10 +828,11 @@ int main(void)
         ocl_SetKernelArg(k_triad, 2, sizeof(cl_mem), &d_c);
         set_scalar_arg(k_triad, 3, gpu_use_float, 3.0);
         ocl_SetKernelArg(k_triad, 4, sizeof(cl_uint), &n_vec);
-        err = ocl_EnqueueNDRangeKernel(queue, k_triad, 1, NULL, &global_size, NULL, 0, NULL, &ev);
+        t0 = wtime();
+        err = ocl_EnqueueNDRangeKernel(queue, k_triad, 1, NULL, &global_size, NULL, 0, NULL, NULL);
         if (err != CL_SUCCESS) { printf(C_ERR "Error: Triad kernel launch failed (%d) at iter %d" C_R "\n", err, k); return 1; }
-        times[3][k] = event_time_sec(ev);
-        ocl_ReleaseEvent(ev);
+        ocl_Finish(queue);
+        times[3][k] = wtime() - t0;
     }
 
     ocl_Finish(queue);
