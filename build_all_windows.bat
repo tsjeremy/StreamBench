@@ -25,6 +25,11 @@ for %%v in (2022 2025 18) do (
             set "VCVARSALL=!CANDIDATE!"
             goto :found_vcvars
         )
+        set "CANDIDATE=C:\Program Files (x86)\Microsoft Visual Studio\%%v\%%e\VC\Auxiliary\Build\vcvarsall.bat"
+        if exist "!CANDIDATE!" (
+            set "VCVARSALL=!CANDIDATE!"
+            goto :found_vcvars
+        )
     )
 )
 
@@ -56,7 +61,7 @@ set "ERRORS=0"
 REM --- Build options ---
 set "CPU_OPTS=/O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp"
 set "CPU_LIBS=advapi32.lib"
-set "GPU_OPTS=/O2 /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=20"
+set "GPU_OPTS=/O2 /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100"
 set "GPU_LIBS=advapi32.lib"
 
 REM ============================================================

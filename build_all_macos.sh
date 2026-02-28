@@ -42,7 +42,7 @@ else
 fi
 
 CPU_DEFS="-DTUNED -DSTREAM_ARRAY_SIZE=200000000 -DNTIMES=100"
-GPU_DEFS="-DSTREAM_ARRAY_SIZE=200000000 -DNTIMES=20"
+GPU_DEFS="-DSTREAM_ARRAY_SIZE=200000000 -DNTIMES=100"
 
 # ============================================================
 #  x64 (Intel) Builds

@@ -33,7 +33,7 @@
  *     cl.exe /O2 /Fe:stream_gpu.exe stream_gpu.c
  *
  *   With custom array size (200M elements):
- *     cl.exe /O2 /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=20 /Fe:stream_gpu.exe stream_gpu.c
+ *     cl.exe /O2 /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /Fe:stream_gpu.exe stream_gpu.c
  *
  *   For ARM64 Windows:
  *     Open "ARM64 Native Tools Command Prompt" and use the same commands.
@@ -61,7 +61,8 @@
  *     Install or update your GPU drivers. OpenCL runtime is included.
  *
  *   "Failed to build program" (double precision):
- *     Your GPU may not support fp64. Compile with -DGPU_USE_FLOAT:
+ *     Your GPU may not support fp64. The program auto-detects this and
+ *     falls back to float. If auto-detection fails, compile with -DGPU_USE_FLOAT:
  *       cl.exe /O2 /DGPU_USE_FLOAT /Fe:stream_gpu.exe stream_gpu.c
  *       gcc -O2 -DGPU_USE_FLOAT -o stream_gpu stream_gpu.c -ldl -lm
  *
@@ -73,8 +74,8 @@
  * ===== Compiler Options =====
  *
  *   /DSTREAM_ARRAY_SIZE=N  : Array size in elements (default: 200000000)
- *   /DNTIMES=N             : Number of timing iterations (default: 20)
- *   /DGPU_USE_FLOAT        : Use float instead of double (for GPUs without fp64)
+ *   /DNTIMES=N             : Number of timing iterations (default: 100)
+ *   /DGPU_USE_FLOAT        : Force float even on GPUs with fp64 (auto-detected)
  *   /DOFFSET=N             : Array alignment offset (default: 0)
  */
 /*-----------------------------------------------------------------------*/
@@ -110,11 +111,11 @@
 
 #ifdef NTIMES
     #if NTIMES <= 1
-        #define NTIMES 20
+        #define NTIMES 100
     #endif
 #endif
 #ifndef NTIMES
-    #define NTIMES 20
+    #define NTIMES 100
 #endif
 
 #ifndef OFFSET
@@ -332,57 +333,73 @@ static int load_opencl(void)
 /* OPENCL KERNEL SOURCE CODE                                             */
 /*-----------------------------------------------------------------------*/
 
+/*
+ * Vectorized kernels: use float4 (128-bit) for float, double2 (128-bit) for
+ * double.  This matches the 128-bit LPDDR5 memory bus width, giving each
+ * work-item a full bus-width transaction and significantly improving
+ * throughput on bandwidth-bound kernels.
+ *
+ * The uint index type avoids expensive 64-bit integer arithmetic on GPUs
+ * that lack native 64-bit ALUs (like many mobile GPUs).
+ */
 static const char *kernel_source =
     "#ifdef USE_FP64\n"
     "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n"
+    "typedef double2 SVEC;\n"
+    "#else\n"
+    "typedef float4 SVEC;\n"
     "#endif\n"
     "\n"
-    "__kernel void stream_copy(__global STYPE* restrict c,\n"
-    "                          __global const STYPE* restrict a,\n"
-    "                          const ulong n)\n"
+    "__kernel void stream_copy(__global SVEC* restrict c,\n"
+    "                          __global const SVEC* restrict a,\n"
+    "                          const uint n_vec)\n"
     "{\n"
-    "    size_t i = get_global_id(0);\n"
-    "    if (i < n) c[i] = a[i];\n"
+    "    uint i = get_global_id(0);\n"
+    "    if (i < n_vec) c[i] = a[i];\n"
     "}\n"
     "\n"
-    "__kernel void stream_scale(__global STYPE* restrict b,\n"
-    "                           __global const STYPE* restrict c,\n"
+    "__kernel void stream_scale(__global SVEC* restrict b,\n"
+    "                           __global const SVEC* restrict c,\n"
     "                           const STYPE scalar,\n"
-    "                           const ulong n)\n"
+    "                           const uint n_vec)\n"
     "{\n"
-    "    size_t i = get_global_id(0);\n"
-    "    if (i < n) b[i] = scalar * c[i];\n"
+    "    uint i = get_global_id(0);\n"
+    "    if (i < n_vec) b[i] = scalar * c[i];\n"
     "}\n"
     "\n"
-    "__kernel void stream_add(__global STYPE* restrict c,\n"
-    "                         __global const STYPE* restrict a,\n"
-    "                         __global const STYPE* restrict b,\n"
-    "                         const ulong n)\n"
+    "__kernel void stream_add(__global SVEC* restrict c,\n"
+    "                         __global const SVEC* restrict a,\n"
+    "                         __global const SVEC* restrict b,\n"
+    "                         const uint n_vec)\n"
     "{\n"
-    "    size_t i = get_global_id(0);\n"
-    "    if (i < n) c[i] = a[i] + b[i];\n"
+    "    uint i = get_global_id(0);\n"
+    "    if (i < n_vec) c[i] = a[i] + b[i];\n"
     "}\n"
     "\n"
-    "__kernel void stream_triad(__global STYPE* restrict a,\n"
-    "                           __global const STYPE* restrict b,\n"
-    "                           __global const STYPE* restrict c,\n"
+    "__kernel void stream_triad(__global SVEC* restrict a,\n"
+    "                           __global const SVEC* restrict b,\n"
+    "                           __global const SVEC* restrict c,\n"
     "                           const STYPE scalar,\n"
-    "                           const ulong n)\n"
+    "                           const uint n_vec)\n"
     "{\n"
-    "    size_t i = get_global_id(0);\n"
-    "    if (i < n) a[i] = b[i] + scalar * c[i];\n"
+    "    uint i = get_global_id(0);\n"
+    "    if (i < n_vec) a[i] = b[i] + scalar * c[i];\n"
     "}\n"
     "\n"
-    "__kernel void stream_init(__global STYPE* restrict a,\n"
-    "                          __global STYPE* restrict b,\n"
-    "                          __global STYPE* restrict c,\n"
+    "__kernel void stream_init(__global SVEC* restrict a,\n"
+    "                          __global SVEC* restrict b,\n"
+    "                          __global SVEC* restrict c,\n"
     "                          const STYPE a_val,\n"
     "                          const STYPE b_val,\n"
     "                          const STYPE c_val,\n"
-    "                          const ulong n)\n"
+    "                          const uint n_vec)\n"
     "{\n"
-    "    size_t i = get_global_id(0);\n"
-    "    if (i < n) { a[i] = a_val; b[i] = b_val; c[i] = c_val; }\n"
+    "    uint i = get_global_id(0);\n"
+    "    if (i < n_vec) {\n"
+    "        a[i] = (SVEC)(a_val);\n"
+    "        b[i] = (SVEC)(b_val);\n"
+    "        c[i] = (SVEC)(c_val);\n"
+    "    }\n"
     "}\n";
 
 /*-----------------------------------------------------------------------*/
@@ -466,6 +483,9 @@ int main(void)
     cl_int err;
     int gpu_use_float = 0;
     size_t gpu_elem_size;
+    int vec_size;           /* elements per vector: 4 (float4) or 2 (double2) */
+    size_t padded_size;     /* array_size rounded up to vec_size multiple */
+    cl_uint n_vec;          /* number of vector elements to process */
 
     /* Timing arrays */
     double times[4][NTIMES];
@@ -598,6 +618,16 @@ int main(void)
     gpu_elem_size = gpu_use_float ? sizeof(float) : sizeof(STREAM_TYPE);
     if (gpu_use_float) BytesPerWord = (int)sizeof(float);
 
+    /* Vectorization: float4 (128-bit) or double2 (128-bit) per work-item */
+    vec_size = gpu_use_float ? 4 : 2;
+    padded_size = ((array_size + vec_size - 1) / vec_size) * vec_size;
+    n_vec = (cl_uint)(padded_size / vec_size);
+    printf("Vectorization: %s (%d bytes/vector, %d elements/vector)\n",
+           gpu_use_float ? "float4" : "double2",
+           (int)(gpu_elem_size * vec_size), vec_size);
+    printf("Vector work items: %u (padded array: %zu elements)\n",
+           n_vec, padded_size);
+
     /*-------------------------------------------------------------------*/
     /* Print test configuration                                          */
     /*-------------------------------------------------------------------*/
@@ -638,7 +668,7 @@ int main(void)
         return 1;
     }
 
-    size_t buf_size = (array_size + OFFSET) * gpu_elem_size;
+    size_t buf_size = (padded_size + OFFSET) * gpu_elem_size;
     printf(HLINE);
     printf("Allocating GPU buffers: %.1f MiB each (%.1f MiB total)\n",
            buf_size / (1024.0 * 1024.0), 3.0 * buf_size / (1024.0 * 1024.0));
@@ -696,42 +726,42 @@ int main(void)
     }
 
     /*-------------------------------------------------------------------*/
-    /* Set global work size                                              */
+    /* Set global work size (vectorized: n_vec work items)               */
     /*-------------------------------------------------------------------*/
 
-    /* Round up to multiple of preferred work group size */
+    /* Round global work size up to a multiple of 256 for the vectorized
+     * kernel dispatch.  Pass NULL as local_work_size so the OpenCL
+     * driver can choose the optimal work-group size for the device. */
     size_t local_size = 256;
     if (local_size > max_wg_size) local_size = max_wg_size;
-    size_t global_size = ((array_size + local_size - 1) / local_size) * local_size;
+    size_t global_size = (((size_t)n_vec + local_size - 1) / local_size) * local_size;
 
-    printf("Global work size: %zu, Local work size: %zu\n", global_size, local_size);
+    printf("Global work size: %zu (vectorized), Local work size: driver-auto\n", global_size);
 
     /*-------------------------------------------------------------------*/
     /* Initialize arrays on GPU                                          */
     /*-------------------------------------------------------------------*/
 
     {
-        cl_ulong n = (cl_ulong)array_size;
         ocl_SetKernelArg(k_init, 0, sizeof(cl_mem), &d_a);
         ocl_SetKernelArg(k_init, 1, sizeof(cl_mem), &d_b);
         ocl_SetKernelArg(k_init, 2, sizeof(cl_mem), &d_c);
         set_scalar_arg(k_init, 3, gpu_use_float, 1.0);
         set_scalar_arg(k_init, 4, gpu_use_float, 2.0);
         set_scalar_arg(k_init, 5, gpu_use_float, 0.0);
-        ocl_SetKernelArg(k_init, 6, sizeof(cl_ulong), &n);
-        err = ocl_EnqueueNDRangeKernel(queue, k_init, 1, NULL, &global_size, &local_size, 0, NULL, NULL);
+        ocl_SetKernelArg(k_init, 6, sizeof(cl_uint), &n_vec);
+        err = ocl_EnqueueNDRangeKernel(queue, k_init, 1, NULL, &global_size, NULL, 0, NULL, NULL);
         if (err != CL_SUCCESS) { printf("Error: Init kernel failed (%d)\n", err); return 1; }
         ocl_Finish(queue);
     }
 
     /* Warm-up: a[j] = 2.0 * a[j] (matches CPU version's timing calibration) */
     {
-        cl_ulong n = (cl_ulong)array_size;
         ocl_SetKernelArg(k_scale, 0, sizeof(cl_mem), &d_a);  /* output = a */
         ocl_SetKernelArg(k_scale, 1, sizeof(cl_mem), &d_a);  /* input = a */
         set_scalar_arg(k_scale, 2, gpu_use_float, 2.0);
-        ocl_SetKernelArg(k_scale, 3, sizeof(cl_ulong), &n);
-        ocl_EnqueueNDRangeKernel(queue, k_scale, 1, NULL, &global_size, &local_size, 0, NULL, NULL);
+        ocl_SetKernelArg(k_scale, 3, sizeof(cl_uint), &n_vec);
+        ocl_EnqueueNDRangeKernel(queue, k_scale, 1, NULL, &global_size, NULL, 0, NULL, NULL);
         ocl_Finish(queue);
     }
 
@@ -740,10 +770,8 @@ int main(void)
     printf(HLINE);
 
     /*-------------------------------------------------------------------*/
-    /* MAIN LOOP                                                         */
+    /* MAIN LOOP (vectorized: each work-item processes vec_size elems)   */
     /*-------------------------------------------------------------------*/
-
-    cl_ulong n = (cl_ulong)array_size;
 
     for (k = 0; k < NTIMES; k++) {
         cl_event ev;
@@ -751,8 +779,8 @@ int main(void)
         /* Copy: c[j] = a[j] */
         ocl_SetKernelArg(k_copy, 0, sizeof(cl_mem), &d_c);
         ocl_SetKernelArg(k_copy, 1, sizeof(cl_mem), &d_a);
-        ocl_SetKernelArg(k_copy, 2, sizeof(cl_ulong), &n);
-        err = ocl_EnqueueNDRangeKernel(queue, k_copy, 1, NULL, &global_size, &local_size, 0, NULL, &ev);
+        ocl_SetKernelArg(k_copy, 2, sizeof(cl_uint), &n_vec);
+        err = ocl_EnqueueNDRangeKernel(queue, k_copy, 1, NULL, &global_size, NULL, 0, NULL, &ev);
         if (err != CL_SUCCESS) { printf("Error: Copy kernel launch failed (%d) at iter %d\n", err, k); return 1; }
         times[0][k] = event_time_sec(ev);
         ocl_ReleaseEvent(ev);
@@ -761,8 +789,8 @@ int main(void)
         ocl_SetKernelArg(k_scale, 0, sizeof(cl_mem), &d_b);
         ocl_SetKernelArg(k_scale, 1, sizeof(cl_mem), &d_c);
         set_scalar_arg(k_scale, 2, gpu_use_float, 3.0);
-        ocl_SetKernelArg(k_scale, 3, sizeof(cl_ulong), &n);
-        err = ocl_EnqueueNDRangeKernel(queue, k_scale, 1, NULL, &global_size, &local_size, 0, NULL, &ev);
+        ocl_SetKernelArg(k_scale, 3, sizeof(cl_uint), &n_vec);
+        err = ocl_EnqueueNDRangeKernel(queue, k_scale, 1, NULL, &global_size, NULL, 0, NULL, &ev);
         if (err != CL_SUCCESS) { printf("Error: Scale kernel launch failed (%d) at iter %d\n", err, k); return 1; }
         times[1][k] = event_time_sec(ev);
         ocl_ReleaseEvent(ev);
@@ -771,8 +799,8 @@ int main(void)
         ocl_SetKernelArg(k_add, 0, sizeof(cl_mem), &d_c);
         ocl_SetKernelArg(k_add, 1, sizeof(cl_mem), &d_a);
         ocl_SetKernelArg(k_add, 2, sizeof(cl_mem), &d_b);
-        ocl_SetKernelArg(k_add, 3, sizeof(cl_ulong), &n);
-        err = ocl_EnqueueNDRangeKernel(queue, k_add, 1, NULL, &global_size, &local_size, 0, NULL, &ev);
+        ocl_SetKernelArg(k_add, 3, sizeof(cl_uint), &n_vec);
+        err = ocl_EnqueueNDRangeKernel(queue, k_add, 1, NULL, &global_size, NULL, 0, NULL, &ev);
         if (err != CL_SUCCESS) { printf("Error: Add kernel launch failed (%d) at iter %d\n", err, k); return 1; }
         times[2][k] = event_time_sec(ev);
         ocl_ReleaseEvent(ev);
@@ -782,8 +810,8 @@ int main(void)
         ocl_SetKernelArg(k_triad, 1, sizeof(cl_mem), &d_b);
         ocl_SetKernelArg(k_triad, 2, sizeof(cl_mem), &d_c);
         set_scalar_arg(k_triad, 3, gpu_use_float, 3.0);
-        ocl_SetKernelArg(k_triad, 4, sizeof(cl_ulong), &n);
-        err = ocl_EnqueueNDRangeKernel(queue, k_triad, 1, NULL, &global_size, &local_size, 0, NULL, &ev);
+        ocl_SetKernelArg(k_triad, 4, sizeof(cl_uint), &n_vec);
+        err = ocl_EnqueueNDRangeKernel(queue, k_triad, 1, NULL, &global_size, NULL, 0, NULL, &ev);
         if (err != CL_SUCCESS) { printf("Error: Triad kernel launch failed (%d) at iter %d\n", err, k); return 1; }
         times[3][k] = event_time_sec(ev);
         ocl_ReleaseEvent(ev);

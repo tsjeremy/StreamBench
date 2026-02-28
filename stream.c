@@ -372,10 +372,19 @@ int run_stream_test(size_t array_size)
     printf(" The *best* time for each kernel (excluding the first iteration)\n");
     printf(" will be used to compute the reported bandwidth.\n");
     
-    /* Allocate memory for arrays dynamically */
-    a = (STREAM_TYPE*) malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE));
-    b = (STREAM_TYPE*) malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE));
-    c = (STREAM_TYPE*) malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE));
+    /* Allocate cache-line aligned memory for best bandwidth.
+     * 64-byte alignment matches the typical ARM64/x64 cache line size,
+     * ensuring arrays start on cache-line boundaries to avoid false
+     * sharing between threads and improve hardware prefetcher efficiency. */
+#ifdef _MSC_VER
+    a = (STREAM_TYPE*) _aligned_malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE), 64);
+    b = (STREAM_TYPE*) _aligned_malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE), 64);
+    c = (STREAM_TYPE*) _aligned_malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE), 64);
+#else
+    posix_memalign((void**)&a, 64, (current_array_size + OFFSET) * sizeof(STREAM_TYPE));
+    posix_memalign((void**)&b, 64, (current_array_size + OFFSET) * sizeof(STREAM_TYPE));
+    posix_memalign((void**)&c, 64, (current_array_size + OFFSET) * sizeof(STREAM_TYPE));
+#endif
     
     if (a == NULL || b == NULL || c == NULL) {
         printf("Error: Failed to allocate memory for arrays\n");
@@ -384,9 +393,15 @@ int run_stream_test(size_t array_size)
                3.0 * (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
         
         /* Free any successfully allocated arrays before returning */
+#ifdef _MSC_VER
+        if (a != NULL) { _aligned_free(a); a = NULL; }
+        if (b != NULL) { _aligned_free(b); b = NULL; }
+        if (c != NULL) { _aligned_free(c); c = NULL; }
+#else
         if (a != NULL) { free(a); a = NULL; }
         if (b != NULL) { free(b); b = NULL; }
         if (c != NULL) { free(c); c = NULL; }
+#endif
         
         return 1;
     }
@@ -429,8 +444,11 @@ int run_stream_test(size_t array_size)
     printf("Number of Threads counted = %i\n", k); /* Print the number of threads that actually participated */
 #endif
 
-    /* Initialize arrays, parallelizing the loop with OpenMP */
-#pragma omp parallel for
+    /* Initialize arrays, parallelizing the loop with OpenMP.
+     * schedule(static) guarantees each thread gets a contiguous, equal-sized
+     * chunk — this maximises sequential memory access and hardware prefetch
+     * effectiveness for bandwidth-bound kernels. */
+#pragma omp parallel for schedule(static)
     for (j = 0; j < current_array_size; j++) {
         a[j] = 1.0;
         b[j] = 2.0;
@@ -451,7 +469,7 @@ int run_stream_test(size_t array_size)
 
     /* Perform a sample computation to estimate the test duration */
     t = mysecond();
-#pragma omp parallel for
+#pragma omp parallel for schedule(static)
     for (j = 0; j < current_array_size; j++)
         a[j] = 2.0E0 * a[j];
     t = 1.0E6 * (mysecond() - t);
@@ -475,7 +493,7 @@ int run_stream_test(size_t array_size)
 #ifdef TUNED /* If TUNED is defined, call the tuned version */
         tuned_STREAM_Copy();
 #else
-#pragma omp parallel for /* Parallelize with OpenMP */
+#pragma omp parallel for schedule(static) /* Parallelize with OpenMP */
         for (j = 0; j < current_array_size; j++)
             c[j] = a[j];
 #endif
@@ -486,7 +504,7 @@ int run_stream_test(size_t array_size)
 #ifdef TUNED
         tuned_STREAM_Scale(scalar);
 #else
-#pragma omp parallel for
+#pragma omp parallel for schedule(static)
         for (j = 0; j < current_array_size; j++)
             b[j] = scalar * c[j];
 #endif
@@ -497,7 +515,7 @@ int run_stream_test(size_t array_size)
 #ifdef TUNED
         tuned_STREAM_Add();
 #else
-#pragma omp parallel for
+#pragma omp parallel for schedule(static)
         for (j = 0; j < current_array_size; j++)
             c[j] = a[j] + b[j];
 #endif
@@ -508,7 +526,7 @@ int run_stream_test(size_t array_size)
 #ifdef TUNED
         tuned_STREAM_Triad(scalar);
 #else
-#pragma omp parallel for
+#pragma omp parallel for schedule(static)
         for (j = 0; j < current_array_size; j++)
             a[j] = b[j] + scalar * c[j];
 #endif
@@ -569,9 +587,15 @@ int run_stream_test(size_t array_size)
     }
 
     /* Free allocated memory */
+#ifdef _MSC_VER
+    _aligned_free(a);
+    _aligned_free(b);
+    _aligned_free(c);
+#else
     free(a);
     free(b);
     free(c);
+#endif
 
     return 0;
 }
@@ -723,7 +747,7 @@ void checkSTREAMresults()
 void tuned_STREAM_Copy()
 {
     ssize_t j;
-#pragma omp parallel for
+#pragma omp parallel for schedule(static)
     for (j = 0; j < current_array_size; j++)
         c[j] = a[j];
 }
@@ -731,7 +755,7 @@ void tuned_STREAM_Copy()
 void tuned_STREAM_Scale(STREAM_TYPE scalar)
 {
     ssize_t j;
-#pragma omp parallel for
+#pragma omp parallel for schedule(static)
     for (j = 0; j < current_array_size; j++)
         b[j] = scalar * c[j];
 }
@@ -739,7 +763,7 @@ void tuned_STREAM_Scale(STREAM_TYPE scalar)
 void tuned_STREAM_Add()
 {
     ssize_t j;
-#pragma omp parallel for
+#pragma omp parallel for schedule(static)
     for (j = 0; j < current_array_size; j++)
         c[j] = a[j] + b[j];
 }
@@ -747,7 +771,7 @@ void tuned_STREAM_Add()
 void tuned_STREAM_Triad(STREAM_TYPE scalar)
 {
     ssize_t j;
-#pragma omp parallel for
+#pragma omp parallel for schedule(static)
     for (j = 0; j < current_array_size; j++)
         a[j] = b[j] + scalar * c[j];
 }
