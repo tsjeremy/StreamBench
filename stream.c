@@ -126,6 +126,11 @@
     #include <omp.h> /* Include the OpenMP library */
 #endif
 
+#include "stream_colors.h"  /* Console color support (before hwinfo for color macros) */
+
+/* Colored horizontal separator line (must be before stream_hwinfo.h to override its default) */
+#define HLINE C_HLINE "-------------------------------------------------------------" C_R "\n"
+
 #include "stream_hwinfo.h" /* System & hardware info detection */
 #include "stream_output.h" /* CSV & JSON output formatting */
 
@@ -195,8 +200,6 @@
 /* CONSTANTS AND MACROS                                                  */
 /*-----------------------------------------------------------------------*/
 
-#define HLINE "-------------------------------------------------------------\n"
-
 /* Define MIN and MAX macros for convenience */
 #ifndef MIN
     #define MIN(x, y) ((x) < (y) ? (x) : (y))
@@ -259,15 +262,18 @@ extern void tuned_STREAM_Triad(STREAM_TYPE scalar);
 /*-----------------------------------------------------------------------*/
 int main()
 {
+    /* Enable colored console output (Windows VT100) */
+    enable_colors();
+
     /* Gather all system and hardware information */
     detect_hardware_info(&hw_info);
 
     /* Check if range testing is enabled */
     if (START_SIZE > 0 && END_SIZE > START_SIZE) {
-        printf("STREAM Range Testing Mode\n");
-        printf("Testing array sizes from %zu to %zu with step %zu\n", 
+        printf(C_TITLE "STREAM Range Testing Mode" C_R "\n");
+        printf(C_LABEL "Testing array sizes from " C_VALUE "%zu" C_LABEL " to " C_VALUE "%zu" C_LABEL " with step " C_VALUE "%zu" C_R "\n", 
                (size_t)START_SIZE, (size_t)END_SIZE, (size_t)STEP_SIZE);
-        printf("========================================================\n");
+        printf(C_HLINE "========================================================" C_R "\n");
         
         /* Initialize consolidated CSV file for range testing */
         {
@@ -285,13 +291,13 @@ int main()
         
         for (array_size = START_SIZE; array_size <= END_SIZE; array_size += STEP_SIZE) {
             test_count++;
-            printf("\n--- Test %d: Array size %zu (%.1f M elements) ---\n", 
+            printf("\n" C_SECTION "--- Test %d: Array size %zu (%.1f M elements) ---" C_R "\n", 
                    test_count, array_size, array_size / 1000000.0);
             
             if (run_stream_test(array_size) == 0) {
                 successful_tests++;
             } else {
-                printf("Test failed for array size %zu\n", array_size);
+                printf(C_ERR "Test failed for array size %zu" C_R "\n", array_size);
             }
         }
         
@@ -299,15 +305,15 @@ int main()
         stream_output_range_csv_close(range_csv_file);
         range_csv_file = NULL;
         
-        printf("\n========================================================\n");
-        printf("Range testing complete: %d/%d tests successful\n", successful_tests, test_count);
+        printf("\n" C_HLINE "========================================================" C_R "\n");
+        printf(C_SECTION "Range testing complete: " C_VALUE "%d/%d" C_SECTION " tests successful" C_R "\n", successful_tests, test_count);
         
         if (successful_tests == test_count) {
-            printf("All tests completed successfully!\n");
-            printf("Results saved in consolidated CSV file.\n");
+            printf(C_OK "All tests completed successfully!" C_R "\n");
+            printf(C_FILE "Results saved in consolidated CSV file." C_R "\n");
         } else {
-            printf("Some tests failed due to memory allocation issues.\n");
-            printf("Try using smaller array sizes or ensure more memory is available.\n");
+            printf(C_WARN "Some tests failed due to memory allocation issues." C_R "\n");
+            printf(C_WARN "Try using smaller array sizes or ensure more memory is available." C_R "\n");
         }
         
         return 0;
@@ -349,7 +355,7 @@ int run_stream_test(size_t array_size)
     /*-------------------------------------------------------------------*/
 
     printf(HLINE);
-    printf("STREAM version $Revision: 5.10.03 $\n");
+    printf(C_TITLE "STREAM version $Revision: 5.10.03 $" C_R "\n");
     printf(HLINE);
 
     /* Print system information for comparison */
@@ -357,18 +363,18 @@ int run_stream_test(size_t array_size)
     print_hardware_info(&hw_info);
     printf(HLINE);
     BytesPerWord = sizeof(STREAM_TYPE);
-    printf("This system uses %d bytes per array element.\n", BytesPerWord);
+    printf(C_LABEL "This system uses " C_VALUE "%d" C_LABEL " bytes per array element." C_R "\n", BytesPerWord);
 
     printf(HLINE);
-    printf("Array size = %zu (elements), Offset = %d (elements)\n", 
+    printf(C_LABEL "Array size = " C_VALUE "%zu" C_LABEL " (elements), Offset = " C_VALUE "%d" C_LABEL " (elements)" C_R "\n", 
            current_array_size, OFFSET);
-    printf("Memory per array = %.1f MiB (= %.1f GiB).\n",
+    printf(C_LABEL "Memory per array = " C_VALUE "%.1f MiB" C_LABEL " (= " C_VALUE "%.1f GiB" C_LABEL ")." C_R "\n",
            BytesPerWord * ((double)current_array_size / 1024.0 / 1024.0),
            BytesPerWord * ((double)current_array_size / 1024.0 / 1024.0 / 1024.0));
-    printf("Total memory required = %.1f MiB (= %.1f GiB).\n",
+    printf(C_LABEL "Total memory required = " C_VALUE "%.1f MiB" C_LABEL " (= " C_VALUE "%.1f GiB" C_LABEL ")." C_R "\n",
            (3.0 * BytesPerWord) * ((double)current_array_size / 1024.0 / 1024.),
            (3.0 * BytesPerWord) * ((double)current_array_size / 1024.0 / 1024. / 1024.));
-    printf("Each kernel will be executed %d times.\n", NTIMES);
+    printf(C_LABEL "Each kernel will be executed " C_VALUE "%d" C_LABEL " times." C_R "\n", NTIMES);
     printf(" The *best* time for each kernel (excluding the first iteration)\n");
     printf(" will be used to compute the reported bandwidth.\n");
     
@@ -387,8 +393,8 @@ int run_stream_test(size_t array_size)
 #endif
     
     if (a == NULL || b == NULL || c == NULL) {
-        printf("Error: Failed to allocate memory for arrays\n");
-        printf("Requested memory: %.1f MB per array (%.1f MB total)\n", 
+        printf(C_ERR "Error: Failed to allocate memory for arrays" C_R "\n");
+        printf(C_ERR "Requested memory: %.1f MB per array (%.1f MB total)" C_R "\n", 
                (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0),
                3.0 * (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
         
@@ -405,7 +411,7 @@ int run_stream_test(size_t array_size)
         
         return 1;
     }
-    printf("Memory allocation successful: %.1f MB per array (%.1f MB total)\n",
+    printf(C_OK "Memory allocation successful: %.1f MB per array (%.1f MB total)" C_R "\n",
            (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0),
            3.0 * (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
 
@@ -423,7 +429,7 @@ int run_stream_test(size_t array_size)
 #endif
     if (num_threads > 0) {
         omp_set_num_threads(num_threads); /* Set the number of threads for OpenMP */
-        printf("Number of threads automatically set to %d (number of available cores)\n", num_threads);
+        printf(C_LABEL "Number of threads automatically set to " C_VALUE "%d" C_LABEL " (number of available cores)" C_R "\n", num_threads);
     }
 
 #pragma omp parallel /* Start a parallel region */
@@ -431,7 +437,7 @@ int run_stream_test(size_t array_size)
 #pragma omp master /* This block will only be executed by the master thread */
         {
             k = omp_get_num_threads(); /* Get the number of threads requested by the runtime */
-            printf("Number of Threads requested = %i\n", k);
+            printf(C_LABEL "Number of Threads requested = " C_VALUE "%i" C_R "\n", k);
         }
     }
 #endif
@@ -441,7 +447,7 @@ int run_stream_test(size_t array_size)
 #pragma omp parallel /* Start a parallel region */
 #pragma omp atomic   /* Use an atomic operation to safely increment the counter */
     k++;
-    printf("Number of Threads counted = %i\n", k); /* Print the number of threads that actually participated */
+    printf(C_LABEL "Number of Threads counted = " C_VALUE "%i" C_R "\n", k); /* Print the number of threads that actually participated */
 #endif
 
     /* Initialize arrays, parallelizing the loop with OpenMP.
@@ -547,12 +553,12 @@ int run_stream_test(size_t array_size)
     }
 
     /* Print the results table */
-    printf("Function    Best Rate MB/s  Avg time     Min time     Max time\n");
+    printf(C_HDR "Function    Best Rate MB/s  Avg time     Min time     Max time" C_R "\n");
     for (j = 0; j < 4; j++) {
         avgtime[j] = avgtime[j] / (double)(NTIMES - 1);
 
         /* The best rate is calculated from the minimum time */
-        printf("%s%12.1f  %11.6f  %11.6f  %11.6f\n", label[j],
+        printf(C_LABEL "%s" C_RATE "%12.1f" C_R "  %11.6f  %11.6f  %11.6f\n", label[j],
                1.0E-06 * bytes[j] / mintime[j],
                avgtime[j],
                mintime[j],
@@ -716,21 +722,21 @@ void checkSTREAMresults()
     /* Check if the average relative error for array 'a' is within tolerance */
     if (abs(aAvgErr / aj) > epsilon) {
         err++;
-        printf("Failed Validation on array a[], AvgRelAbsErr > epsilon (%e)\n", epsilon);
+        printf(C_ERR "Failed Validation on array a[], AvgRelAbsErr > epsilon (%e)" C_R "\n", epsilon);
     }
     /* Check if the average relative error for array 'b' is within tolerance */
     if (abs(bAvgErr / bj) > epsilon) {
         err++;
-        printf("Failed Validation on array b[], AvgRelAbsErr > epsilon (%e)\n", epsilon);
+        printf(C_ERR "Failed Validation on array b[], AvgRelAbsErr > epsilon (%e)" C_R "\n", epsilon);
     }
     /* Check if the average relative error for array 'c' is within tolerance */
     if (abs(cAvgErr / cj) > epsilon) {
         err++;
-        printf("Failed Validation on array c[], AvgRelAbsErr > epsilon (%e)\n", epsilon);
+        printf(C_ERR "Failed Validation on array c[], AvgRelAbsErr > epsilon (%e)" C_R "\n", epsilon);
     }
 
     if (err == 0) {
-        printf("Solution Validates: avg error less than %e on all three arrays\n", epsilon);
+        printf(C_OK "Solution Validates: avg error less than %e on all three arrays" C_R "\n", epsilon);
     }
 }
 

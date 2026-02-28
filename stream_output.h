@@ -63,7 +63,7 @@ static void stream_output_csv(const char *filename_prefix,
     sprintf(filename, "%s_%zuM.csv", filename_prefix, r->array_size / 1000000);
     csvfile = fopen(filename, "w");
     if (csvfile == NULL) {
-        printf("Warning: Could not create CSV file %s\n", filename);
+        printf(C_WARN "Warning: Could not create CSV file %s" C_R "\n", filename);
         return;
     }
 
@@ -77,7 +77,7 @@ static void stream_output_csv(const char *filename_prefix,
     }
 
     fclose(csvfile);
-    printf("CSV results written to: %s\n", filename);
+    printf(C_FILE "CSV results written to: %s" C_R "\n", filename);
 }
 
 /*-----------------------------------------------------------------------*/
@@ -92,12 +92,12 @@ static FILE *stream_output_range_csv_open(const char *filename)
 {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
-        printf("Warning: Could not create consolidated CSV file %s\n", filename);
+        printf(C_WARN "Warning: Could not create consolidated CSV file %s" C_R "\n", filename);
         return NULL;
     }
     fprintf(f, "Array_Size_Elements,Array_Size_MiB,Total_Memory_GiB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
-    printf("Consolidated CSV file created: %s\n", filename);
-    printf("All range test results will be saved to this single file.\n");
+    printf(C_FILE "Consolidated CSV file created: %s" C_R "\n", filename);
+    printf(C_FILE "All range test results will be saved to this single file." C_R "\n");
     return f;
 }
 
@@ -119,7 +119,7 @@ static void stream_output_range_csv_append(FILE *f,
                 r->avgtime[j], r->mintime[j], r->maxtime[j]);
     }
     fflush(f);
-    printf("Results appended to consolidated CSV file\n");
+    printf(C_FILE "Results appended to consolidated CSV file" C_R "\n");
 }
 
 /*
@@ -129,7 +129,7 @@ static void stream_output_range_csv_close(FILE *f)
 {
     if (f != NULL) {
         fclose(f);
-        printf("Consolidated CSV file closed successfully\n");
+        printf(C_FILE "Consolidated CSV file closed successfully" C_R "\n");
     }
 }
 
@@ -283,7 +283,7 @@ static void stream_output_cpu_json(const char *filename_prefix,
     sprintf(filename, "%s_%zuM.json", filename_prefix, r->array_size / 1000000);
     jsonfile = fopen(filename, "w");
     if (jsonfile == NULL) {
-        printf("Warning: Could not create JSON file %s\n", filename);
+        printf(C_WARN "Warning: Could not create JSON file %s" C_R "\n", filename);
         return;
     }
 
@@ -301,7 +301,7 @@ static void stream_output_cpu_json(const char *filename_prefix,
 
     fprintf(jsonfile, "}\n");
     fclose(jsonfile);
-    printf("JSON results written to: %s\n", filename);
+    printf(C_FILE "JSON results written to: %s" C_R "\n", filename);
 }
 
 /*-----------------------------------------------------------------------*/
@@ -344,7 +344,7 @@ static void stream_output_gpu_json(const char *filename_prefix,
     sprintf(filename, "%s_%zuM.json", filename_prefix, r->array_size / 1000000);
     jsonfile = fopen(filename, "w");
     if (jsonfile == NULL) {
-        printf("Warning: Could not create JSON file %s\n", filename);
+        printf(C_WARN "Warning: Could not create JSON file %s" C_R "\n", filename);
         return;
     }
 
@@ -363,7 +363,7 @@ static void stream_output_gpu_json(const char *filename_prefix,
 
     fprintf(jsonfile, "}\n");
     fclose(jsonfile);
-    printf("JSON results written to: %s\n", filename);
+    printf(C_FILE "JSON results written to: %s" C_R "\n", filename);
 }
 
 #endif /* STREAM_OUTPUT_H */

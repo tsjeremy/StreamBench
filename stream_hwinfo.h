@@ -784,15 +784,15 @@ static void detect_hardware_info(HWInfo *hw)
  */
 static void print_system_info(const HWInfo *hw)
 {
-    printf("SYSTEM INFORMATION\n");
+    printf(C_SECTION "SYSTEM INFORMATION" C_R "\n");
     printf(HLINE);
-    printf("Hostname:       %s\n", hw->hostname);
-    printf("OS:             %s\n", hw->os_name);
-    printf("Architecture:   %s\n", hw->architecture);
-    printf("CPU Model:      %s\n", hw->cpu_model);
-    printf("Logical CPUs:   %d\n", hw->num_threads);
-    printf("Total RAM:      %.1f GB\n", hw->total_ram_gb);
-    printf("Timestamp:      %s\n", hw->timestamp);
+    printf(C_LABEL "Hostname:       " C_VALUE "%s" C_R "\n", hw->hostname);
+    printf(C_LABEL "OS:             " C_VALUE "%s" C_R "\n", hw->os_name);
+    printf(C_LABEL "Architecture:   " C_VALUE "%s" C_R "\n", hw->architecture);
+    printf(C_LABEL "CPU Model:      " C_DEVICE "%s" C_R "\n", hw->cpu_model);
+    printf(C_LABEL "Logical CPUs:   " C_VALUE "%d" C_R "\n", hw->num_threads);
+    printf(C_LABEL "Total RAM:      " C_VALUE "%.1f GB" C_R "\n", hw->total_ram_gb);
+    printf(C_LABEL "Timestamp:      " C_VALUE "%s" C_R "\n", hw->timestamp);
 }
 
 /*
@@ -802,66 +802,66 @@ static void print_hardware_info(const HWInfo *hw)
 {
     int i;
 
-    printf("HARDWARE DETAILS\n");
+    printf(C_SECTION "HARDWARE DETAILS" C_R "\n");
     printf(HLINE);
 
     /* Memory */
     if (hw->num_modules > 0) {
-        printf("Memory Type:    %s\n", hw->memory_type);
-        printf("Memory Speed:   %d MT/s", hw->speed_mts);
+        printf(C_LABEL "Memory Type:    " C_VALUE "%s" C_R "\n", hw->memory_type);
+        printf(C_LABEL "Memory Speed:   " C_VALUE "%d MT/s" C_R, hw->speed_mts);
         if (hw->configured_speed_mts > 0 &&
             hw->configured_speed_mts != hw->speed_mts)
-            printf(" (configured: %d MT/s)", hw->configured_speed_mts);
+            printf(C_LABEL " (configured: " C_VALUE "%d MT/s" C_LABEL ")" C_R, hw->configured_speed_mts);
         printf("\n");
-        printf("Memory Slots:   %d of %d populated\n",
+        printf(C_LABEL "Memory Slots:   " C_VALUE "%d of %d" C_LABEL " populated" C_R "\n",
                hw->num_modules, hw->total_slots);
         for (i = 0; i < hw->total_slots; i++) {
             const HWMemModule *m = &hw->modules[i];
             if (m->size_mb > 0) {
-                printf("  [%s] %d MB %s %d MT/s",
+                printf(C_DIM "  [%s]" C_R " " C_VALUE "%d MB" C_R " %s " C_VALUE "%d MT/s" C_R,
                        m->locator[0] ? m->locator : "?",
                        m->size_mb, m->type_str, m->speed_mts);
                 if (m->rank > 0) printf(" Rank%d", m->rank);
                 if (m->manufacturer[0]) printf(" %s", m->manufacturer);
-                if (m->part_number[0]) printf(" %s", m->part_number);
+                if (m->part_number[0]) printf(C_DIM " %s" C_R, m->part_number);
                 printf("\n");
             }
         }
     } else {
-        printf("Memory Modules: Not available (SMBIOS access denied or N/A)\n");
+        printf(C_WARN "Memory Modules: Not available (SMBIOS access denied or N/A)" C_R "\n");
     }
 
     /* Cache */
     if (hw->l1d_cache_kb > 0 || hw->l2_cache_kb > 0 || hw->l3_cache_kb > 0) {
-        printf("Cache:         ");
-        if (hw->l1d_cache_kb > 0) printf(" L1d=%dK", hw->l1d_cache_kb);
-        if (hw->l1i_cache_kb > 0) printf(" L1i=%dK", hw->l1i_cache_kb);
+        printf(C_LABEL "Cache:         " C_R);
+        if (hw->l1d_cache_kb > 0) printf(C_VALUE " L1d=%dK" C_R, hw->l1d_cache_kb);
+        if (hw->l1i_cache_kb > 0) printf(C_VALUE " L1i=%dK" C_R, hw->l1i_cache_kb);
         if (hw->l2_cache_kb > 0) {
             if (hw->l2_cache_kb >= 1024)
-                printf(" L2=%dM", hw->l2_cache_kb / 1024);
+                printf(C_VALUE " L2=%dM" C_R, hw->l2_cache_kb / 1024);
             else
-                printf(" L2=%dK", hw->l2_cache_kb);
+                printf(C_VALUE " L2=%dK" C_R, hw->l2_cache_kb);
         }
         if (hw->l3_cache_kb > 0) {
             if (hw->l3_cache_kb >= 1024)
-                printf(" L3=%dM", hw->l3_cache_kb / 1024);
+                printf(C_VALUE " L3=%dM" C_R, hw->l3_cache_kb / 1024);
             else
-                printf(" L3=%dK", hw->l3_cache_kb);
+                printf(C_VALUE " L3=%dK" C_R, hw->l3_cache_kb);
         }
-        printf(" (per-core L1/L2, total L3)\n");
+        printf(C_DIM " (per-core L1/L2, total L3)" C_R "\n");
     }
 
     /* CPU frequency */
     if (hw->cpu_base_mhz > 0) {
-        printf("CPU Frequency:  %d MHz", hw->cpu_base_mhz);
+        printf(C_LABEL "CPU Frequency:  " C_VALUE "%d MHz" C_R, hw->cpu_base_mhz);
         if (hw->cpu_max_mhz > 0 && hw->cpu_max_mhz != hw->cpu_base_mhz)
-            printf(" (max: %d MHz)", hw->cpu_max_mhz);
+            printf(C_LABEL " (max: " C_VALUE "%d MHz" C_LABEL ")" C_R, hw->cpu_max_mhz);
         printf("\n");
     }
 
     /* NUMA */
     if (hw->numa_nodes > 1)
-        printf("NUMA Nodes:     %d\n", hw->numa_nodes);
+        printf(C_LABEL "NUMA Nodes:     " C_VALUE "%d" C_R "\n", hw->numa_nodes);
 }
 
 #endif /* STREAM_HWINFO_H */
