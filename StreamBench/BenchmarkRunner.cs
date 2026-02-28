@@ -133,9 +133,10 @@ public static class BenchmarkRunner
     private static string GetArchTag() =>
         RuntimeInformation.ProcessArchitecture switch
         {
-            Architecture.Arm64  => "arm64",
-            Architecture.X64    => "x64",
-            Architecture.X86    => "x86",
-            _                   => RuntimeInformation.ProcessArchitecture.ToString().ToLower()
+            Architecture.Arm64 => "arm64",
+            Architecture.X64   => "x64",
+            // Only x64 and ARM64 are supported on Windows.
+            // Other architectures fall through to the unsupported path below.
+            _ => RuntimeInformation.ProcessArchitecture.ToString().ToLower()
         };
 }
