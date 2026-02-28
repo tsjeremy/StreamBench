@@ -21,6 +21,7 @@ public static class BenchmarkRunner
 
     /// <summary>
     /// Finds the C backend executable next to this assembly or in the project root.
+    /// Falls back to extracting an embedded backend if no external binary is found.
     /// Naming convention: stream_cpu_<os>_<arch>[.exe] or stream_gpu_<os>_<arch>[.exe]
     /// </summary>
     public static string? FindExecutable(bool isGpu)
@@ -56,7 +57,8 @@ public static class BenchmarkRunner
                     return path;
             }
 
-        return null;
+        // No external binary found — try extracting from embedded resources
+        return EmbeddedBackends.ExtractBackend(isGpu);
     }
 
     /// <summary>

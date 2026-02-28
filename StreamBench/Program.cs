@@ -67,8 +67,9 @@ string? exe = exePath ?? BenchmarkRunner.FindExecutable(isGpu);
 if (exe is null)
 {
     ConsoleOutput.WriteMarkup("[red]Error:[/] Could not find the C benchmark executable.");
-    ConsoleOutput.WriteMarkup("[dim]Build it first, then place it in the same directory as StreamBench.[/]");
-    ConsoleOutput.WriteMarkup("[dim]Expected names: stream_cpu_<os>_<arch>  or  stream_gpu_<os>_<arch>[/]");
+    ConsoleOutput.WriteMarkup("[dim]No embedded backend found and no external binary in the current directory.[/]");
+    ConsoleOutput.WriteMarkup("[dim]Place stream_cpu_<os>_<arch> / stream_gpu_<os>_<arch> next to StreamBench,[/]");
+    ConsoleOutput.WriteMarkup("[dim]or rebuild with embedded backends (see build scripts).[/]");
     return 1;
 }
 

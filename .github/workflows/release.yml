@@ -61,23 +61,31 @@ jobs:
             || clang -arch x86_64 -O2 ${CPU_DEFS} -o stream_cpu_macos_x64 stream.c
           clang -arch x86_64 -O2 ${GPU_DEFS} -o stream_gpu_macos_x64 stream_gpu.c -lm
 
-      - name: Publish StreamBench (osx-arm64)
+      - name: Publish StreamBench (osx-arm64, self-contained with embedded backends)
         run: |
+          # Embed arm64 backends into the StreamBench binary
+          mkdir -p StreamBench/backends
+          cp stream_cpu_macos_arm64 stream_gpu_macos_arm64 StreamBench/backends/
           dotnet publish StreamBench/StreamBench.csproj \
             -c Release -r osx-arm64 --self-contained true \
             -p:PublishSingleFile=true --nologo -v quiet \
             -o _pub/osx-arm64
           cp _pub/osx-arm64/StreamBench StreamBench_osx-arm64
           chmod +x StreamBench_osx-arm64
+          rm -rf StreamBench/backends
 
-      - name: Publish StreamBench (osx-x64)
+      - name: Publish StreamBench (osx-x64, self-contained with embedded backends)
         run: |
+          # Embed x64 backends into the StreamBench binary
+          mkdir -p StreamBench/backends
+          cp stream_cpu_macos_x64 stream_gpu_macos_x64 StreamBench/backends/
           dotnet publish StreamBench/StreamBench.csproj \
             -c Release -r osx-x64 --self-contained true \
             -p:PublishSingleFile=true --nologo -v quiet \
             -o _pub/osx-x64
           cp _pub/osx-x64/StreamBench StreamBench_osx-x64
           chmod +x StreamBench_osx-x64
+          rm -rf StreamBench/backends
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -118,14 +126,18 @@ jobs:
       # Publish win-x64 BEFORE switching to ARM64 MSVC environment,
       # otherwise the Platform=ARM64 env var from ilammy/msvc-dev-cmd
       # leaks into dotnet and conflicts with the win-x64 RID.
-      - name: Publish StreamBench (win-x64)
+      - name: Publish StreamBench (win-x64, self-contained with embedded backends)
         shell: pwsh
         run: |
+          # Embed x64 backends into the StreamBench binary
+          New-Item -ItemType Directory -Force StreamBench/backends | Out-Null
+          Copy-Item stream_cpu_win_x64.exe, stream_gpu_win_x64.exe StreamBench/backends/
           dotnet publish StreamBench/StreamBench.csproj `
             -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true --nologo -v quiet `
             -o _pub/win-x64
           Copy-Item _pub/win-x64/StreamBench.exe StreamBench_win-x64.exe
+          Remove-Item StreamBench/backends -Recurse -Force
 
       - name: Setup MSVC (x64 -> ARM64 cross-compile)
         uses: ilammy/msvc-dev-cmd@v1
@@ -138,14 +150,18 @@ jobs:
           cl.exe /nologo /O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp /Fe:stream_cpu_win_arm64.exe stream.c /link advapi32.lib
           cl.exe /nologo /O2           /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100         /Fe:stream_gpu_win_arm64.exe stream_gpu.c /link advapi32.lib
 
-      - name: Publish StreamBench (win-arm64)
+      - name: Publish StreamBench (win-arm64, self-contained with embedded backends)
         shell: pwsh
         run: |
+          # Embed arm64 backends into the StreamBench binary
+          New-Item -ItemType Directory -Force StreamBench/backends | Out-Null
+          Copy-Item stream_cpu_win_arm64.exe, stream_gpu_win_arm64.exe StreamBench/backends/
           dotnet publish StreamBench/StreamBench.csproj `
             -c Release -r win-arm64 --self-contained true `
             -p:PublishSingleFile=true --nologo -v quiet `
             -o _pub/win-arm64
           Copy-Item _pub/win-arm64/StreamBench.exe StreamBench_win-arm64.exe
+          Remove-Item StreamBench/backends -Recurse -Force
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4

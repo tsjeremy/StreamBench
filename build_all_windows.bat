@@ -164,34 +164,48 @@ if %ERRORLEVEL% EQU 0 (
     goto :done
 )
 
-REM --- Publish self-contained single-file executables ---
+REM --- Publish self-contained single-file executables with embedded backends ---
 echo.
 echo ============================================================
-echo  Publishing StreamBench (self-contained)
+echo  Publishing StreamBench (self-contained with embedded backends)
 echo ============================================================
+
+REM Embed x64 backends
+if not exist "%SRCDIR%StreamBench\backends" mkdir "%SRCDIR%StreamBench\backends"
+if exist "%SRCDIR%stream_cpu_win_x64.exe" copy /y "%SRCDIR%stream_cpu_win_x64.exe" "%SRCDIR%StreamBench\backends\" >nul
+if exist "%SRCDIR%stream_gpu_win_x64.exe" copy /y "%SRCDIR%stream_gpu_win_x64.exe" "%SRCDIR%StreamBench\backends\" >nul
 
 dotnet publish "%SRCDIR%StreamBench\StreamBench.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "%SRCDIR%publish\win-x64" --nologo -v quiet
 if %ERRORLEVEL% EQU 0 (
     copy /y "%SRCDIR%publish\win-x64\StreamBench.exe" "%SRCDIR%StreamBench_win_x64.exe" >nul
-    echo [OK] StreamBench_win_x64.exe
+    echo [OK] StreamBench_win_x64.exe (with embedded CPU + GPU backends)
 ) else (
     echo [FAIL] StreamBench_win_x64.exe
     set /a ERRORS+=1
 )
 
+REM Clean x64 backends, embed ARM64 backends
+rd /s /q "%SRCDIR%StreamBench\backends" 2>nul
+if not exist "%SRCDIR%StreamBench\backends" mkdir "%SRCDIR%StreamBench\backends"
+if exist "%SRCDIR%stream_cpu_win_arm64.exe" copy /y "%SRCDIR%stream_cpu_win_arm64.exe" "%SRCDIR%StreamBench\backends\" >nul
+if exist "%SRCDIR%stream_gpu_win_arm64.exe" copy /y "%SRCDIR%stream_gpu_win_arm64.exe" "%SRCDIR%StreamBench\backends\" >nul
+
 dotnet publish "%SRCDIR%StreamBench\StreamBench.csproj" -c Release -r win-arm64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "%SRCDIR%publish\win-arm64" --nologo -v quiet
 if %ERRORLEVEL% EQU 0 (
     copy /y "%SRCDIR%publish\win-arm64\StreamBench.exe" "%SRCDIR%StreamBench_win_arm64.exe" >nul
-    echo [OK] StreamBench_win_arm64.exe
+    echo [OK] StreamBench_win_arm64.exe (with embedded CPU + GPU backends)
 ) else (
     echo [FAIL] StreamBench_win_arm64.exe
     set /a ERRORS+=1
 )
 
+REM Clean staging directory
+rd /s /q "%SRCDIR%StreamBench\backends" 2>nul
+
 echo.
-echo   Run:  run_stream.bat
-echo   Or:   StreamBench_win_x64.exe --cpu --array-size 200M
-echo         StreamBench_win_x64.exe --gpu --array-size 200M
+echo   Run:  StreamBench_win_x64.exe --cpu
+echo         StreamBench_win_x64.exe --gpu
+echo   Or:   run_stream.bat (auto-detects architecture)
 
 :done
 echo.

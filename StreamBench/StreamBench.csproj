@@ -8,9 +8,18 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
-    <Version>5.10.04</Version>
+    <Version>5.10.05</Version>
     <Description>STREAM Benchmark .NET 10 frontend — colored output, JSON/CSV saving, AI-extensible</Description>
   </PropertyGroup>
 
+  <!--
+    Embed native C backend binaries as resources.
+    Place the compiled binaries in StreamBench/backends/ before running dotnet publish.
+    At runtime, EmbeddedBackends.cs extracts the correct one for the current OS/arch.
+    If no backends/ folder exists (e.g. dev builds), embedded extraction is simply skipped.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="backends\*" Condition="Exists('backends')" />
+  </ItemGroup>
 
 </Project>

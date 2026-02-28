@@ -24,5 +24,8 @@ obj/
 publish/
 *.user
 
+# Embedded backend staging directory (created only during CI builds)
+StreamBench/backends/
+
 # Visual Studio
 .vs/

@@ -113,14 +113,49 @@ if ! command -v dotnet &> /dev/null; then
 else
     if dotnet build "$SCRIPT_DIR/StreamBench/StreamBench.csproj" --configuration Release --nologo -v quiet; then
         echo "[OK] StreamBench (.NET)"
-        echo ""
-        echo "  Run:  ./run_stream.sh"
-        echo "  Or:   dotnet run --project StreamBench -- --cpu --array-size 200M"
-        echo "        dotnet run --project StreamBench -- --gpu --array-size 200M"
     else
         echo "[FAIL] StreamBench (.NET)"
         ERRORS=$((ERRORS + 1))
     fi
+
+    # --- Publish self-contained single-file executables with embedded backends ---
+    echo ""
+    echo "============================================================"
+    echo " Publishing StreamBench (self-contained with embedded backends)"
+    echo "============================================================"
+
+    ARCH_NATIVE="$(uname -m)"
+    NATIVE_TAG=$( [ "$ARCH_NATIVE" = "aarch64" ] && echo "arm64" || echo "x64" )
+
+    for ARCH_TAG in x64 arm64; do
+        RID="linux-$ARCH_TAG"
+        BACKEND_DIR="$SCRIPT_DIR/StreamBench/backends"
+        rm -rf "$BACKEND_DIR" 2>/dev/null
+        mkdir -p "$BACKEND_DIR"
+
+        # Copy the matching backends into the staging directory
+        [ -f "$SCRIPT_DIR/stream_cpu_linux_${ARCH_TAG}" ] && cp "$SCRIPT_DIR/stream_cpu_linux_${ARCH_TAG}" "$BACKEND_DIR/"
+        [ -f "$SCRIPT_DIR/stream_gpu_linux_${ARCH_TAG}" ] && cp "$SCRIPT_DIR/stream_gpu_linux_${ARCH_TAG}" "$BACKEND_DIR/"
+
+        if dotnet publish "$SCRIPT_DIR/StreamBench/StreamBench.csproj" \
+            -c Release -r "$RID" --self-contained true \
+            -p:PublishSingleFile=true --nologo -v quiet \
+            -o "$SCRIPT_DIR/publish/$RID"; then
+            cp "$SCRIPT_DIR/publish/$RID/StreamBench" "$SCRIPT_DIR/StreamBench_linux-${ARCH_TAG}"
+            chmod +x "$SCRIPT_DIR/StreamBench_linux-${ARCH_TAG}"
+            echo "[OK] StreamBench_linux-${ARCH_TAG} (with embedded CPU + GPU backends)"
+        else
+            echo "[FAIL] StreamBench_linux-${ARCH_TAG}"
+            ERRORS=$((ERRORS + 1))
+        fi
+
+        rm -rf "$BACKEND_DIR" 2>/dev/null
+    done
+
+    echo ""
+    echo "  Run:  ./StreamBench_linux-${NATIVE_TAG} --cpu"
+    echo "        ./StreamBench_linux-${NATIVE_TAG} --gpu"
+    echo "  Or:   ./run_stream.sh (auto-detects architecture)"
 fi
 
 echo ""
