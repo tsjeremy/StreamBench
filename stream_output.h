@@ -1,10 +1,13 @@
 /*-----------------------------------------------------------------------*/
-/* Output Formatting for STREAM Benchmark (CSV & JSON)                    */
+/* Output Formatting for STREAM Benchmark (JSON to FILE*)                 */
 /*                                                                        */
-/* Centralizes ALL file output (CSV and JSON) for benchmark reporting:    */
-/*   - CSV: single-run and range-test consolidated files                  */
-/*   - JSON: full system/hardware/config/results with HWInfo integration  */
-/*   - GPU JSON includes device section (compute units, VRAM, etc.)       */
+/* Provides JSON output functions for CPU and GPU benchmark results.      */
+/* Writes to stdout (headless mode) or any FILE* pointer.                 */
+/* Outputs: benchmark metadata, config, results, validation.              */
+/*                                                                        */
+/* System, memory, and cache info are detected and added by the           */
+/* .NET 10 frontend (StreamBench/SystemInfoDetector.cs) after reading     */
+/* this JSON output.                                                      */
 /*                                                                        */
 /* Cross-platform: Windows (MSVC), Linux (GCC), macOS (Clang)            */
 /* Requires: stream_hwinfo.h (for HWInfo, hwinfo_json_escape)            */
@@ -44,192 +47,9 @@ typedef struct {
 } StreamGpuDevice;
 
 /*-----------------------------------------------------------------------*/
-/* CSV OUTPUT                                                            */
+/* JSON HELPERS (config and results blocks)                              */
 /*-----------------------------------------------------------------------*/
 
-/*
- * Write benchmark results to a CSV file.
- * filename_prefix: e.g., "stream_results" or "stream_gpu_results"
- */
-static void stream_output_csv(const char *filename_prefix,
-                               const StreamBenchResult *r)
-{
-    FILE *csvfile;
-    char filename[256];
-    int j;
-    double array_size_mib = (r->bytes_per_element * (double)r->array_size) / (1024.0 * 1024.0);
-    double total_memory_gib = (3.0 * r->bytes_per_element * (double)r->array_size) / (1024.0 * 1024.0 * 1024.0);
-
-    sprintf(filename, "%s_%zuM.csv", filename_prefix, r->array_size / 1000000);
-    csvfile = fopen(filename, "w");
-    if (csvfile == NULL) {
-        printf(C_WARN "Warning: Could not create CSV file %s" C_R "\n", filename);
-        return;
-    }
-
-    fprintf(csvfile, "Array_Size_Elements,Array_Size_MiB,Total_Memory_GiB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
-    for (j = 0; j < 4; j++) {
-        fprintf(csvfile, "%zu,%.1f,%.3f,%s,%.1f,%.6f,%.6f,%.6f\n",
-                r->array_size, array_size_mib, total_memory_gib,
-                (j == 0) ? "Copy" : (j == 1) ? "Scale" : (j == 2) ? "Add" : "Triad",
-                1.0E-06 * r->bytes[j] / r->mintime[j],
-                r->avgtime[j], r->mintime[j], r->maxtime[j]);
-    }
-
-    fclose(csvfile);
-    printf(C_FILE "CSV results written to: %s" C_R "\n", filename);
-}
-
-/*-----------------------------------------------------------------------*/
-/* RANGE CSV (consolidated file for multi-size testing)                  */
-/*-----------------------------------------------------------------------*/
-
-/*
- * Open a consolidated CSV file for range testing and write the header.
- * Returns FILE pointer (caller must track and pass to append/close).
- */
-static FILE *stream_output_range_csv_open(const char *filename)
-{
-    FILE *f = fopen(filename, "w");
-    if (f == NULL) {
-        printf(C_WARN "Warning: Could not create consolidated CSV file %s" C_R "\n", filename);
-        return NULL;
-    }
-    fprintf(f, "Array_Size_Elements,Array_Size_MiB,Total_Memory_GiB,Function,Best_Rate_MBps,Avg_Time_sec,Min_Time_sec,Max_Time_sec\n");
-    printf(C_FILE "Consolidated CSV file created: %s" C_R "\n", filename);
-    printf(C_FILE "All range test results will be saved to this single file." C_R "\n");
-    return f;
-}
-
-/*
- * Append one set of benchmark results to the consolidated CSV file.
- */
-static void stream_output_range_csv_append(FILE *f,
-                                            const StreamBenchResult *r)
-{
-    int j;
-    double array_size_mib = (r->bytes_per_element * (double)r->array_size) / (1024.0 * 1024.0);
-    double total_memory_gib = (3.0 * r->bytes_per_element * (double)r->array_size) / (1024.0 * 1024.0 * 1024.0);
-
-    for (j = 0; j < 4; j++) {
-        fprintf(f, "%zu,%.1f,%.3f,%s,%.1f,%.6f,%.6f,%.6f\n",
-                r->array_size, array_size_mib, total_memory_gib,
-                (j == 0) ? "Copy" : (j == 1) ? "Scale" : (j == 2) ? "Add" : "Triad",
-                1.0E-06 * r->bytes[j] / r->mintime[j],
-                r->avgtime[j], r->mintime[j], r->maxtime[j]);
-    }
-    fflush(f);
-    printf(C_FILE "Results appended to consolidated CSV file" C_R "\n");
-}
-
-/*
- * Close the consolidated CSV file.
- */
-static void stream_output_range_csv_close(FILE *f)
-{
-    if (f != NULL) {
-        fclose(f);
-        printf(C_FILE "Consolidated CSV file closed successfully" C_R "\n");
-    }
-}
-
-/*-----------------------------------------------------------------------*/
-/* JSON HELPERS (shared system/memory/cache blocks)                      */
-/*-----------------------------------------------------------------------*/
-
-/*
- * Write the "system" JSON block (shared between CPU and GPU).
- */
-static void stream_output_json_system(FILE *f, const HWInfo *hw)
-{
-    char esc_hostname[512], esc_os[512], esc_cpu[512];
-    hwinfo_json_escape(hw->hostname, esc_hostname, sizeof(esc_hostname));
-    hwinfo_json_escape(hw->os_name, esc_os, sizeof(esc_os));
-    hwinfo_json_escape(hw->cpu_model, esc_cpu, sizeof(esc_cpu));
-
-    fprintf(f, "  \"system\": {\n");
-    fprintf(f, "    \"hostname\": \"%s\",\n", esc_hostname);
-    fprintf(f, "    \"os\": \"%s\",\n", esc_os);
-    fprintf(f, "    \"architecture\": \"%s\",\n", hw->architecture);
-    fprintf(f, "    \"cpu_model\": \"%s\",\n", esc_cpu);
-    fprintf(f, "    \"logical_cpus\": %d,\n", hw->num_threads);
-    fprintf(f, "    \"cpu_base_mhz\": %d,\n", hw->cpu_base_mhz);
-    if (hw->cpu_max_mhz > 0)
-        fprintf(f, "    \"cpu_max_mhz\": %d,\n", hw->cpu_max_mhz);
-    fprintf(f, "    \"total_ram_gb\": %.1f,\n", hw->total_ram_gb);
-    fprintf(f, "    \"numa_nodes\": %d\n", hw->numa_nodes);
-    fprintf(f, "  },\n");
-}
-
-/*
- * Write the "memory" JSON block (SMBIOS module details).
- */
-static void stream_output_json_memory(FILE *f, const HWInfo *hw)
-{
-    int i;
-
-    fprintf(f, "  \"memory\": {\n");
-    if (hw->num_modules > 0) {
-        char esc_type[64];
-        hwinfo_json_escape(hw->memory_type, esc_type, sizeof(esc_type));
-        fprintf(f, "    \"type\": \"%s\",\n", esc_type);
-        fprintf(f, "    \"speed_mts\": %d,\n", hw->speed_mts);
-        fprintf(f, "    \"configured_speed_mts\": %d,\n", hw->configured_speed_mts);
-        fprintf(f, "    \"modules_populated\": %d,\n", hw->num_modules);
-        fprintf(f, "    \"total_slots\": %d,\n", hw->total_slots);
-        fprintf(f, "    \"modules\": [\n");
-        {
-            int first = 1;
-            for (i = 0; i < hw->total_slots; i++) {
-                const HWMemModule *m = &hw->modules[i];
-                if (m->size_mb > 0) {
-                    char esc_loc[128], esc_mfr[128], esc_pn[128], esc_mt[64], esc_ff[64];
-                    hwinfo_json_escape(m->locator, esc_loc, sizeof(esc_loc));
-                    hwinfo_json_escape(m->manufacturer, esc_mfr, sizeof(esc_mfr));
-                    hwinfo_json_escape(m->part_number, esc_pn, sizeof(esc_pn));
-                    hwinfo_json_escape(m->type_str, esc_mt, sizeof(esc_mt));
-                    hwinfo_json_escape(m->form_factor_str, esc_ff, sizeof(esc_ff));
-                    if (!first) fprintf(f, ",\n");
-                    fprintf(f, "      {\n");
-                    fprintf(f, "        \"locator\": \"%s\",\n", esc_loc);
-                    fprintf(f, "        \"size_mb\": %d,\n", m->size_mb);
-                    fprintf(f, "        \"type\": \"%s\",\n", esc_mt);
-                    fprintf(f, "        \"form_factor\": \"%s\",\n", esc_ff);
-                    fprintf(f, "        \"speed_mts\": %d,\n", m->speed_mts);
-                    fprintf(f, "        \"configured_speed_mts\": %d,\n", m->configured_speed_mts);
-                    fprintf(f, "        \"data_width_bits\": %d,\n", m->data_width_bits);
-                    fprintf(f, "        \"total_width_bits\": %d,\n", m->total_width_bits);
-                    fprintf(f, "        \"rank\": %d,\n", m->rank);
-                    fprintf(f, "        \"manufacturer\": \"%s\",\n", esc_mfr);
-                    fprintf(f, "        \"part_number\": \"%s\"\n", esc_pn);
-                    fprintf(f, "      }");
-                    first = 0;
-                }
-            }
-            fprintf(f, "\n    ]\n");
-        }
-    } else {
-        fprintf(f, "    \"available\": false\n");
-    }
-    fprintf(f, "  },\n");
-}
-
-/*
- * Write the "cache" JSON block.
- */
-static void stream_output_json_cache(FILE *f, const HWInfo *hw)
-{
-    fprintf(f, "  \"cache\": {\n");
-    fprintf(f, "    \"l1d_per_core_kb\": %d,\n", hw->l1d_cache_kb);
-    fprintf(f, "    \"l1i_per_core_kb\": %d,\n", hw->l1i_cache_kb);
-    fprintf(f, "    \"l2_per_core_kb\": %d,\n", hw->l2_cache_kb);
-    fprintf(f, "    \"l3_total_kb\": %d\n", hw->l3_cache_kb);
-    fprintf(f, "  },\n");
-}
-
-/*
- * Write the "config" JSON block.
- */
 static void stream_output_json_config(FILE *f, const StreamBenchResult *r)
 {
     double array_size_mib = (r->bytes_per_element * (double)r->array_size) / (1024.0 * 1024.0);
@@ -244,9 +64,6 @@ static void stream_output_json_config(FILE *f, const StreamBenchResult *r)
     fprintf(f, "  },\n");
 }
 
-/*
- * Write the "results" JSON block (benchmark rates and timings).
- */
 static void stream_output_json_results(FILE *f, const StreamBenchResult *r)
 {
     int j;
@@ -262,57 +79,43 @@ static void stream_output_json_results(FILE *f, const StreamBenchResult *r)
         fprintf(f, "      \"max_time_sec\": %.6f\n", r->maxtime[j]);
         fprintf(f, "    }%s\n", (j < 3) ? "," : "");
     }
-    fprintf(f, "  }\n");
+    fprintf(f, "  },\n");
 }
 
 /*-----------------------------------------------------------------------*/
-/* JSON OUTPUT — CPU BENCHMARK                                           */
+/* JSON OUTPUT — CPU BENCHMARK (writes to any FILE*)                     */
 /*-----------------------------------------------------------------------*/
 
 /*
- * Write full CPU benchmark JSON file.
- * filename_prefix: e.g., "stream_cpu_results"
+ * Write CPU benchmark JSON to the given FILE* (e.g. stdout or a file).
+ * Outputs: benchmark metadata, config, results, validation.
+ * The .NET frontend appends system/memory/cache info via SystemInfoDetector.
+ * validation_passed: 1 if checkSTREAMresults passed, 0 otherwise.
  */
-static void stream_output_cpu_json(const char *filename_prefix,
-                                    const StreamBenchResult *r,
-                                    const HWInfo *hw)
+static void stream_output_cpu_json_fp(FILE *f,
+                                       const StreamBenchResult *r,
+                                       const HWInfo *hw,
+                                       int validation_passed)
 {
-    FILE *jsonfile;
-    char filename[256];
+    fprintf(f, "{\n");
+    fprintf(f, "  \"benchmark\": \"STREAM\",\n");
+    fprintf(f, "  \"version\": \"%s\",\n", r->version);
+    fprintf(f, "  \"type\": \"%s\",\n", r->benchmark_type);
+    fprintf(f, "  \"timestamp\": \"%s\",\n", hw->timestamp);
 
-    sprintf(filename, "%s_%zuM.json", filename_prefix, r->array_size / 1000000);
-    jsonfile = fopen(filename, "w");
-    if (jsonfile == NULL) {
-        printf(C_WARN "Warning: Could not create JSON file %s" C_R "\n", filename);
-        return;
-    }
+    stream_output_json_config(f, r);
+    stream_output_json_results(f, r);
 
-    fprintf(jsonfile, "{\n");
-    fprintf(jsonfile, "  \"benchmark\": \"STREAM\",\n");
-    fprintf(jsonfile, "  \"version\": \"%s\",\n", r->version);
-    fprintf(jsonfile, "  \"type\": \"%s\",\n", r->benchmark_type);
-    fprintf(jsonfile, "  \"timestamp\": \"%s\",\n", hw->timestamp);
-
-    stream_output_json_system(jsonfile, hw);
-    stream_output_json_memory(jsonfile, hw);
-    stream_output_json_cache(jsonfile, hw);
-    stream_output_json_config(jsonfile, r);
-    stream_output_json_results(jsonfile, r);
-
-    fprintf(jsonfile, "}\n");
-    fclose(jsonfile);
-    printf(C_FILE "JSON results written to: %s" C_R "\n", filename);
+    fprintf(f, "  \"validation\": \"%s\"\n", validation_passed ? "passed" : "failed");
+    fprintf(f, "}\n");
+    fflush(f);
 }
 
 /*-----------------------------------------------------------------------*/
-/* JSON OUTPUT — GPU BENCHMARK                                           */
+/* JSON OUTPUT — GPU BENCHMARK (writes to any FILE*)                     */
 /*-----------------------------------------------------------------------*/
 
-/*
- * Write the "device" JSON block for GPU benchmarks.
- */
-static void stream_output_json_gpu_device(FILE *f,
-                                           const StreamGpuDevice *dev)
+static void stream_output_json_gpu_device(FILE *f, const StreamGpuDevice *dev)
 {
     char esc_name[512], esc_vendor[512];
     hwinfo_json_escape(dev->name, esc_name, sizeof(esc_name));
@@ -330,40 +133,31 @@ static void stream_output_json_gpu_device(FILE *f,
 }
 
 /*
- * Write full GPU benchmark JSON file.
- * filename_prefix: e.g., "stream_gpu_results"
+ * Write GPU benchmark JSON to the given FILE* (e.g. stdout or a file).
+ * Outputs: benchmark metadata, GPU device info, config, results, validation.
+ * The .NET frontend appends system/memory/cache info via SystemInfoDetector.
+ * validation_passed: 1 if results validated, 0 otherwise.
  */
-static void stream_output_gpu_json(const char *filename_prefix,
-                                    const StreamBenchResult *r,
-                                    const HWInfo *hw,
-                                    const StreamGpuDevice *dev)
+static void stream_output_gpu_json_fp(FILE *f,
+                                       const StreamBenchResult *r,
+                                       const HWInfo *hw,
+                                       const StreamGpuDevice *dev,
+                                       int validation_passed)
 {
-    FILE *jsonfile;
-    char filename[256];
+    fprintf(f, "{\n");
+    fprintf(f, "  \"benchmark\": \"STREAM\",\n");
+    fprintf(f, "  \"version\": \"%s\",\n", r->version);
+    fprintf(f, "  \"type\": \"%s\",\n", r->benchmark_type);
+    fprintf(f, "  \"timestamp\": \"%s\",\n", hw->timestamp);
 
-    sprintf(filename, "%s_%zuM.json", filename_prefix, r->array_size / 1000000);
-    jsonfile = fopen(filename, "w");
-    if (jsonfile == NULL) {
-        printf(C_WARN "Warning: Could not create JSON file %s" C_R "\n", filename);
-        return;
-    }
+    if (dev != NULL)
+        stream_output_json_gpu_device(f, dev);
+    stream_output_json_config(f, r);
+    stream_output_json_results(f, r);
 
-    fprintf(jsonfile, "{\n");
-    fprintf(jsonfile, "  \"benchmark\": \"STREAM\",\n");
-    fprintf(jsonfile, "  \"version\": \"%s\",\n", r->version);
-    fprintf(jsonfile, "  \"type\": \"%s\",\n", r->benchmark_type);
-    fprintf(jsonfile, "  \"timestamp\": \"%s\",\n", hw->timestamp);
-
-    stream_output_json_system(jsonfile, hw);
-    stream_output_json_gpu_device(jsonfile, dev);
-    stream_output_json_memory(jsonfile, hw);
-    stream_output_json_cache(jsonfile, hw);
-    stream_output_json_config(jsonfile, r);
-    stream_output_json_results(jsonfile, r);
-
-    fprintf(jsonfile, "}\n");
-    fclose(jsonfile);
-    printf(C_FILE "JSON results written to: %s" C_R "\n", filename);
+    fprintf(f, "  \"validation\": \"%s\"\n", validation_passed ? "passed" : "failed");
+    fprintf(f, "}\n");
+    fflush(f);
 }
 
 #endif /* STREAM_OUTPUT_H */

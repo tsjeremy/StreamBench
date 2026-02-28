@@ -93,16 +93,10 @@
  *   /DTUNED or -DTUNED     : Enable optimized kernel functions.
  *   /DSTREAM_ARRAY_SIZE=N  : Set array size (200M elements = ~4.5GB total memory).
  *   /DNTIMES=N             : Set number of timing iterations (100 for better statistics).
- *   /DSTART_SIZE=N         : Start array size for range testing (e.g., 50000000).
- *   /DEND_SIZE=N           : End array size for range testing (e.g., 200000000).
- *   /DSTEP_SIZE=N          : Step size for range testing (e.g., 50000000).
  *   /Fe:name or -o name    : Set the output executable file name.
  *
- * ===== Range Testing Examples =====
- *
- *   Test from 50M to 200M elements in 50M steps:
- *     cl.exe /O2 /DTUNED /DSTART_SIZE=50000000 /DEND_SIZE=200000000 /DSTEP_SIZE=50000000 /DNTIMES=20 /openmp /Fe:stream_range.exe stream.c
- *     gcc -O2 -fopenmp -DTUNED -DSTART_SIZE=50000000 -DEND_SIZE=200000000 -DSTEP_SIZE=50000000 -DNTIMES=20 -o stream_range stream.c
+ * Note: Range testing (sweeping multiple array sizes) is handled by the
+ *       .NET 10 frontend: dotnet run --project StreamBench -- --cpu --range 50M:200M:50M
  */
 /*-----------------------------------------------------------------------*/
 
@@ -111,6 +105,7 @@
 #include <float.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <string.h>
 
 /*-----------------------------------------------------------------------*/
 /* CROSS-PLATFORM COMPATIBILITY HEADERS                                 */
@@ -126,13 +121,8 @@
     #include <omp.h> /* Include the OpenMP library */
 #endif
 
-#include "stream_colors.h"  /* Console color support (before hwinfo for color macros) */
-
-/* Colored horizontal separator line (must be before stream_hwinfo.h to override its default) */
-#define HLINE C_HLINE "-------------------------------------------------------------" C_R "\n"
-
 #include "stream_hwinfo.h" /* System & hardware info detection */
-#include "stream_output.h" /* CSV & JSON output formatting */
+#include "stream_output.h" /* JSON output to stdout */
 
 /*-----------------------------------------------------------------------*/
 /* CONFIGURATION PARAMETERS                                              */
@@ -183,18 +173,8 @@
 #endif
 
 /*
- * Array size range testing parameters
- * Define START_SIZE, END_SIZE, and STEP_SIZE to test multiple array sizes
+ * Array size can also be overridden at runtime via --array-size N argument.
  */
-#ifndef START_SIZE
-    #define START_SIZE 0  /* If 0, use single STREAM_ARRAY_SIZE test */
-#endif
-#ifndef END_SIZE
-    #define END_SIZE 0
-#endif
-#ifndef STEP_SIZE
-    #define STEP_SIZE 10000000  /* Default step is 10M elements */
-#endif
 
 /*-----------------------------------------------------------------------*/
 /* CONSTANTS AND MACROS                                                  */
@@ -212,7 +192,6 @@
     #define abs(a) ((a) >= 0 ? (a) : -(a))
 #endif
 
-#define M 20 /* Number of samples to take in checktick() */
 
 /*-----------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                      */
@@ -229,15 +208,8 @@ static double avgtime[4] = {0},
               maxtime[4] = {0},
               mintime[4] = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
 
-/* Labels for the four tested kernels */
-static char *label[4] = {"Copy:      ", "Scale:     ",
-                         "Add:       ", "Triad:     "};
-
 /* Bytes transferred per iteration for each of the four kernels */
-static double bytes[4];  /* Will be calculated dynamically based on current array size */
-
-/* Global CSV file pointer for range testing */
-static FILE *range_csv_file = NULL;
+static double bytes[4];  /* Calculated dynamically based on current array size */
 
 /* Hardware & system info (populated by detect_hardware_info in stream_hwinfo.h) */
 static HWInfo hw_info;
@@ -247,7 +219,7 @@ static HWInfo hw_info;
 /*-----------------------------------------------------------------------*/
 
 extern double mysecond();
-extern void checkSTREAMresults();
+extern int checkSTREAMresults(); /* returns 0=pass, non-zero=fail */
 extern int run_stream_test(size_t array_size);
 
 #ifdef TUNED
@@ -260,67 +232,22 @@ extern void tuned_STREAM_Triad(STREAM_TYPE scalar);
 /*-----------------------------------------------------------------------*/
 /* MAIN FUNCTION                                                         */
 /*-----------------------------------------------------------------------*/
-int main()
+int main(int argc, char **argv)
 {
-    /* Enable colored console output (Windows VT100) */
-    enable_colors();
+    size_t array_size = STREAM_ARRAY_SIZE;
+    int i;
+
+    /* Parse --array-size N from command line */
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--array-size") == 0 && i + 1 < argc) {
+            array_size = (size_t)strtoull(argv[++i], NULL, 10);
+        }
+    }
 
     /* Gather all system and hardware information */
     detect_hardware_info(&hw_info);
 
-    /* Check if range testing is enabled */
-    if (START_SIZE > 0 && END_SIZE > START_SIZE) {
-        printf(C_TITLE "STREAM Range Testing Mode" C_R "\n");
-        printf(C_LABEL "Testing array sizes from " C_VALUE "%zu" C_LABEL " to " C_VALUE "%zu" C_LABEL " with step " C_VALUE "%zu" C_R "\n", 
-               (size_t)START_SIZE, (size_t)END_SIZE, (size_t)STEP_SIZE);
-        printf(C_HLINE "========================================================" C_R "\n");
-        
-        /* Initialize consolidated CSV file for range testing */
-        {
-            char range_filename[256];
-            sprintf(range_filename, "stream_range_results_%zuM_to_%zuM_step_%zuM.csv",
-                    (size_t)START_SIZE / 1000000,
-                    (size_t)END_SIZE / 1000000,
-                    (size_t)STEP_SIZE / 1000000);
-            range_csv_file = stream_output_range_csv_open(range_filename);
-        }
-        
-        size_t array_size;
-        int test_count = 0;
-        int successful_tests = 0;
-        
-        for (array_size = START_SIZE; array_size <= END_SIZE; array_size += STEP_SIZE) {
-            test_count++;
-            printf("\n" C_SECTION "--- Test %d: Array size %zu (%.1f M elements) ---" C_R "\n", 
-                   test_count, array_size, array_size / 1000000.0);
-            
-            if (run_stream_test(array_size) == 0) {
-                successful_tests++;
-            } else {
-                printf(C_ERR "Test failed for array size %zu" C_R "\n", array_size);
-            }
-        }
-        
-        /* Close consolidated CSV file */
-        stream_output_range_csv_close(range_csv_file);
-        range_csv_file = NULL;
-        
-        printf("\n" C_HLINE "========================================================" C_R "\n");
-        printf(C_SECTION "Range testing complete: " C_VALUE "%d/%d" C_SECTION " tests successful" C_R "\n", successful_tests, test_count);
-        
-        if (successful_tests == test_count) {
-            printf(C_OK "All tests completed successfully!" C_R "\n");
-            printf(C_FILE "Results saved in consolidated CSV file." C_R "\n");
-        } else {
-            printf(C_WARN "Some tests failed due to memory allocation issues." C_R "\n");
-            printf(C_WARN "Try using smaller array sizes or ensure more memory is available." C_R "\n");
-        }
-        
-        return 0;
-    } else {
-        /* Single test mode */
-        return run_stream_test(STREAM_ARRAY_SIZE);
-    }
+    return run_stream_test(array_size);
 }
 
 /*-----------------------------------------------------------------------*/
@@ -343,45 +270,13 @@ int run_stream_test(size_t array_size)
     bytes[1] = 2 * sizeof(STREAM_TYPE) * current_array_size; /* Scale: 1 read, 1 write */
     bytes[2] = 3 * sizeof(STREAM_TYPE) * current_array_size; /* Add: 2 reads, 1 write */
     bytes[3] = 3 * sizeof(STREAM_TYPE) * current_array_size; /* Triad: 2 reads, 1 write */
-    int quantum, checktick();
-    int BytesPerWord;
     int k;
-    ssize_t j; /* Use ssize_t to support large array indices on 64-bit systems */
+    ssize_t j;
     STREAM_TYPE scalar;
-    double t, times[4][NTIMES];
+    double times[4][NTIMES];
 
-    /*-------------------------------------------------------------------*/
-    /* SETUP - determine precision and check timing                     */
-    /*-------------------------------------------------------------------*/
-
-    printf(HLINE);
-    printf(C_TITLE "STREAM version $Revision: 5.10.03 $" C_R "\n");
-    printf(HLINE);
-
-    /* Print system information for comparison */
-    print_system_info(&hw_info);
-    print_hardware_info(&hw_info);
-    printf(HLINE);
-    BytesPerWord = sizeof(STREAM_TYPE);
-    printf(C_LABEL "This system uses " C_VALUE "%d" C_LABEL " bytes per array element." C_R "\n", BytesPerWord);
-
-    printf(HLINE);
-    printf(C_LABEL "Array size = " C_VALUE "%zu" C_LABEL " (elements), Offset = " C_VALUE "%d" C_LABEL " (elements)" C_R "\n", 
-           current_array_size, OFFSET);
-    printf(C_LABEL "Memory per array = " C_VALUE "%.1f MiB" C_LABEL " (= " C_VALUE "%.1f GiB" C_LABEL ")." C_R "\n",
-           BytesPerWord * ((double)current_array_size / 1024.0 / 1024.0),
-           BytesPerWord * ((double)current_array_size / 1024.0 / 1024.0 / 1024.0));
-    printf(C_LABEL "Total memory required = " C_VALUE "%.1f MiB" C_LABEL " (= " C_VALUE "%.1f GiB" C_LABEL ")." C_R "\n",
-           (3.0 * BytesPerWord) * ((double)current_array_size / 1024.0 / 1024.),
-           (3.0 * BytesPerWord) * ((double)current_array_size / 1024.0 / 1024. / 1024.));
-    printf(C_LABEL "Each kernel will be executed " C_VALUE "%d" C_LABEL " times." C_R "\n", NTIMES);
-    printf(" The *best* time for each kernel (excluding the first iteration)\n");
-    printf(" will be used to compute the reported bandwidth.\n");
-    
     /* Allocate cache-line aligned memory for best bandwidth.
-     * 64-byte alignment matches the typical ARM64/x64 cache line size,
-     * ensuring arrays start on cache-line boundaries to avoid false
-     * sharing between threads and improve hardware prefetcher efficiency. */
+     * 64-byte alignment matches the typical ARM64/x64 cache line size. */
 #ifdef _MSC_VER
     a = (STREAM_TYPE*) _aligned_malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE), 64);
     b = (STREAM_TYPE*) _aligned_malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE), 64);
@@ -391,14 +286,10 @@ int run_stream_test(size_t array_size)
     posix_memalign((void**)&b, 64, (current_array_size + OFFSET) * sizeof(STREAM_TYPE));
     posix_memalign((void**)&c, 64, (current_array_size + OFFSET) * sizeof(STREAM_TYPE));
 #endif
-    
+
     if (a == NULL || b == NULL || c == NULL) {
-        printf(C_ERR "Error: Failed to allocate memory for arrays" C_R "\n");
-        printf(C_ERR "Requested memory: %.1f MB per array (%.1f MB total)" C_R "\n", 
-               (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0),
-               3.0 * (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
-        
-        /* Free any successfully allocated arrays before returning */
+        fprintf(stderr, "Error: Failed to allocate memory (%.1f MB per array)\n",
+                (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
 #ifdef _MSC_VER
         if (a != NULL) { _aligned_free(a); a = NULL; }
         if (b != NULL) { _aligned_free(b); b = NULL; }
@@ -408,52 +299,10 @@ int run_stream_test(size_t array_size)
         if (b != NULL) { free(b); b = NULL; }
         if (c != NULL) { free(c); c = NULL; }
 #endif
-        
         return 1;
     }
-    printf(C_OK "Memory allocation successful: %.1f MB per array (%.1f MB total)" C_R "\n",
-           (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0),
-           3.0 * (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
 
-#ifdef _OPENMP
-    printf(HLINE);
-    
-    /* Dynamic thread count detection and configuration */
-    int num_threads = 0;
-#ifdef _MSC_VER /* For Windows */
-    SYSTEM_INFO sysInfo;
-    GetSystemInfo(&sysInfo);                    /* Get system information using Windows API */
-    num_threads = sysInfo.dwNumberOfProcessors; /* Get the number of processors */
-#else           /* For Linux/UNIX */
-    num_threads = sysconf(_SC_NPROCESSORS_ONLN); /* Get the number of online processors using POSIX standard */
-#endif
-    if (num_threads > 0) {
-        omp_set_num_threads(num_threads); /* Set the number of threads for OpenMP */
-        printf(C_LABEL "Number of threads automatically set to " C_VALUE "%d" C_LABEL " (number of available cores)" C_R "\n", num_threads);
-    }
-
-#pragma omp parallel /* Start a parallel region */
-    {
-#pragma omp master /* This block will only be executed by the master thread */
-        {
-            k = omp_get_num_threads(); /* Get the number of threads requested by the runtime */
-            printf(C_LABEL "Number of Threads requested = " C_VALUE "%i" C_R "\n", k);
-        }
-    }
-#endif
-
-#ifdef _OPENMP
-    k = 0;
-#pragma omp parallel /* Start a parallel region */
-#pragma omp atomic   /* Use an atomic operation to safely increment the counter */
-    k++;
-    printf(C_LABEL "Number of Threads counted = " C_VALUE "%i" C_R "\n", k); /* Print the number of threads that actually participated */
-#endif
-
-    /* Initialize arrays, parallelizing the loop with OpenMP.
-     * schedule(static) guarantees each thread gets a contiguous, equal-sized
-     * chunk — this maximises sequential memory access and hardware prefetch
-     * effectiveness for bandwidth-bound kernels. */
+    /* Initialize arrays with schedule(static) for sequential access and prefetch */
 #pragma omp parallel for schedule(static)
     for (j = 0; j < current_array_size; j++) {
         a[j] = 1.0;
@@ -461,31 +310,10 @@ int run_stream_test(size_t array_size)
         c[j] = 0.0;
     }
 
-    printf(HLINE);
-
-    /* Check the granularity of the system clock */
-    if ((quantum = checktick()) >= 1) {
-        printf("Your clock granularity/precision appears to be "
-               "%d microseconds.\n", quantum);
-    } else {
-        printf("Your clock granularity appears to be "
-               "less than one microsecond.\n");
-        quantum = 1;
-    }
-
-    /* Perform a sample computation to estimate the test duration */
-    t = mysecond();
+    /* Warm-up pass */
 #pragma omp parallel for schedule(static)
     for (j = 0; j < current_array_size; j++)
         a[j] = 2.0E0 * a[j];
-    t = 1.0E6 * (mysecond() - t);
-
-    printf("Each test below will take on the order"
-           " of %d microseconds.\n", (int)t);
-    printf("   (= %d clock ticks)\n", (int)(t / quantum));
-    printf("Increase the size of the arrays if this shows that\n");
-    printf("you are not getting at least 20 clock ticks per test.\n");
-    printf(HLINE);
 
     /*-------------------------------------------------------------------*/
     /* MAIN LOOP - repeat test cases NTIMES times                       */
@@ -540,10 +368,10 @@ int run_stream_test(size_t array_size)
     }
 
     /*-------------------------------------------------------------------*/
-    /* SUMMARY - Calculate and display results                          */
+    /* SUMMARY — calculate avg/min/max, validate, output JSON to stdout */
     /*-------------------------------------------------------------------*/
 
-    /* Calculate avg, min, and max times, skipping the first iteration (k=0) */
+    /* Calculate avg, min, max times (skip first iteration k=0) */
     for (k = 1; k < NTIMES; k++) {
         for (j = 0; j < 4; j++) {
             avgtime[j] = avgtime[j] + times[j][k];
@@ -551,27 +379,12 @@ int run_stream_test(size_t array_size)
             maxtime[j] = MAX(maxtime[j], times[j][k]);
         }
     }
-
-    /* Print the results table */
-    printf(C_HDR "Function    Best Rate MB/s  Avg time     Min time     Max time" C_R "\n");
-    for (j = 0; j < 4; j++) {
+    for (j = 0; j < 4; j++)
         avgtime[j] = avgtime[j] / (double)(NTIMES - 1);
 
-        /* The best rate is calculated from the minimum time */
-        printf(C_LABEL "%s" C_RATE "%12.1f" C_R "  %11.6f  %11.6f  %11.6f\n", label[j],
-               1.0E-06 * bytes[j] / mintime[j],
-               avgtime[j],
-               mintime[j],
-               maxtime[j]);
-    }
-    printf(HLINE);
-
-    /* Check Results */
-    checkSTREAMresults();
-    printf(HLINE);
-
-    /* Build result struct for output */
+    /* Validate results and output JSON to stdout */
     {
+        int validated = (checkSTREAMresults() == 0) ? 1 : 0;
         StreamBenchResult result;
         result.benchmark_type = "CPU";
         result.version = "5.10.03";
@@ -582,14 +395,7 @@ int run_stream_test(size_t array_size)
         memcpy(result.avgtime, avgtime, sizeof(avgtime));
         memcpy(result.mintime, mintime, sizeof(mintime));
         memcpy(result.maxtime, maxtime, sizeof(maxtime));
-
-        /* CSV output */
-        if (range_csv_file != NULL) {
-            stream_output_range_csv_append(range_csv_file, &result);
-        } else {
-            stream_output_csv("stream_results", &result);
-            stream_output_cpu_json("stream_cpu_results", &result, &hw_info);
-        }
+        stream_output_cpu_json_fp(stdout, &result, &hw_info, validated);
     }
 
     /* Free allocated memory */
@@ -609,32 +415,6 @@ int run_stream_test(size_t array_size)
 /*-----------------------------------------------------------------------*/
 /* UTILITY FUNCTIONS                                                     */
 /*-----------------------------------------------------------------------*/
-
-/*
- * Checks the resolution (granularity) of the system clock.
- */
-int checktick()
-{
-    int i, minDelta, Delta;
-    double t1, t2, timesfound[M];
-
-    /* Collect a sequence of M unique time values from the system */
-    for (i = 0; i < M; i++) {
-        t1 = mysecond();
-        while (((t2 = mysecond()) - t1) < 1.0E-6) /* Ensure we get a new time value */
-            ;
-        timesfound[i] = t1 = t2;
-    }
-
-    /* Determine the minimum difference between these M values */
-    minDelta = 1000000;
-    for (i = 1; i < M; i++) {
-        Delta = (int)(1.0E6 * (timesfound[i] - timesfound[i - 1]));
-        minDelta = MIN(minDelta, MAX(Delta, 0));
-    }
-
-    return (minDelta); /* Return the minimum difference in microseconds */
-}
 
 /*
  * A cross-platform timer function that provides wall-clock time.
@@ -668,24 +448,25 @@ double mysecond()
 
 /*
  * Checks if the STREAM results are valid.
+ * Returns 0 if all arrays pass validation, non-zero otherwise.
  */
-void checkSTREAMresults()
+int checkSTREAMresults()
 {
     STREAM_TYPE aj, bj, cj, scalar;
     STREAM_TYPE aSumErr, bSumErr, cSumErr;
     STREAM_TYPE aAvgErr, bAvgErr, cAvgErr;
     double epsilon;
     ssize_t j;
-    int k, ierr, err;
+    int k, err;
 
     /* Reproduce the initialization */
     aj = 1.0;
     bj = 2.0;
     cj = 0.0;
-    
+
     /* a[] is modified during timing check */
     aj = 2.0E0 * aj;
-    
+
     /* Now execute the same computations as in the timing loop */
     scalar = 3.0;
     for (k = 0; k < NTIMES; k++) {
@@ -709,35 +490,30 @@ void checkSTREAMresults()
     cAvgErr = cSumErr / (STREAM_TYPE)current_array_size;
 
     /* Set the acceptable error tolerance (epsilon) */
-    if (sizeof(STREAM_TYPE) == 4) {        /* single-precision */
+    if (sizeof(STREAM_TYPE) == 4) {
         epsilon = 1.e-6;
-    } else if (sizeof(STREAM_TYPE) == 8) { /* double-precision */
+    } else if (sizeof(STREAM_TYPE) == 8) {
         epsilon = 1.e-13;
     } else {
-        printf("WEIRD: sizeof(STREAM_TYPE) = %zu\n", sizeof(STREAM_TYPE));
+        fprintf(stderr, "WEIRD: sizeof(STREAM_TYPE) = %zu\n", sizeof(STREAM_TYPE));
         epsilon = 1.e-6;
     }
 
     err = 0;
-    /* Check if the average relative error for array 'a' is within tolerance */
     if (abs(aAvgErr / aj) > epsilon) {
         err++;
-        printf(C_ERR "Failed Validation on array a[], AvgRelAbsErr > epsilon (%e)" C_R "\n", epsilon);
+        fprintf(stderr, "Failed Validation on array a[], AvgRelAbsErr > epsilon (%e)\n", epsilon);
     }
-    /* Check if the average relative error for array 'b' is within tolerance */
     if (abs(bAvgErr / bj) > epsilon) {
         err++;
-        printf(C_ERR "Failed Validation on array b[], AvgRelAbsErr > epsilon (%e)" C_R "\n", epsilon);
+        fprintf(stderr, "Failed Validation on array b[], AvgRelAbsErr > epsilon (%e)\n", epsilon);
     }
-    /* Check if the average relative error for array 'c' is within tolerance */
     if (abs(cAvgErr / cj) > epsilon) {
         err++;
-        printf(C_ERR "Failed Validation on array c[], AvgRelAbsErr > epsilon (%e)" C_R "\n", epsilon);
+        fprintf(stderr, "Failed Validation on array c[], AvgRelAbsErr > epsilon (%e)\n", epsilon);
     }
 
-    if (err == 0) {
-        printf(C_OK "Solution Validates: avg error less than %e on all three arrays" C_R "\n", epsilon);
-    }
+    return err;
 }
 
 /*-----------------------------------------------------------------------*/

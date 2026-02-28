@@ -82,6 +82,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <float.h>
 #include <stdint.h>
@@ -99,13 +100,8 @@
     #include <dlfcn.h>
 #endif
 
-#include "stream_colors.h"  /* Console color support (before hwinfo for color macros) */
-
-/* Colored horizontal separator line (must be before stream_hwinfo.h to override its default) */
-#define HLINE C_HLINE "-------------------------------------------------------------" C_R "\n"
-
 #include "stream_hwinfo.h" /* Hardware & system info detection */
-#include "stream_output.h" /* CSV & JSON output formatting */
+#include "stream_output.h" /* JSON output formatting */
 
 /*-----------------------------------------------------------------------*/
 /* CONFIGURATION                                                         */
@@ -292,11 +288,11 @@ static pfn_clReleaseContext          ocl_ReleaseContext;
 static int load_opencl(void)
 {
     if (!LOAD_OCL()) {
-        printf(C_ERR "Error: Could not load OpenCL library (%s)" C_R "\n", OCL_LIB_NAME);
+        fprintf(stderr, "Error: Could not load OpenCL library (%s)\n", OCL_LIB_NAME);
 #ifndef _WIN32
-        printf(C_ERR "       %s" C_R "\n", dlerror());
+        fprintf(stderr, "       %s\n", dlerror());
 #endif
-        printf(C_ERR "Make sure GPU drivers are installed." C_R "\n");
+        fprintf(stderr, "Make sure GPU drivers are installed.\n");
         return -1;
     }
 
@@ -486,9 +482,10 @@ static HWInfo hw_info;
 /* MAIN                                                                  */
 /*-----------------------------------------------------------------------*/
 
-int main(void)
+int main(int argc, char **argv)
 {
-    size_t array_size = STREAM_ARRAY_SIZE;
+    size_t array_size;
+    int i;
     int BytesPerWord = sizeof(STREAM_TYPE);
     int k;
     cl_int err;
@@ -503,32 +500,28 @@ int main(void)
     double avgtime[4] = {0}, maxtime[4] = {0};
     double mintime[4] = {FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX};
     double bytes[4];
+    int gpu_validated = 1;
 
-    static const char *label[4] = {"Copy:      ", "Scale:     ",
-                                    "Add:       ", "Triad:     "};
-
-    /* Enable colored console output (Windows VT100) */
-    enable_colors();
-
-    printf(HLINE);
-    printf(C_TITLE "GPU STREAM version 5.10.03 (based on STREAM Revision 5.10.03)" C_R "\n");
-    printf(C_TITLE "GPU variant of the STREAM benchmark code" C_R "\n");
-    printf(HLINE);
+    /* Parse command-line arguments */
+    array_size = STREAM_ARRAY_SIZE;
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--array-size") == 0 && i + 1 < argc) {
+            array_size = (size_t)strtoull(argv[++i], NULL, 10);
+        }
+    }
 
     /* Gather all system and hardware information */
     detect_hardware_info(&hw_info);
-    print_system_info(&hw_info);
-    print_hardware_info(&hw_info);
 
     /*-------------------------------------------------------------------*/
     /* Load OpenCL                                                       */
     /*-------------------------------------------------------------------*/
 
     if (load_opencl() != 0) {
-        printf(C_ERR "Failed to load OpenCL. Ensure GPU drivers are installed." C_R "\n");
+        fprintf(stderr, "Failed to load OpenCL. Ensure GPU drivers are installed.\n");
         return 1;
     }
-    printf(C_OK "OpenCL library loaded successfully." C_R "\n");
+    fprintf(stderr, "OpenCL library loaded successfully.\n");
 
     /*-------------------------------------------------------------------*/
     /* Platform & Device Selection                                       */
@@ -537,7 +530,7 @@ int main(void)
     cl_uint num_platforms;
     err = ocl_GetPlatformIDs(0, NULL, &num_platforms);
     if (err != CL_SUCCESS || num_platforms == 0) {
-        printf(C_ERR "Error: No OpenCL platforms found (error %d)" C_R "\n", err);
+        fprintf(stderr, "Error: No OpenCL platforms found (error %d)\n", err);
         return 1;
     }
 
@@ -547,26 +540,25 @@ int main(void)
     /* Find a GPU device, trying each platform */
     cl_platform_id chosen_platform = NULL;
     cl_device_id device = NULL;
-    cl_uint i;
 
-    for (i = 0; i < num_platforms; i++) {
+    for (i = 0; i < (int)num_platforms; i++) {
         char plat_name[256] = {0};
         ocl_GetPlatformInfo(platforms[i], CL_PLATFORM_NAME, sizeof(plat_name), plat_name, NULL);
-        printf(C_LABEL "Platform %u: " C_VALUE "%s" C_R "\n", i, plat_name);
+        fprintf(stderr, "Platform %d: %s\n", i, plat_name);
 
         cl_uint num_devs = 0;
         err = ocl_GetDeviceIDs(platforms[i], CL_DEVICE_TYPE_GPU, 1, &device, &num_devs);
         if (err == CL_SUCCESS && num_devs > 0) {
             chosen_platform = platforms[i];
-            printf(C_OK "  -> GPU device found on this platform" C_R "\n");
+            fprintf(stderr, "  -> GPU device found on this platform\n");
             break;
         }
     }
 
     if (!chosen_platform || !device) {
         /* Fallback: try CL_DEVICE_TYPE_ALL */
-        printf(C_WARN "No dedicated GPU found, trying all device types..." C_R "\n");
-        for (i = 0; i < num_platforms; i++) {
+        fprintf(stderr, "No dedicated GPU found, trying all device types...\n");
+        for (i = 0; i < (int)num_platforms; i++) {
             cl_uint num_devs = 0;
             err = ocl_GetDeviceIDs(platforms[i], CL_DEVICE_TYPE_ALL, 1, &device, &num_devs);
             if (err == CL_SUCCESS && num_devs > 0) {
@@ -578,7 +570,7 @@ int main(void)
     free(platforms);
 
     if (!device) {
-        printf(C_ERR "Error: No OpenCL device found." C_R "\n");
+        fprintf(stderr, "Error: No OpenCL device found.\n");
         return 1;
     }
 
@@ -597,12 +589,11 @@ int main(void)
     ocl_GetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(global_mem), &global_mem, NULL);
     ocl_GetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(max_wg_size), &max_wg_size, NULL);
 
-    printf(HLINE);
-    printf(C_LABEL "Device: " C_DEVICE "%s" C_LABEL " (" C_VALUE "%s" C_LABEL ")" C_R "\n", dev_name, dev_vendor);
-    printf(C_LABEL "Compute Units: " C_VALUE "%u" C_LABEL ", Max Frequency: " C_VALUE "%u MHz" C_R "\n", compute_units, max_freq);
-    printf(C_LABEL "Global Memory: " C_VALUE "%.1f MiB" C_LABEL " (" C_VALUE "%.1f GiB" C_LABEL ")" C_R "\n",
+    fprintf(stderr, "Device: %s (%s)\n", dev_name, dev_vendor);
+    fprintf(stderr, "Compute Units: %u, Max Frequency: %u MHz\n", compute_units, max_freq);
+    fprintf(stderr, "Global Memory: %.1f MiB (%.1f GiB)\n",
            global_mem / (1024.0 * 1024.0), global_mem / (1024.0 * 1024.0 * 1024.0));
-    printf(C_LABEL "Max Work Group Size: " C_VALUE "%zu" C_R "\n", max_wg_size);
+    fprintf(stderr, "Max Work Group Size: %zu\n", max_wg_size);
 
     /*-------------------------------------------------------------------*/
     /* Check for double precision (fp64) support                         */
@@ -618,8 +609,8 @@ int main(void)
                 extensions[ext_size] = '\0';
 #ifndef GPU_USE_FLOAT
                 if (strstr(extensions, "cl_khr_fp64") == NULL) {
-                    printf("\n" C_WARN "NOTE: GPU does not support double precision (cl_khr_fp64)." C_R "\n");
-                    printf(C_WARN "      Automatically using single precision (float)." C_R "\n\n");
+                    fprintf(stderr, "NOTE: GPU does not support double precision (cl_khr_fp64).\n");
+                    fprintf(stderr, "      Automatically using single precision (float).\n");
                     gpu_use_float = 1;
                 }
 #else
@@ -636,29 +627,6 @@ int main(void)
     vec_size = gpu_use_float ? 4 : 2;
     padded_size = ((array_size + vec_size - 1) / vec_size) * vec_size;
     n_vec = (cl_uint)(padded_size / vec_size);
-    printf(C_LABEL "Vectorization: " C_VALUE "%s" C_LABEL " (%d bytes/vector, %d elements/vector)" C_R "\n",
-           gpu_use_float ? "float4" : "double2",
-           (int)(gpu_elem_size * vec_size), vec_size);
-    printf(C_LABEL "Vector work items: " C_VALUE "%u" C_LABEL " (padded array: " C_VALUE "%zu" C_LABEL " elements)" C_R "\n",
-           n_vec, padded_size);
-
-    /*-------------------------------------------------------------------*/
-    /* Print test configuration                                          */
-    /*-------------------------------------------------------------------*/
-
-    printf(HLINE);
-    printf(C_LABEL "This system uses " C_VALUE "%d" C_LABEL " bytes per array element." C_R "\n", BytesPerWord);
-    printf(C_LABEL "Array size = " C_VALUE "%zu" C_LABEL " (elements), Offset = " C_VALUE "%d" C_LABEL " (elements)" C_R "\n", array_size, OFFSET);
-    printf(C_LABEL "Memory per array = " C_VALUE "%.1f MiB" C_LABEL " (= " C_VALUE "%.1f GiB" C_LABEL ")." C_R "\n",
-           BytesPerWord * ((double)array_size / 1024.0 / 1024.0),
-           BytesPerWord * ((double)array_size / 1024.0 / 1024.0 / 1024.0));
-    printf(C_LABEL "Total memory required = " C_VALUE "%.1f MiB" C_LABEL " (= " C_VALUE "%.1f GiB" C_LABEL ")." C_R "\n",
-           (3.0 * BytesPerWord) * ((double)array_size / 1024.0 / 1024.0),
-           (3.0 * BytesPerWord) * ((double)array_size / 1024.0 / 1024.0 / 1024.0));
-    printf(C_LABEL "Each kernel will be executed " C_VALUE "%d" C_LABEL " times." C_R "\n", NTIMES);
-    printf(" The *best* time for each kernel (excluding the first iteration)\n");
-    printf(" will be used to compute the reported bandwidth.\n");
-
     /* Calculate bytes transferred */
     bytes[0] = 2 * gpu_elem_size * (double)array_size; /* Copy */
     bytes[1] = 2 * gpu_elem_size * (double)array_size; /* Scale */
@@ -671,32 +639,31 @@ int main(void)
 
     cl_context context = ocl_CreateContext(NULL, 1, &device, NULL, NULL, &err);
     if (err != CL_SUCCESS) {
-        printf(C_ERR "Error: Failed to create context (%d)" C_R "\n", err);
+        fprintf(stderr, "Error: Failed to create context (%d)\n", err);
         return 1;
     }
 
     cl_command_queue queue = ocl_CreateCommandQueue(context, device,
                                                      CL_QUEUE_PROFILING_ENABLE, &err);
     if (err != CL_SUCCESS) {
-        printf(C_ERR "Error: Failed to create command queue (%d)" C_R "\n", err);
+        fprintf(stderr, "Error: Failed to create command queue (%d)\n", err);
         return 1;
     }
 
     size_t buf_size = (padded_size + OFFSET) * gpu_elem_size;
-    printf(HLINE);
-    printf(C_LABEL "Allocating GPU buffers: " C_VALUE "%.1f MiB" C_LABEL " each (" C_VALUE "%.1f MiB" C_LABEL " total)" C_R "\n",
+    fprintf(stderr, "Allocating GPU buffers: %.1f MiB each (%.1f MiB total)\n",
            buf_size / (1024.0 * 1024.0), 3.0 * buf_size / (1024.0 * 1024.0));
 
     cl_mem d_a = ocl_CreateBuffer(context, CL_MEM_READ_WRITE, buf_size, NULL, &err);
-    if (err != CL_SUCCESS) { printf(C_ERR "Error: Failed to allocate buffer a (%d)" C_R "\n", err); return 1; }
+    if (err != CL_SUCCESS) { fprintf(stderr, "Error: Failed to allocate buffer a (%d)\n", err); return 1; }
 
     cl_mem d_b = ocl_CreateBuffer(context, CL_MEM_READ_WRITE, buf_size, NULL, &err);
-    if (err != CL_SUCCESS) { printf(C_ERR "Error: Failed to allocate buffer b (%d)" C_R "\n", err); return 1; }
+    if (err != CL_SUCCESS) { fprintf(stderr, "Error: Failed to allocate buffer b (%d)\n", err); return 1; }
 
     cl_mem d_c = ocl_CreateBuffer(context, CL_MEM_READ_WRITE, buf_size, NULL, &err);
-    if (err != CL_SUCCESS) { printf(C_ERR "Error: Failed to allocate buffer c (%d)" C_R "\n", err); return 1; }
+    if (err != CL_SUCCESS) { fprintf(stderr, "Error: Failed to allocate buffer c (%d)\n", err); return 1; }
 
-    printf(C_OK "GPU buffer allocation successful." C_R "\n");
+    fprintf(stderr, "GPU buffer allocation successful.\n");
 
     /*-------------------------------------------------------------------*/
     /* Build OpenCL program                                              */
@@ -712,17 +679,17 @@ int main(void)
 
     cl_program program = ocl_CreateProgramWithSource(context, 1, &kernel_source, NULL, &err);
     if (err != CL_SUCCESS) {
-        printf(C_ERR "Error: Failed to create program (%d)" C_R "\n", err);
+        fprintf(stderr, "Error: Failed to create program (%d)\n", err);
         return 1;
     }
 
     err = ocl_BuildProgram(program, 1, &device, build_opts, NULL, NULL);
     if (err != CL_SUCCESS) {
-        printf(C_ERR "Error: Failed to build program (%d)" C_R "\n", err);
+        fprintf(stderr, "Error: Failed to build program (%d)\n", err);
         print_build_log(program, device);
         return 1;
     }
-    printf(C_OK "OpenCL kernels compiled successfully." C_R "\n");
+    fprintf(stderr, "OpenCL kernels compiled successfully.\n");
 
     /*-------------------------------------------------------------------*/
     /* Create kernels                                                    */
@@ -735,7 +702,7 @@ int main(void)
     cl_kernel k_init  = ocl_CreateKernel(program, "stream_init", &err);
 
     if (!k_copy || !k_scale || !k_add || !k_triad || !k_init) {
-        printf(C_ERR "Error: Failed to create kernels (%d)" C_R "\n", err);
+        fprintf(stderr, "Error: Failed to create kernels (%d)\n", err);
         return 1;
     }
 
@@ -750,8 +717,6 @@ int main(void)
     if (local_size > max_wg_size) local_size = max_wg_size;
     size_t global_size = (((size_t)n_vec + local_size - 1) / local_size) * local_size;
 
-    printf(C_LABEL "Global work size: " C_VALUE "%zu" C_LABEL " (vectorized), Local work size: " C_VALUE "driver-auto" C_R "\n", global_size);
-
     /*-------------------------------------------------------------------*/
     /* Initialize arrays on GPU                                          */
     /*-------------------------------------------------------------------*/
@@ -765,7 +730,7 @@ int main(void)
         set_scalar_arg(k_init, 5, gpu_use_float, 0.0);
         ocl_SetKernelArg(k_init, 6, sizeof(cl_uint), &n_vec);
         err = ocl_EnqueueNDRangeKernel(queue, k_init, 1, NULL, &global_size, NULL, 0, NULL, NULL);
-        if (err != CL_SUCCESS) { printf(C_ERR "Error: Init kernel failed (%d)" C_R "\n", err); return 1; }
+        if (err != CL_SUCCESS) { fprintf(stderr, "Error: Init kernel failed (%d)\n", err); return 1; }
         ocl_Finish(queue);
     }
 
@@ -779,9 +744,7 @@ int main(void)
         ocl_Finish(queue);
     }
 
-    printf(HLINE);
-    printf(C_SECTION "Running GPU STREAM benchmark..." C_R "\n");
-    printf(HLINE);
+    fprintf(stderr, "Running GPU STREAM benchmark...\n");
 
     /*-------------------------------------------------------------------*/
     /* MAIN LOOP (vectorized: each work-item processes vec_size elems)   */
@@ -796,7 +759,7 @@ int main(void)
         ocl_SetKernelArg(k_copy, 2, sizeof(cl_uint), &n_vec);
         t0 = wtime();
         err = ocl_EnqueueNDRangeKernel(queue, k_copy, 1, NULL, &global_size, NULL, 0, NULL, NULL);
-        if (err != CL_SUCCESS) { printf(C_ERR "Error: Copy kernel launch failed (%d) at iter %d" C_R "\n", err, k); return 1; }
+        if (err != CL_SUCCESS) { fprintf(stderr, "Error: Copy kernel launch failed (%d) at iter %d\n", err, k); return 1; }
         ocl_Finish(queue);
         times[0][k] = wtime() - t0;
 
@@ -807,7 +770,7 @@ int main(void)
         ocl_SetKernelArg(k_scale, 3, sizeof(cl_uint), &n_vec);
         t0 = wtime();
         err = ocl_EnqueueNDRangeKernel(queue, k_scale, 1, NULL, &global_size, NULL, 0, NULL, NULL);
-        if (err != CL_SUCCESS) { printf(C_ERR "Error: Scale kernel launch failed (%d) at iter %d" C_R "\n", err, k); return 1; }
+        if (err != CL_SUCCESS) { fprintf(stderr, "Error: Scale kernel launch failed (%d) at iter %d\n", err, k); return 1; }
         ocl_Finish(queue);
         times[1][k] = wtime() - t0;
 
@@ -818,7 +781,7 @@ int main(void)
         ocl_SetKernelArg(k_add, 3, sizeof(cl_uint), &n_vec);
         t0 = wtime();
         err = ocl_EnqueueNDRangeKernel(queue, k_add, 1, NULL, &global_size, NULL, 0, NULL, NULL);
-        if (err != CL_SUCCESS) { printf(C_ERR "Error: Add kernel launch failed (%d) at iter %d" C_R "\n", err, k); return 1; }
+        if (err != CL_SUCCESS) { fprintf(stderr, "Error: Add kernel launch failed (%d) at iter %d\n", err, k); return 1; }
         ocl_Finish(queue);
         times[2][k] = wtime() - t0;
 
@@ -830,7 +793,7 @@ int main(void)
         ocl_SetKernelArg(k_triad, 4, sizeof(cl_uint), &n_vec);
         t0 = wtime();
         err = ocl_EnqueueNDRangeKernel(queue, k_triad, 1, NULL, &global_size, NULL, 0, NULL, NULL);
-        if (err != CL_SUCCESS) { printf(C_ERR "Error: Triad kernel launch failed (%d) at iter %d" C_R "\n", err, k); return 1; }
+        if (err != CL_SUCCESS) { fprintf(stderr, "Error: Triad kernel launch failed (%d) at iter %d\n", err, k); return 1; }
         ocl_Finish(queue);
         times[3][k] = wtime() - t0;
     }
@@ -851,17 +814,12 @@ int main(void)
         }
     }
 
-    printf(C_HDR "Function    Best Rate MB/s  Avg time     Min time     Max time" C_R "\n");
+    /* Compute average times (skip first iteration) */
     {
         int j;
-        for (j = 0; j < 4; j++) {
+        for (j = 0; j < 4; j++)
             avgtime[j] /= (double)(NTIMES - 1);
-            printf(C_LABEL "%s" C_RATE "%12.1f" C_R "  %11.6f  %11.6f  %11.6f\n", label[j],
-                   1.0E-06 * bytes[j] / mintime[j],
-                   avgtime[j], mintime[j], maxtime[j]);
-        }
     }
-    printf(HLINE);
 
     /*-------------------------------------------------------------------*/
     /* VALIDATION - Read back arrays and check                           */
@@ -910,7 +868,7 @@ int main(void)
         void *h_c = malloc(read_size);
 
         if (!h_a || !h_b || !h_c) {
-            printf(C_ERR "Error: Could not allocate host memory for validation" C_R "\n");
+            fprintf(stderr, "Error: Could not allocate host memory for validation\n");
         } else {
             ocl_EnqueueReadBuffer(queue, d_a, CL_TRUE, 0, read_size, h_a, 0, NULL, NULL);
             ocl_EnqueueReadBuffer(queue, d_b, CL_TRUE, 0, read_size, h_b, 0, NULL, NULL);
@@ -943,21 +901,23 @@ int main(void)
             int errs = 0;
             if (fabs(aAvgErr / aj) > epsilon) {
                 errs++;
-                printf(C_ERR "Failed Validation on array a[], AvgRelAbsErr > epsilon (%e)" C_R "\n", epsilon);
-                printf(C_ERR "  Expected: %e, AvgAbsErr: %e, AvgRelAbsErr: %e" C_R "\n", (double)aj, (double)aAvgErr, (double)fabs(aAvgErr/aj));
+                fprintf(stderr, "Failed Validation on array a[], AvgRelAbsErr > epsilon (%e)\n", epsilon);
+                fprintf(stderr, "  Expected: %e, AvgAbsErr: %e, AvgRelAbsErr: %e\n", (double)aj, (double)aAvgErr, (double)fabs(aAvgErr/aj));
             }
             if (fabs(bAvgErr / bj) > epsilon) {
                 errs++;
-                printf(C_ERR "Failed Validation on array b[], AvgRelAbsErr > epsilon (%e)" C_R "\n", epsilon);
-                printf(C_ERR "  Expected: %e, AvgAbsErr: %e, AvgRelAbsErr: %e" C_R "\n", (double)bj, (double)bAvgErr, (double)fabs(bAvgErr/bj));
+                fprintf(stderr, "Failed Validation on array b[], AvgRelAbsErr > epsilon (%e)\n", epsilon);
+                fprintf(stderr, "  Expected: %e, AvgAbsErr: %e, AvgRelAbsErr: %e\n", (double)bj, (double)bAvgErr, (double)fabs(bAvgErr/bj));
             }
             if (fabs(cAvgErr / cj) > epsilon) {
                 errs++;
-                printf(C_ERR "Failed Validation on array c[], AvgRelAbsErr > epsilon (%e)" C_R "\n", epsilon);
-                printf(C_ERR "  Expected: %e, AvgAbsErr: %e, AvgRelAbsErr: %e" C_R "\n", (double)cj, (double)cAvgErr, (double)fabs(cAvgErr/cj));
+                fprintf(stderr, "Failed Validation on array c[], AvgRelAbsErr > epsilon (%e)\n", epsilon);
+                fprintf(stderr, "  Expected: %e, AvgAbsErr: %e, AvgRelAbsErr: %e\n", (double)cj, (double)cAvgErr, (double)fabs(cAvgErr/cj));
             }
             if (errs == 0)
-                printf(C_OK "Solution Validates: avg error less than %e on all three arrays" C_R "\n", epsilon);
+                fprintf(stderr, "Solution Validates: avg error less than %e on all three arrays\n", epsilon);
+            else
+                gpu_validated = 0;
 
             free(h_a);
             free(h_b);
@@ -965,10 +925,9 @@ int main(void)
         }
         }
     }
-    printf(HLINE);
 
     /*-------------------------------------------------------------------*/
-    /* FILE OUTPUT (CSV & JSON)                                          */
+    /* JSON OUTPUT (stdout)                                              */
     /*-------------------------------------------------------------------*/
 
     {
@@ -994,8 +953,7 @@ int main(void)
         gpu_dev.global_memory_bytes = (double)global_mem;
         gpu_dev.max_work_group_size = max_wg_size;
 
-        stream_output_csv("stream_gpu_results", &result);
-        stream_output_gpu_json("stream_gpu_results", &result, &hw_info, &gpu_dev);
+        stream_output_gpu_json_fp(stdout, &result, &hw_info, &gpu_dev, gpu_validated);
     }
 
     /*-------------------------------------------------------------------*/

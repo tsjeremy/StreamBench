@@ -133,6 +133,41 @@ REM --- Cleanup obj files ---
 del /q "%SRCDIR%stream.obj" "%SRCDIR%stream_gpu.obj" 2>nul
 
 if !ERRORS! GTR 0 (
+    echo !ERRORS! C build^(s^) failed.
+    endlocal
+    exit /b 1
+)
+
+echo All C builds succeeded!
+
+REM ============================================================
+REM  .NET 10 Frontend Build
+REM ============================================================
+echo.
+echo ============================================================
+echo  Building StreamBench (.NET 10 frontend)
+echo ============================================================
+
+where dotnet >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo WARNING: 'dotnet' not found. Skipping StreamBench build.
+    echo   Install .NET 10 SDK from: https://dot.net
+    goto :done
+)
+
+dotnet build "%SRCDIR%StreamBench\StreamBench.csproj" --configuration Release --nologo -v quiet
+if %ERRORLEVEL% EQU 0 (
+    echo [OK] StreamBench ^(.NET^)
+    echo.
+    echo   Run: dotnet run --project StreamBench -- --cpu --array-size 200M
+) else (
+    echo [FAIL] StreamBench ^(.NET^)
+    set /a ERRORS+=1
+)
+
+:done
+echo.
+if !ERRORS! GTR 0 (
     echo !ERRORS! build^(s^) failed.
     endlocal
     exit /b 1

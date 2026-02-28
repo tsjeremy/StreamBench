@@ -27,6 +27,14 @@ README.md rewritten with comprehensive guide for CPU and GPU versions
 covering Windows, Linux, and macOS with troubleshooting and expected
 bandwidth reference tables.
 
+StreamBench (.NET 10 frontend):
+* Removed Spectre.Console third-party dependency
+* Color output reimplemented with System.Console color API
+* Table rendering uses native box-drawing characters (no NuGet packages)
+* Async spinner replaced with pure .NET CancellationToken-based task
+* UTF-8 console encoding explicitly set at startup
+* Assembly version aligned to 5.10.03
+
 -------------------------------------------------------------------------
 
 Revisions as of Sun, Jun 29, 2025 (Jeremy Tsai)

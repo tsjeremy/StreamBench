@@ -96,5 +96,35 @@ if [ $ERRORS -gt 0 ]; then
     echo "$ERRORS build(s) failed."
     exit 1
 else
+    echo "All C builds succeeded!"
+fi
+
+# ============================================================
+#  .NET 10 Frontend Build
+# ============================================================
+echo ""
+echo "============================================================"
+echo " Building StreamBench (.NET 10 frontend)"
+echo "============================================================"
+
+if ! command -v dotnet &> /dev/null; then
+    echo "WARNING: 'dotnet' not found. Skipping StreamBench build."
+    echo "  Install .NET 10 SDK from: https://dot.net"
+else
+    if dotnet build "$SCRIPT_DIR/StreamBench/StreamBench.csproj" --configuration Release --nologo -v quiet; then
+        echo "[OK] StreamBench (.NET)"
+        echo ""
+        echo "  Run: dotnet run --project StreamBench -- --cpu --array-size 200M"
+    else
+        echo "[FAIL] StreamBench (.NET)"
+        ERRORS=$((ERRORS + 1))
+    fi
+fi
+
+echo ""
+if [ $ERRORS -gt 0 ]; then
+    echo "$ERRORS build(s) failed."
+    exit 1
+else
     echo "All builds succeeded!"
 fi

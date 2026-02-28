@@ -17,3 +17,11 @@ stream_cpu_linux_x64
 stream_cpu_linux_arm64
 stream_gpu_linux_x64
 stream_gpu_linux_arm64
+
+# .NET build artifacts
+bin/
+obj/
+*.user
+
+# Visual Studio
+.vs/

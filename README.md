@@ -3,80 +3,108 @@
 A cross-platform **memory bandwidth benchmark** with both **CPU** and **GPU** versions, based on the
 industry-standard [STREAM benchmark](http://www.cs.virginia.edu/stream/ref.html) by John D. McCalpin.
 
-| Version | File | What it measures |
-|---------|------|-----------------|
-| **CPU** | `stream.c` | System memory bandwidth using OpenMP multi-threading |
-| **GPU** | `stream_gpu.c` | GPU memory bandwidth using OpenCL (dynamically loaded, no SDK needed) |
+## Architecture
 
-Both versions run four kernels — **Copy**, **Scale**, **Add**, **Triad** — and report the best
-sustained bandwidth in MB/s. Results are saved to CSV for easy analysis.
+| Component | Technology | Role |
+|-----------|-----------|------|
+| `stream.c` | C + OpenMP | CPU memory bandwidth kernels (headless backend, outputs JSON) |
+| `stream_gpu.c` | C + OpenCL | GPU memory bandwidth kernels (headless backend, outputs JSON) |
+| `StreamBench/` | .NET 10 | User-facing CLI — colored output, JSON/CSV saving, AI-extensible |
+
+The C backends run the performance-critical kernels and output raw JSON to stdout.
+The **StreamBench** .NET app is the primary entry point — it launches the C backend,
+displays color-formatted results, and saves files.
+
+```
+  User -> StreamBench (.NET 10) -> stream_cpu / stream_gpu (C)
+                                        | JSON on stdout
+                        <- display colored table, save .csv / .json
+```
 
 ---
 
 ## Quick Start
 
-### Windows (CPU version)
+### Prerequisites
 
-```cmd
-:: 1. Open "x64 Native Tools Command Prompt for VS" (search for it in the Start Menu)
-:: 2. Navigate to the source folder, then compile and run:
-cd /d C:\path\to\STREAM_windows
-cl.exe /O2 /openmp /Fe:stream.exe stream.c
-stream.exe
-```
+- **.NET 10 SDK** — [https://dot.net](https://dot.net)
+- **C compiler** — MSVC (Windows), GCC (Linux), Clang (macOS)
+- For CPU OpenMP: `libomp` on macOS (`brew install libomp`), `libomp-dev` on Linux
+- For GPU: GPU drivers installed (OpenCL is loaded dynamically — no SDK needed)
 
-> **Note:** The `/openmp` flag requires `VCOMP140.DLL` (part of the [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)) on the machine that runs the exe.
-> Use `run_stream.bat` to auto-detect and install it if needed.
-
-### Windows (GPU version)
-
-```cmd
-:: Same Developer Command Prompt — no OpenCL SDK needed, just GPU drivers
-cd /d C:\path\to\STREAM_windows
-cl.exe /O2 /Fe:stream_gpu.exe stream_gpu.c
-stream_gpu.exe
-```
-
-### Linux / macOS (both versions)
+### 1. Build everything
 
 ```bash
-# CPU version
-make stream_c.exe
+# macOS / Linux
+./build_all_macos.sh   # or build_all_linux.sh
+# -> produces stream_cpu_macos_arm64, stream_gpu_macos_arm64, and builds StreamBench/
 
-# GPU version
-make stream_gpu.exe
+# Windows (run in any terminal — script auto-finds MSVC)
+build_all_windows.bat
+# -> produces stream_cpu_win_x64.exe, stream_gpu_win_x64.exe, and builds StreamBench/
+```
 
-# Or compile manually:
-# Linux
-gcc -O2 -fopenmp -o stream stream.c               # CPU
-gcc -O2 -o stream_gpu stream_gpu.c -ldl -lm        # GPU
+### 2. Run (CPU benchmark)
 
-# macOS
-clang -O2 -Xpreprocessor -fopenmp -lomp -o stream stream.c   # CPU (needs libomp)
-clang -O2 -o stream_gpu stream_gpu.c -lm                     # GPU
+```bash
+dotnet run --project StreamBench -- --cpu --array-size 200M
+```
+
+### 3. Run (GPU benchmark)
+
+```bash
+dotnet run --project StreamBench -- --gpu --array-size 100M
+```
+
+### 4. Range test (sweep array sizes)
+
+```bash
+dotnet run --project StreamBench -- --cpu --range 50M:200M:50M
+```
+
+### StreamBench CLI options
+
+```
+--cpu                    Run CPU benchmark (default)
+--gpu                    Run GPU benchmark
+--array-size N           Array size in elements (e.g. 200M, 100000000)
+--range START:END:STEP   Range test multiple array sizes (e.g. 50M:200M:50M)
+--no-save                Don't write CSV/JSON files
+--output-dir DIR         Directory for output files (default: current dir)
+--exe PATH               Explicit path to the C backend executable
+--help                   Show help
 ```
 
 ---
 
 ## Features
 
-*   **CPU Version (`stream.c`)**
-    *   OpenMP multi-threading with automatic core detection
-    *   Native Windows support (`QueryPerformanceCounter`, `GetSystemInfo`)
-    *   Range testing mode — sweep across array sizes in one run
-    *   Tuned kernel variants (`/DTUNED`)
-    *   x64 and ARM64 support
+### .NET 10 Frontend (`StreamBench/`)
 
-*   **GPU Version (`stream_gpu.c`)**
-    *   **Zero SDK dependency** — OpenCL is loaded dynamically at runtime via `LoadLibrary` (Windows) / `dlopen` (Linux/macOS)
-    *   Works with any OpenCL-capable GPU: AMD, NVIDIA, Intel, Apple
-    *   Wall-clock timing (`clock_gettime` / `QueryPerformanceCounter`) + `clFinish` for reliable cross-platform GPU measurement (OpenCL event profiling is broken on Apple Silicon's Metal-backed OpenCL layer)
-    *   Automatic GPU discovery and device info reporting
-    *   Validation and CSV output identical to CPU version
+- **Rich colored output** using platform-native .NET Console API — works on Windows Terminal, macOS Terminal, Linux
+- **Formatted tables** for system info, memory modules, cache hierarchy, and benchmark results
+- **JSON and CSV file saving** — consistent format for analysis and archiving
+- **Range testing** — sweep multiple array sizes, save consolidated CSV
+- **AI-extensible** — .NET 10 platform for future analysis and AI features
+
+### CPU Backend (`stream.c`)
+
+- OpenMP multi-threading with automatic core detection
+- Native Windows support (`QueryPerformanceCounter`, `GetSystemInfo`)
+- Tuned kernel variants (`/DTUNED`)
+- x64 and ARM64 support
+- Runtime `--array-size N` argument
+
+### GPU Backend (`stream_gpu.c`)
+
+- **Zero SDK dependency** — OpenCL loaded dynamically via `LoadLibrary` / `dlopen`
+- Works with any OpenCL-capable GPU: AMD, NVIDIA, Intel, Apple
+- Automatic GPU discovery and device info
+- Runtime `--array-size N` argument
 
 ---
 
-## Detailed Compilation Guide
+## Detailed Compilation Guide (C backends only)
 
 ### Prerequisites
 
