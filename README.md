@@ -143,8 +143,9 @@ dotnet run --project StreamBench -- --cpu --range 50M:200M:50M
 ### StreamBench CLI options
 
 ```
---cpu                    Run CPU benchmark (default)
---gpu                    Run GPU benchmark
+--cpu                    Run CPU benchmark only
+--gpu                    Run GPU benchmark only
+(no flag)                Run both CPU and GPU benchmarks (default)
 --array-size N           Array size in elements (e.g. 200M, 100000000)
 --range START:END:STEP   Range test multiple array sizes (e.g. 50M:200M:50M)
 --no-save                Don't write CSV/JSON files

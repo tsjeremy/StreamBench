@@ -1,11 +1,14 @@
 // Program.cs — STREAM Benchmark .NET 10 CLI entry point
 //
 // Usage:
-//   StreamBench [--cpu | --gpu] [--array-size N] [--ntimes N]
+//   StreamBench [--cpu] [--gpu] [--array-size N] [--ntimes N]
 //               [--range START:END:STEP] [--no-save] [--output-dir DIR]
 //               [--exe PATH]
 //
+// If neither --cpu nor --gpu is specified, both benchmarks run automatically.
+//
 // Examples:
+//   StreamBench                              # runs both CPU and GPU
 //   StreamBench --cpu --array-size 200000000
 //   StreamBench --gpu --array-size 100000000
 //   StreamBench --cpu --range 50000000:200000000:50000000
@@ -18,7 +21,9 @@ using StreamBench.Models;
 Console.OutputEncoding = Encoding.UTF8;
 
 // ── Parse arguments ────────────────────────────────────────────────────────
-bool   isGpu      = false;
+bool   wantCpu    = false;
+bool   wantGpu    = false;
+bool   modeSet    = false;   // true if user explicitly passed --cpu or --gpu
 long?  arraySize  = null;
 bool   noSave     = false;
 string? outputDir = null;
@@ -29,8 +34,8 @@ for (int i = 0; i < args.Length; i++)
 {
     switch (args[i])
     {
-        case "--cpu":   isGpu = false; break;
-        case "--gpu":   isGpu = true;  break;
+        case "--cpu":   wantCpu = true; modeSet = true; break;
+        case "--gpu":   wantGpu = true; modeSet = true; break;
         case "--no-save": noSave = true; break;
 
         case "--array-size" when i + 1 < args.Length:
@@ -62,38 +67,67 @@ for (int i = 0; i < args.Length; i++)
     }
 }
 
-// ── Locate the C backend executable ───────────────────────────────────────
-string? exe = exePath ?? BenchmarkRunner.FindExecutable(isGpu);
-if (exe is null)
+// Default: run both CPU and GPU when user didn't specify
+if (!modeSet)
 {
-    ConsoleOutput.WriteMarkup("[red]Error:[/] Could not find the C benchmark executable.");
-    ConsoleOutput.WriteMarkup("[dim]No embedded backend found and no external binary in the current directory.[/]");
-    ConsoleOutput.WriteMarkup("[dim]Place stream_cpu_<os>_<arch> / stream_gpu_<os>_<arch> next to StreamBench,[/]");
-    ConsoleOutput.WriteMarkup("[dim]or rebuild with embedded backends (see build scripts).[/]");
-    return 1;
+    wantCpu = true;
+    wantGpu = true;
 }
 
 // ── Prepare output directory ───────────────────────────────────────────────
 if (outputDir is not null)
     Directory.CreateDirectory(outputDir);
 
-// ── Single run or range testing ────────────────────────────────────────────
-if (rangeStart > 0 && rangeEnd > rangeStart)
+// ── Run benchmarks ─────────────────────────────────────────────────────────
+int exitCode = 0;
+
+if (wantCpu)
 {
-    await RunRangeAsync(exe, isGpu, rangeStart, rangeEnd, rangeStep, noSave, outputDir);
-}
-else
-{
-    var result = await ConsoleOutput.RunWithSpinnerAsync(exe, arraySize, isGpu);
-    if (result is null)
-    {
-        ConsoleOutput.WriteMarkup("[red]Error:[/] Benchmark failed or returned no output.");
-        return 1;
-    }
-    DisplayAndSave(result, noSave, outputDir);
+    exitCode = await RunBenchmarkAsync(isGpu: false, exePath, arraySize,
+        rangeStart, rangeEnd, rangeStep, noSave, outputDir);
+    if (wantGpu) Console.WriteLine();
 }
 
-return 0;
+if (wantGpu)
+{
+    int gpuCode = await RunBenchmarkAsync(isGpu: true, exePath, arraySize,
+        rangeStart, rangeEnd, rangeStep, noSave, outputDir);
+    if (gpuCode != 0) exitCode = gpuCode;
+}
+
+return exitCode;
+
+// ── Run a single benchmark (CPU or GPU) ────────────────────────────────────
+async Task<int> RunBenchmarkAsync(bool isGpu, string? exePath, long? arraySize,
+    long rangeStart, long rangeEnd, long rangeStep,
+    bool noSave, string? outputDir)
+{
+    string? exe = exePath ?? BenchmarkRunner.FindExecutable(isGpu);
+    if (exe is null)
+    {
+        string kind = isGpu ? "GPU" : "CPU";
+        ConsoleOutput.WriteMarkup($"[yellow][SKIP][/] {kind} benchmark backend not found.");
+        ConsoleOutput.WriteMarkup("[dim]No embedded backend found and no external binary in the current directory.[/]");
+        // Only fail if user explicitly requested this mode
+        return modeSet ? 1 : 0;
+    }
+
+    if (rangeStart > 0 && rangeEnd > rangeStart)
+    {
+        await RunRangeAsync(exe, isGpu, rangeStart, rangeEnd, rangeStep, noSave, outputDir);
+    }
+    else
+    {
+        var result = await ConsoleOutput.RunWithSpinnerAsync(exe, arraySize, isGpu);
+        if (result is null)
+        {
+            ConsoleOutput.WriteMarkup("[red]Error:[/] Benchmark failed or returned no output.");
+            return 1;
+        }
+        DisplayAndSave(result, noSave, outputDir);
+    }
+    return 0;
+}
 
 // ── Range testing loop ─────────────────────────────────────────────────────
 async Task RunRangeAsync(string exe, bool isGpu,
@@ -192,8 +226,9 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  StreamBench [options]");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Options:[/]");
-    ConsoleOutput.WriteMarkup("  [cyan]--cpu[/]                    Run CPU benchmark (default)");
-    ConsoleOutput.WriteMarkup("  [cyan]--gpu[/]                    Run GPU benchmark");
+    ConsoleOutput.WriteMarkup("  [cyan]--cpu[/]                    Run CPU benchmark only");
+    ConsoleOutput.WriteMarkup("  [cyan]--gpu[/]                    Run GPU benchmark only");
+    ConsoleOutput.WriteMarkup("  [dim](no flag)[/]                 Run both CPU and GPU benchmarks (default)");
     ConsoleOutput.WriteMarkup("  [cyan]--array-size[/] N           Array size in elements (e.g. 200M, 100000000)");
     ConsoleOutput.WriteMarkup("  [cyan]--range[/] START:END:STEP   Range test multiple array sizes (e.g. 50M:200M:50M)");
     ConsoleOutput.WriteMarkup("  [cyan]--no-save[/]                Don't write CSV/JSON files");
@@ -202,6 +237,7 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Examples:[/]");
+    ConsoleOutput.WriteMarkup("  StreamBench                          Run both CPU and GPU");
     ConsoleOutput.WriteMarkup("  StreamBench --cpu --array-size 200M");
     ConsoleOutput.WriteMarkup("  StreamBench --gpu --array-size 100M");
     ConsoleOutput.WriteMarkup("  StreamBench --cpu --range 50M:200M:50M");
