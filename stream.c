@@ -42,50 +42,49 @@
 /*-----------------------------------------------------------------------*/
 
 /*-----------------------------------------------------------------------*/
-/* COMPILATION GUIDE FOR WINDOWS                                         */
+/* COMPILATION GUIDE FOR WINDOWS (x64 and ARM64)                        */
 /*-----------------------------------------------------------------------*/
 /*
- * How to compile with cl.exe (Microsoft Visual C++ Compiler) on Windows:
+ * Build with cl.exe (Microsoft Visual C++) from the matching
+ * Developer Command Prompt:
  *
- * 1. Open the correct Developer Command Prompt from the Start Menu.
- *    This sets up the environment (paths, libraries) for the compiler.
+ *   x64 build host/target:
+ *     - "x64 Native Tools Command Prompt for VS"
  *
- * 2. To compile for x64/AMD64 (standard 64-bit PCs):
- *    - Open "x64 Native Tools Command Prompt for VS"
- *    
- *    Basic compilation:
- *      cl.exe /O2 /openmp /Fe:stream_x64.exe stream.c
- *    
- *    Optimized compilation with TUNED kernels and larger arrays:
- *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=2000000 /DNTIMES=100 /openmp /Fe:stream_x64_tuned.exe stream.c
+ *   ARM64 target:
+ *     - "ARM64 Native Tools Command Prompt for VS" (native ARM64)
+ *     - "x64_arm64 Cross Tools Command Prompt for VS" (cross-compile)
  *
- * 3. To compile for ARM64 (for devices like Windows on ARM):
- *    - If compiling ON an ARM64 machine, open "ARM64 Native Tools Command Prompt".
- *    - If cross-compiling FROM an x64 machine, open "x64_arm64 Cross Tools Command Prompt".
- *    
- *    Basic compilation:
- *      cl.exe /O2 /openmp /Fe:stream_arm64.exe stream.c
- *    
- *    Optimized compilation with TUNED kernels and larger arrays:
- *      cl.exe /O2 /DTUNED /DSTREAM_ARRAY_SIZE=2000000 /DNTIMES=100 /openmp /Fe:stream_arm64_tuned.exe stream.c
+ * Basic:
+ *   cl.exe /O2 /openmp /Fe:stream.exe stream.c
+ *
+ * Recommended for stable bandwidth measurements:
+ *   cl.exe /O2 /openmp /fp:fast /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /Fe:stream_tuned.exe stream.c
+ *
+ * Optional (newer MSVC OpenMP runtime):
+ *   cl.exe /O2 /openmp:llvm /fp:fast /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /Fe:stream_tuned.exe stream.c
+ *
+ * Range testing:
+ *   cl.exe /O2 /openmp /fp:fast /DTUNED /DSTART_SIZE=50000000 /DEND_SIZE=200000000 /DSTEP_SIZE=25000000 /DNTIMES=30 /Fe:stream_range.exe stream.c
  *
  * Command-line options explained:
  *   /O2                        : Enable optimizations for speed.
  *   /openmp                    : Enable OpenMP support for multi-threading.
+ *   /openmp:llvm               : Optional newer OpenMP runtime (if available).
+ *   /fp:fast                   : Fast floating-point model for benchmarking.
  *   /DTUNED                    : Enable optimized kernel functions.
- *   /DSTREAM_ARRAY_SIZE=N      : Set array size (8M elements = ~192MB total memory).
+ *   /DSTREAM_ARRAY_SIZE=N      : Set array size for single-run mode.
  *   /DNTIMES=N                 : Set number of timing iterations (100 for better statistics).
  *   /DSTART_SIZE=N             : Start array size for range testing (e.g., 50000000).
- *   /DEND_SIZE=N               : End array size for range testing (e.g., 100000000).
- *   /DSTEP_SIZE=N              : Step size for range testing (e.g., 10000000).
+ *   /DEND_SIZE=N               : End array size for range testing (e.g., 200000000).
+ *   /DSTEP_SIZE=N              : Step size for range testing (e.g., 25000000).
  *   /Fe:name                   : Set the output executable file name.
  *
- * Range Testing Examples:
- *   Test from 50M to 100M elements in 10M steps:
- *     cl.exe /O2 /DTUNED /DSTART_SIZE=50000000 /DEND_SIZE=100000000 /DSTEP_SIZE=10000000 /DNTIMES=10 /openmp /Fe:stream_range.exe stream.c
- *
- *   Test from 10M to 50M elements in 5M steps:
- *     cl.exe /O2 /DTUNED /DSTART_SIZE=10000000 /DEND_SIZE=50000000 /DSTEP_SIZE=5000000 /DNTIMES=10 /openmp /Fe:stream_range.exe stream.c
+ * Runtime guidance for comparable results:
+ *   - STREAM output bandwidth is in MB/s. Divide by 1000 for GB/s.
+ *   - Use arrays large enough to get at least 20 clock ticks per kernel.
+ *   - Sweep OMP_NUM_THREADS and pin placement (OMP_PROC_BIND/OMP_PLACES).
+ *   - Do not compare CPU STREAM Triad numbers with GPU copy benchmarks.
  */
 /*-----------------------------------------------------------------------*/
 
@@ -101,6 +100,100 @@
 #ifdef _MSC_VER          /* If using Microsoft Visual C++ compiler */
     #include <windows.h> /* Include Windows API header for timers and core count */
     typedef long long ssize_t; /* Define ssize_t for Windows */
+    
+    /* Large page allocation support for better memory bandwidth */
+    static int use_large_pages = 0;
+    static SIZE_T large_page_size = 0;
+    
+    /* Function to enable large page privilege */
+    static int enable_large_page_privilege() {
+        HANDLE hToken;
+        TOKEN_PRIVILEGES tp;
+        
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
+            return 0;
+        
+        if (!LookupPrivilegeValue(NULL, SE_LOCK_MEMORY_NAME, &tp.Privileges[0].Luid)) {
+            CloseHandle(hToken);
+            return 0;
+        }
+        
+        tp.PrivilegeCount = 1;
+        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        
+        if (!AdjustTokenPrivileges(hToken, FALSE, &tp, 0, NULL, NULL)) {
+            CloseHandle(hToken);
+            return 0;
+        }
+        
+        if (GetLastError() == ERROR_NOT_ALL_ASSIGNED) {
+            CloseHandle(hToken);
+            return 0;
+        }
+        
+        CloseHandle(hToken);
+        return 1;
+    }
+    
+    /* NUMA-aware allocation function */
+    static void* numa_alloc(size_t size) {
+        void* ptr = NULL;
+        
+        /* Try large pages first if enabled - best for memory bandwidth */
+        if (use_large_pages && large_page_size > 0) {
+            SIZE_T alloc_size = ((size + large_page_size - 1) / large_page_size) * large_page_size;
+            ptr = VirtualAlloc(NULL, alloc_size, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
+            if (ptr) {
+                printf("Allocated %.1f MB with large pages\n", alloc_size / (1024.0 * 1024.0));
+                return ptr;
+            }
+        }
+        
+        /* Use _aligned_malloc for 64-byte (cache line) alignment */
+        ptr = _aligned_malloc(size, 64);
+        return ptr;
+    }
+    
+    static void numa_free(void* ptr, size_t size) {
+        if (ptr) {
+            if (use_large_pages && large_page_size > 0) {
+                VirtualFree(ptr, 0, MEM_RELEASE);
+            } else {
+                _aligned_free(ptr);
+            }
+        }
+    }
+    
+    /* Count physical cores so default OpenMP threads avoid SMT oversubscription. */
+    static int get_physical_core_count() {
+        DWORD len = 0;
+        DWORD i;
+        DWORD count;
+        int cores = 0;
+        SYSTEM_LOGICAL_PROCESSOR_INFORMATION *buffer;
+        
+        GetLogicalProcessorInformation(NULL, &len);
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || len == 0)
+            return 0;
+        
+        buffer = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION*)malloc(len);
+        if (buffer == NULL)
+            return 0;
+        
+        if (!GetLogicalProcessorInformation(buffer, &len)) {
+            free(buffer);
+            return 0;
+        }
+        
+        count = len / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION);
+        for (i = 0; i < count; i++) {
+            if (buffer[i].Relationship == RelationProcessorCore)
+                cores++;
+        }
+        
+        free(buffer);
+        return cores;
+    }
 #else                    /* For GCC and other compilers (on UNIX-like systems) */
     #include <unistd.h>  /* For POSIX standard functions, e.g., sysconf */
     #include <sys/time.h> /* Include header for gettimeofday() */
@@ -125,7 +218,8 @@
  *        output by the program is at least 20 clock-ticks.
  *
  *    This can be set on the compile line, e.g.,
- *    gcc -O -DSTREAM_ARRAY_SIZE=100000000 stream.c -o stream.100M
+ *      cl.exe /O2 /openmp /DSTREAM_ARRAY_SIZE=200000000 /Fe:stream.exe stream.c
+ *      gcc -O3 -fopenmp -DSTREAM_ARRAY_SIZE=200000000 stream.c -o stream.200M
  */
 #ifndef STREAM_ARRAY_SIZE
     #define STREAM_ARRAY_SIZE 100000000 /* Default array size is 100 million elements */
@@ -338,42 +432,95 @@ int run_stream_test(size_t array_size)
     printf(" will be used to compute the reported bandwidth.\n");
     
     /* Allocate memory for arrays dynamically */
-    a = (STREAM_TYPE*) malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE));
-    b = (STREAM_TYPE*) malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE));
-    c = (STREAM_TYPE*) malloc((current_array_size + OFFSET) * sizeof(STREAM_TYPE));
+    size_t alloc_size = (current_array_size + OFFSET) * sizeof(STREAM_TYPE);
+    
+#ifdef _MSC_VER
+    /* Try to enable large pages on Windows for better memory bandwidth */
+    large_page_size = GetLargePageMinimum();
+    if (large_page_size > 0 && enable_large_page_privilege()) {
+        use_large_pages = 1;
+        printf("Large page support enabled (page size: %zu KB)\n", large_page_size / 1024);
+    }
+    
+    /* Use NUMA-aware allocation */
+    a = (STREAM_TYPE*) numa_alloc(alloc_size);
+    b = (STREAM_TYPE*) numa_alloc(alloc_size);
+    c = (STREAM_TYPE*) numa_alloc(alloc_size);
+#else
+    a = (STREAM_TYPE*) malloc(alloc_size);
+    b = (STREAM_TYPE*) malloc(alloc_size);
+    c = (STREAM_TYPE*) malloc(alloc_size);
+#endif
     
     if (a == NULL || b == NULL || c == NULL) {
         printf("Error: Failed to allocate memory for arrays\n");
         printf("Requested memory: %.1f MB per array (%.1f MB total)\n", 
-               (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0),
-               3.0 * (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
+               alloc_size / (1024.0 * 1024.0),
+               3.0 * alloc_size / (1024.0 * 1024.0));
         
         /* Free any successfully allocated arrays before returning */
+#ifdef _MSC_VER
+        if (a != NULL) { numa_free(a, alloc_size); a = NULL; }
+        if (b != NULL) { numa_free(b, alloc_size); b = NULL; }
+        if (c != NULL) { numa_free(c, alloc_size); c = NULL; }
+#else
         if (a != NULL) { free(a); a = NULL; }
         if (b != NULL) { free(b); b = NULL; }
         if (c != NULL) { free(c); c = NULL; }
+#endif
         
         return 1;
     }
     printf("Memory allocation successful: %.1f MB per array (%.1f MB total)\n",
-           (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0),
-           3.0 * (current_array_size + OFFSET) * sizeof(STREAM_TYPE) / (1024.0 * 1024.0));
+           alloc_size / (1024.0 * 1024.0),
+           3.0 * alloc_size / (1024.0 * 1024.0));
 
 #ifdef _OPENMP
     printf(HLINE);
     
     /* Dynamic thread count detection and configuration */
-    int num_threads = 0;
+    /* Respect OMP_NUM_THREADS environment variable if set */
+    int num_threads = omp_get_max_threads();
+    
 #ifdef _MSC_VER /* For Windows */
     SYSTEM_INFO sysInfo;
-    GetSystemInfo(&sysInfo);                    /* Get system information using Windows API */
-    num_threads = sysInfo.dwNumberOfProcessors; /* Get the number of processors */
-#else           /* For Linux/UNIX */
-    num_threads = sysconf(_SC_NPROCESSORS_ONLN); /* Get the number of online processors using POSIX standard */
+    GetSystemInfo(&sysInfo);
+    int logical_processors = (int)sysInfo.dwNumberOfProcessors;
+    int physical_cores = get_physical_core_count();
+    int available_cores = logical_processors;
+#else
+    int available_cores = (int)sysconf(_SC_NPROCESSORS_ONLN);
 #endif
-    if (num_threads > 0) {
-        omp_set_num_threads(num_threads); /* Set the number of threads for OpenMP */
-        printf("Number of threads automatically set to %d (number of available cores)\n", num_threads);
+    
+    /* Only override if OMP_NUM_THREADS was not explicitly set */
+    char *omp_env = getenv("OMP_NUM_THREADS");
+    if (omp_env == NULL && available_cores > 0) {
+#ifdef _MSC_VER
+        num_threads = (physical_cores > 0) ? physical_cores : available_cores;
+#else
+        num_threads = available_cores;
+#endif
+        omp_set_num_threads(num_threads);
+        
+#ifdef _MSC_VER
+        if (physical_cores > 0 && logical_processors > physical_cores) {
+            printf("Number of threads automatically set to %d (physical cores, %d logical processors detected)\n",
+                   num_threads, logical_processors);
+        } else
+#endif
+        {
+            printf("Number of threads automatically set to %d (number of available cores)\n", num_threads);
+        }
+    } else {
+#ifdef _MSC_VER
+        if (physical_cores > 0) {
+            printf("Using OMP_NUM_THREADS=%d (physical cores: %d, logical processors: %d)\n",
+                   num_threads, physical_cores, logical_processors);
+        } else
+#endif
+        {
+            printf("Using OMP_NUM_THREADS=%d (available cores: %d)\n", num_threads, available_cores);
+        }
     }
 
 #pragma omp parallel /* Start a parallel region */
@@ -515,9 +662,16 @@ int run_stream_test(size_t array_size)
     output_csv_results();
 
     /* Free allocated memory */
+#ifdef _MSC_VER
+    size_t free_size = (current_array_size + OFFSET) * sizeof(STREAM_TYPE);
+    numa_free(a, free_size);
+    numa_free(b, free_size);
+    numa_free(c, free_size);
+#else
     free(a);
     free(b);
     free(c);
+#endif
 
     return 0;
 }
@@ -769,6 +923,45 @@ void close_range_csv()
  * Users can replace these with versions optimized for specific hardware.
  */
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#include <immintrin.h>
+
+/* Standard AVX2 optimized kernels - let compiler use best strategy */
+void tuned_STREAM_Copy()
+{
+    ssize_t j;
+#pragma omp parallel for schedule(static)
+    for (j = 0; j < current_array_size; j++)
+        c[j] = a[j];
+}
+
+void tuned_STREAM_Scale(STREAM_TYPE scalar)
+{
+    ssize_t j;
+#pragma omp parallel for schedule(static)
+    for (j = 0; j < current_array_size; j++)
+        b[j] = scalar * c[j];
+}
+
+void tuned_STREAM_Add()
+{
+    ssize_t j;
+#pragma omp parallel for schedule(static)
+    for (j = 0; j < current_array_size; j++)
+        c[j] = a[j] + b[j];
+}
+
+void tuned_STREAM_Triad(STREAM_TYPE scalar)
+{
+    ssize_t j;
+#pragma omp parallel for schedule(static)
+    for (j = 0; j < current_array_size; j++)
+        a[j] = b[j] + scalar * c[j];
+}
+
+#else /* Non-Windows fallback */
+
 void tuned_STREAM_Copy()
 {
     ssize_t j;
@@ -800,5 +993,7 @@ void tuned_STREAM_Triad(STREAM_TYPE scalar)
     for (j = 0; j < current_array_size; j++)
         a[j] = b[j] + scalar * c[j];
 }
+
+#endif /* _MSC_VER */
 
 #endif /* TUNED */

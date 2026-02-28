@@ -9,6 +9,15 @@ Documentation for STREAM is on the web at:
 ===============================================
 NEWS
 ===============================================
+UPDATE: February 28, 2026:
+
+Documentation and run guidance refreshed for modern Windows systems:
+* Updated build guidance for x64 and ARM64 with current MSVC options
+* Added reproducibility guidance for power profile, OpenMP placement, and thread sweeps
+* Clarified bandwidth interpretation: STREAM reports MB/s (divide by 1000 for GB/s)
+* Updated range-testing examples for larger modern memory configurations
+
+===============================================
 UPDATE: June 29, 2025:
 
 Version 5.10.01 of stream.c released with Windows optimizations!

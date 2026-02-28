@@ -1,5 +1,14 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sat Feb 28 2026
+
+Documentation and comment refresh for the Windows port:
+* Updated README guidance for reproducible benchmark runs on x64 and ARM64
+* Clarified MB/s to GB/s conversion and run-rule labeling expectations
+* Updated in-source compilation comments for current MSVC/OpenMP usage
+
+-------------------------------------------------------------------------
+
 Revisions as of Thu, Jan 17, 2013  3:50:01 PM
 
 Version 5.10 of stream.c has been released.
