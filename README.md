@@ -2,6 +2,8 @@
 
 A cross-platform **memory bandwidth benchmark** with both **CPU** and **GPU** versions, based on the
 industry-standard [STREAM benchmark](http://www.cs.virginia.edu/stream/ref.html) by John D. McCalpin.
+Also includes an **AI inference benchmark** using [Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)
+to measure LLM response time and tokens/second on CPU, GPU, and NPU.
 
 ## Architecture
 
@@ -9,16 +11,20 @@ industry-standard [STREAM benchmark](http://www.cs.virginia.edu/stream/ref.html)
 |-----------|-----------|------|
 | `stream.c` | C + OpenMP | CPU memory bandwidth kernels (headless backend, outputs JSON) |
 | `stream_gpu.c` | C + OpenCL | GPU memory bandwidth kernels (headless backend, outputs JSON) |
-| `StreamBench/` | .NET 10 | User-facing CLI — colored output, JSON/CSV saving, AI-extensible |
+| `StreamBench/` | .NET 10 | User-facing CLI — colored output, JSON/CSV saving, AI inference benchmark |
 
 The C backends run the performance-critical kernels and output raw JSON to stdout.
 The **StreamBench** .NET app is the primary entry point — it launches the C backend,
-displays color-formatted results, and saves files.
+displays color-formatted results, saves files, and runs the AI inference benchmark.
 
 ```
   User -> StreamBench (.NET 10) -> stream_cpu / stream_gpu (C)
                                         | JSON on stdout
                         <- display colored table, save .csv / .json
+
+  User -> StreamBench (.NET 10) --ai -> Microsoft.AI.Foundry.Local
+                                        | runs SLM on CPU / GPU / NPU
+                        <- display inference timing, tokens/sec, save .json
 ```
 
 ---
@@ -162,7 +168,105 @@ dotnet run --project StreamBench -- --cpu --range 50M:200M:50M
 --output-dir DIR         Directory for output files (default: current dir)
 --exe PATH               Explicit path to the C backend executable
 --help                   Show help
+
+AI Inference Benchmark (requires Microsoft AI Foundry Local):
+--ai                     Run AI inference benchmark on all available devices
+--ai-device LIST         Comma-separated devices: cpu, gpu, npu (default: all)
+--ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)
 ```
+
+---
+
+## AI Inference Benchmark (`--ai`)
+
+StreamBench includes an AI inference benchmark powered by
+**[Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)**,
+which runs small language models (SLMs) directly on-device with hardware acceleration.
+
+### What it measures
+
+| Metric | Description |
+|--------|-------------|
+| **Model load time** | Time to load the model into device memory (one-time cost) |
+| **Q1 response time** | Time for the first inference — "What is DRIPS in Windows?" |
+| **Q1 total time** | Model load + Q1 response (what a cold-start user experiences) |
+| **Q2 response time** | Time for the second inference — "How to improve DRIPS% on Windows?" |
+| **Tokens/second** | Output throughput (completion tokens ÷ inference time) |
+
+The benchmark runs Q1 immediately after model loading (cold run), then Q2 with the model
+already resident in memory (warm run). This lets you compare cold-start latency with
+sustained inference throughput across CPU, GPU, and NPU.
+
+### Prerequisites
+
+Microsoft AI Foundry Local must be installed on the target machine:
+
+```powershell
+# Windows
+winget install Microsoft.FoundryLocal
+```
+
+```bash
+# macOS
+brew install foundrylocal
+```
+
+### Running the AI benchmark
+
+```powershell
+# Benchmark all available devices (CPU, GPU, NPU)
+.\StreamBench.exe --ai
+
+# Benchmark specific devices
+.\StreamBench.exe --ai --ai-device cpu,gpu
+
+# Use a specific model
+.\StreamBench.exe --ai --ai-model phi-3.5-mini
+
+# Combine with memory bandwidth benchmark
+.\StreamBench.exe --cpu --gpu --ai
+
+# Don't save the JSON result file
+.\StreamBench.exe --ai --no-save
+```
+
+### Example output
+
+```
+══════════════════════════════════════════════════════════════
+  AI Inference Benchmark — Microsoft.AI.Foundry.Local
+══════════════════════════════════════════════════════════════
+  Q1 (cold): What is DRIPS in Windows?
+  Q2 (warm): How to improve DRIPS% on Windows?
+
+── AI Benchmark: CPU (qwen2.5-0.5b-instruct-generic-cpu) ──
+╭──────────────── Model Info ─────────────────╮
+│ Device             │ CPU                    │
+│ Model ID           │ qwen2.5-0.5b-instruct… │
+│ Execution Provider │ CPUExecutionProvider   │
+╰────────────────────┴────────────────────────╯
+╭────── Inference Timing ──────────────────────────────────────────────╮
+│ Run                   │ Load (s) │ Response (s) │ Total (s) │ Tok/s  │
+├───────────────────────┼──────────┼──────────────┼───────────┼────────┤
+│ Q1 (cold, incl. load) │    1.243 │        3.517 │     4.760 │  42.3  │
+│ Q2 (warm)             │       —  │        2.891 │     2.891 │  51.6  │
+╰───────────────────────┴──────────┴──────────────┴───────────┴────────╯
+```
+
+### Saved output
+
+Results are saved as `ai_inference_benchmark_<timestamp>.json` with full details
+including model info, per-run timings, token counts, and response previews.
+
+### Interpreting results
+
+- **Higher tokens/second** = better inference throughput (limited by memory bandwidth)
+- **Lower model load time** = faster cold start (depends on storage speed and model size)
+- **NPU > GPU > CPU** in tokens/second is typical for small models on compatible hardware
+- Compare Q1 total time vs Q2 time to understand the impact of model loading
+
+The tokens/second metric is directly comparable to your memory bandwidth results
+(higher memory bandwidth → higher tokens/second, especially for CPU inference).
 
 ---
 
@@ -487,6 +591,18 @@ StreamBench/
 ├── README                    # Original STREAM project notes
 ├── LICENSE.txt               # License information
 └── HISTORY.txt               # Version history
+
+StreamBench/ (.NET 10 frontend)
+├── Program.cs                # CLI entry point (--cpu, --gpu, --ai flags)
+├── BenchmarkRunner.cs        # C backend process management
+├── ConsoleOutput.cs          # Colored output and result tables
+├── ResultSaver.cs            # JSON / CSV saving
+├── SystemInfoDetector.cs     # Cross-platform hardware detection
+├── EmbeddedBackends.cs       # Self-contained binary extraction
+├── AiBenchmarkRunner.cs      # AI inference benchmark (Microsoft.AI.Foundry.Local)
+└── Models/
+    ├── BenchmarkResult.cs          # STREAM benchmark result model
+    └── AiInferenceBenchmarkResult.cs  # AI benchmark result model
 ```
 
 ## Original Project

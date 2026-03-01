@@ -91,6 +91,36 @@ public static class ResultSaver
         sw.Flush();
     }
 
+    // ── AI benchmark JSON save ────────────────────────────────────────────
+
+    /// <summary>
+    /// Saves all AI inference benchmark results to a single JSON file.
+    /// Returns the path written, or null on failure.
+    /// </summary>
+    public static string? SaveAiJson(
+        IReadOnlyList<StreamBench.Models.AiDeviceBenchmarkResult> results,
+        string? outputDir = null)
+    {
+        if (results.Count == 0) return null;
+
+        string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+        string name = $"ai_inference_benchmark_{timestamp}.json";
+        string filename = outputDir is not null ? Path.Combine(outputDir, name) : name;
+
+        try
+        {
+            string json = JsonSerializer.Serialize(results, PrettyJson);
+            File.WriteAllText(filename, json,
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return filename;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Warning: Could not save AI benchmark JSON: {ex.Message}");
+            return null;
+        }
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────
 
     private static void WriteCsvHeader(StreamWriter sw)

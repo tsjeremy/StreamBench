@@ -4,9 +4,12 @@
 //   StreamBench [--cpu] [--gpu] [--gpu-device N] [--array-size N] [--ntimes N]
 //               [--range START:END:STEP] [--no-save] [--output-dir DIR]
 //               [--exe PATH]
+//               [--ai] [--ai-device cpu|gpu|npu] [--ai-model ALIAS]
 //
 // If neither --cpu nor --gpu is specified, both benchmarks run automatically
 // and all available GPUs are benchmarked.
+//
+// --ai runs the Microsoft.AI.Foundry.Local inference benchmark separately.
 //
 // Examples:
 //   StreamBench                              # runs both CPU and GPU
@@ -14,6 +17,8 @@
 //   StreamBench --gpu --array-size 100000000
 //   StreamBench --cpu --range 50000000:200000000:50000000
 //   StreamBench --cpu --no-save
+//   StreamBench --ai                         # AI benchmark on all devices
+//   StreamBench --ai --ai-device cpu,gpu     # AI benchmark on CPU and GPU only
 
 using System.Text;
 using StreamBench;
@@ -25,6 +30,9 @@ Console.OutputEncoding = Encoding.UTF8;
 bool   wantCpu    = false;
 bool   wantGpu    = false;
 bool   modeSet    = false;   // true if user explicitly passed --cpu or --gpu
+bool   wantAi     = false;   // --ai flag
+string? aiModel   = null;    // --ai-model ALIAS
+string? aiDevices = null;    // --ai-device cpu,gpu,npu (comma-separated)
 long?  arraySize  = null;
 bool   noSave     = false;
 string? outputDir = null;
@@ -38,7 +46,16 @@ for (int i = 0; i < args.Length; i++)
     {
         case "--cpu":   wantCpu = true; modeSet = true; break;
         case "--gpu":   wantGpu = true; modeSet = true; break;
+        case "--ai":    wantAi  = true; modeSet = true; break;
         case "--no-save": noSave = true; break;
+
+        case "--ai-model" when i + 1 < args.Length:
+            aiModel = args[++i];
+            break;
+
+        case "--ai-device" when i + 1 < args.Length:
+            aiDevices = args[++i];
+            break;
 
         case "--array-size" when i + 1 < args.Length:
             arraySize = ParseSize(args[++i]);
@@ -79,7 +96,6 @@ if (!modeSet)
     wantCpu = true;
     wantGpu = true;
 }
-
 // ── Prepare output directory ───────────────────────────────────────────────
 if (outputDir is not null)
     Directory.CreateDirectory(outputDir);
@@ -100,6 +116,13 @@ if (wantGpu)
     int gpuCode = await RunGpuBenchmarksAsync(exePath, arraySize,
         rangeStart, rangeEnd, rangeStep, noSave, outputDir, gpuDevice);
     if (gpuCode != 0) exitCode = gpuCode;
+}
+
+if (wantAi)
+{
+    if (wantCpu || wantGpu) Console.WriteLine();
+    int aiCode = await RunAiBenchmarkAsync(aiDevices, aiModel, noSave, outputDir);
+    if (aiCode != 0) exitCode = aiCode;
 }
 
 return exitCode;
@@ -328,6 +351,53 @@ void DisplayAndSave(BenchmarkResult result, bool noSave, string? outputDir, bool
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+// ── AI inference benchmark ─────────────────────────────────────────────────
+async Task<int> RunAiBenchmarkAsync(
+    string? deviceArg, string? modelAlias, bool noSave, string? outputDir)
+{
+    // Parse comma-separated device list (e.g. "cpu,gpu,npu" or "npu")
+    IEnumerable<string>? deviceFilter = null;
+    if (!string.IsNullOrWhiteSpace(deviceArg))
+    {
+        deviceFilter = deviceArg
+            .Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries)
+            .Select(d => d.Trim());
+    }
+
+    ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+    ConsoleOutput.WriteMarkup("[bold cyan]  AI Inference Benchmark — Microsoft.AI.Foundry.Local[/]");
+    ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+    ConsoleOutput.WriteMarkup($"[dim]  Q1 (cold): {AiBenchmarkRunner.Q1}[/]");
+    ConsoleOutput.WriteMarkup($"[dim]  Q2 (warm): {AiBenchmarkRunner.Q2}[/]");
+
+    var results = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias);
+
+    if (results.Count == 0)
+    {
+        ConsoleOutput.WriteMarkup("[yellow][WARN][/] No AI benchmark results were produced.");
+        ConsoleOutput.WriteMarkup("[dim]  Ensure Microsoft AI Foundry Local is installed:[/]");
+        ConsoleOutput.WriteMarkup("[dim]  Windows: winget install Microsoft.FoundryLocal[/]");
+        ConsoleOutput.WriteMarkup("[dim]  macOS:   brew install foundrylocal[/]");
+        return 1;
+    }
+
+    foreach (var r in results)
+        ConsoleOutput.PrintAiResult(r);
+
+    ConsoleOutput.PrintAiSummary(results);
+
+    if (!noSave)
+    {
+        ConsoleOutput.WriteMarkup("[bold white]Saving AI benchmark results...[/]");
+        var jsonPath = ResultSaver.SaveAiJson(results, outputDir);
+        if (jsonPath is not null) ConsoleOutput.PrintFileSaved(jsonPath);
+        Console.WriteLine();
+    }
+
+    return 0;
+}
+
 static long ParseSize(string s)
 {
     s = s.Trim().ToUpperInvariant();
@@ -354,6 +424,11 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--no-save[/]                Don't write CSV/JSON files");
     ConsoleOutput.WriteMarkup("  [cyan]--output-dir[/] DIR         Directory for output files (default: current dir)");
     ConsoleOutput.WriteMarkup("  [cyan]--exe[/] PATH               Explicit path to the C backend executable");
+    Console.WriteLine();
+    ConsoleOutput.WriteMarkup("[bold white]AI Inference Benchmark (Microsoft.AI.Foundry.Local):[/]");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai[/]                     Run AI inference benchmark on all available devices");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Examples:[/]");
@@ -363,4 +438,10 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  StreamBench --gpu --gpu-device 0     Benchmark a specific GPU");
     ConsoleOutput.WriteMarkup("  StreamBench --cpu --range 50M:200M:50M");
     ConsoleOutput.WriteMarkup("  StreamBench --cpu --no-save");
+    Console.WriteLine();
+    ConsoleOutput.WriteMarkup("[bold white]AI benchmark examples:[/]");
+    ConsoleOutput.WriteMarkup("  StreamBench --ai                          AI benchmark on all devices (CPU/GPU/NPU)");
+    ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-device cpu,npu      AI benchmark on CPU and NPU only");
+    ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-model phi-3.5-mini  Use a specific model");
+    ConsoleOutput.WriteMarkup("  StreamBench --ai --no-save                Run without saving JSON");
 }
