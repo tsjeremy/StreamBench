@@ -147,8 +147,10 @@ jobs:
           cl.exe /nologo /O2         /DSTREAM_ARRAY_SIZE=1000 /DNTIMES=1         /Fe:stream_gpu_test.exe stream_gpu.c /link advapi32.lib
           echo === CPU smoke-test ===
           stream_cpu_test.exe
+          if %ERRORLEVEL% NEQ 0 exit /b 1
           echo === GPU smoke-test ===
-          stream_gpu_test.exe || echo GPU smoke-test skipped (no OpenCL device in CI)
+          stream_gpu_test.exe || echo GPU smoke-test skipped - no OpenCL device in CI
+          exit /b 0
 
       # Publish win-x64 BEFORE switching to ARM64 MSVC environment,
       # otherwise the Platform=ARM64 env var from ilammy/msvc-dev-cmd
