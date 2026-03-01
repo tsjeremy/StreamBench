@@ -2,9 +2,12 @@
 # ============================================================
 # STREAM Benchmark - Setup & Run (Cross-platform)
 # ============================================================
-# Runs CPU and GPU memory bandwidth benchmarks via the
+# Runs CPU and GPU memory bandwidth benchmarks (default mode) via the
 # StreamBench frontend for formatted output with system info,
 # colored tables, and CSV/JSON file saving.
+#
+# AI benchmark is intentionally NOT included in this default launcher.
+# Use --ai on StreamBench directly, or run run_stream_ai.ps1.
 #
 # Works on Windows, macOS, and Linux.
 #

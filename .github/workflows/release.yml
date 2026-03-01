@@ -222,8 +222,10 @@ jobs:
           name: windows-binaries
           path: release-assets/
 
-      - name: Copy launcher script to release assets
-        run: cp run_stream.ps1 release-assets/
+      - name: Copy launcher scripts to release assets
+        run: |
+          cp run_stream.ps1 release-assets/
+          cp run_stream_ai.ps1 release-assets/
 
       - name: Attach assets to GitHub Release
         uses: softprops/action-gh-release@v2

@@ -200,7 +200,8 @@ foreach ($t in $publishTargets) {
 Write-Host ''
 Write-Host '  Run:  StreamBench_win_x64.exe --cpu'
 Write-Host '        StreamBench_win_x64.exe --gpu'
-Write-Host '  Or:   .\run_stream.ps1 (auto-detects architecture)'
+Write-Host '  Or:   .\run_stream.ps1     (memory-only, auto-detect architecture)'
+Write-Host '        .\run_stream_ai.ps1  (memory + AI, auto-detect architecture)'
 
 Write-Host ''
 if ($Errors -gt 0) {

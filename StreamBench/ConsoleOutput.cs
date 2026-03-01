@@ -461,7 +461,121 @@ public static class ConsoleOutput
         WriteMarkup($"[cyan]  -> Saved:[/] [white]{path}[/]");
     }
 
+    // ── AI benchmark results ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Prints a formatted table for one AI device benchmark result.
+    /// Shows model info, then a two-row table for Q1 (cold) and Q2 (warm).
+    /// </summary>
+    public static void PrintAiResult(StreamBench.Models.AiDeviceBenchmarkResult r)
+    {
+        Console.WriteLine();
+        WriteMarkup("[cyan]──────────────────────────────────────────────────────────────[/]");
+        WriteMarkup($"[cyan]  AI Inference Benchmark — {r.DeviceType}[/]");
+        WriteMarkup("[cyan]──────────────────────────────────────────────────────────────[/]");
+
+        var infoTable = new SimpleTable("[bold white]Model Info[/]")
+            .AddColumn("[cyan]Property[/]", 22)
+            .AddColumn("[white]Value[/]");
+        infoTable.AddRow("[cyan]Device[/]",             $"[bold white]{r.DeviceType}[/]");
+        infoTable.AddRow("[cyan]Model ID[/]",            $"[white]{r.ModelId}[/]");
+        infoTable.AddRow("[cyan]Alias[/]",               $"[white]{r.ModelAlias}[/]");
+        infoTable.AddRow("[cyan]Execution Provider[/]",  $"[white]{r.ExecutionProvider}[/]");
+        infoTable.AddRow("[cyan]Timestamp[/]",           $"[dim]{r.Timestamp}[/]");
+        infoTable.Render();
+
+        var table = new SimpleTable("[bold white]Inference Timing[/]")
+            .AddColumn("[bold white]Run[/]",            26)
+            .AddColumn("[white]Model Load (s)[/]",       16, rightAlign: true)
+            .AddColumn("[white]Response (s)[/]",         14, rightAlign: true)
+            .AddColumn("[bold green]Total (s)[/]",        11, rightAlign: true)
+            .AddColumn("[white]Tokens Out[/]",            12, rightAlign: true)
+            .AddColumn("[bold cyan]Tok/sec[/]",           10, rightAlign: true);
+
+        table.AddRow(
+            $"[cyan]Q1 (cold, incl. load)[/]",
+            $"[white]{r.Run1.ModelLoadSec:F3}[/]",
+            $"[white]{r.Run1.ResponseTimeSec:F3}[/]",
+            $"[bold green]{r.Run1.TotalTimeSec:F3}[/]",
+            $"[white]{r.Run1.CompletionTokens}[/]",
+            $"[bold cyan]{r.Run1.TokensPerSecond:F1}[/]");
+
+        table.AddRow(
+            $"[cyan]Q2 (warm)[/]",
+            $"[dim]—[/]",
+            $"[white]{r.Run2.ResponseTimeSec:F3}[/]",
+            $"[bold green]{r.Run2.ResponseTimeSec:F3}[/]",
+            $"[white]{r.Run2.CompletionTokens}[/]",
+            $"[bold cyan]{r.Run2.TokensPerSecond:F1}[/]");
+
+        table.Render();
+
+        WriteMarkup($"[bold yellow]  Q1 (cold):[/] [white]{r.Question1}[/]");
+        WriteMultilineAnswer(r.Run1.ResponseText);
+        Console.WriteLine();
+        WriteMarkup($"[bold yellow]  Q2 (warm):[/] [white]{r.Question2}[/]");
+        WriteMultilineAnswer(r.Run2.ResponseText);
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Prints a summary comparison table across all benchmarked devices.
+    /// </summary>
+    public static void PrintAiSummary(IReadOnlyList<StreamBench.Models.AiDeviceBenchmarkResult> results)
+    {
+        if (results.Count == 0) return;
+
+        Console.WriteLine();
+        WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+        WriteMarkup("[bold cyan]  AI Inference Benchmark Summary — Device Comparison[/]");
+        WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+        Console.WriteLine();
+
+        var table = new SimpleTable("[bold white]Device Comparison[/]")
+            .AddColumn("[bold white]Device[/]",     8)
+            .AddColumn("[white]Model[/]",           30)
+            .AddColumn("[white]Load (s)[/]",         10, rightAlign: true)
+            .AddColumn("[white]Q1 Total (s)[/]",     14, rightAlign: true)
+            .AddColumn("[bold cyan]Q1 Tok/s[/]",     10, rightAlign: true)
+            .AddColumn("[white]Q2 Total (s)[/]",     14, rightAlign: true)
+            .AddColumn("[bold cyan]Q2 Tok/s[/]",     10, rightAlign: true);
+
+        foreach (var r in results)
+        {
+            table.AddRow(
+                $"[bold white]{r.DeviceType}[/]",
+                $"[dim]{r.ModelAlias}[/]",
+                $"[white]{r.Run1.ModelLoadSec:F3}[/]",
+                $"[bold green]{r.Run1.TotalTimeSec:F3}[/]",
+                $"[bold cyan]{r.Run1.TokensPerSecond:F1}[/]",
+                $"[bold green]{r.Run2.ResponseTimeSec:F3}[/]",
+                $"[bold cyan]{r.Run2.TokensPerSecond:F1}[/]");
+        }
+
+        table.Render();
+        Console.WriteLine();
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────
+
+    private static void WriteMultilineAnswer(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            WriteMarkup("[gray]  │ (no response)[/]");
+            return;
+        }
+
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var lines = normalized.Split('\n');
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                WriteMarkup("[gray]  │[/]");
+            else
+                WriteMarkup($"[gray]  │[/] [white]{line}[/]");
+        }
+    }
 
     private static string FormatKb(int kb) =>
         kb >= 1024 ? $"{kb / 1024} MB" : $"{kb} KB";

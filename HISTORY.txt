@@ -9,6 +9,14 @@ StreamBench (.NET 10 frontend):
 * Hardened Windows NPU detection using pnputil class GUID queries with CSV parsing
 * Removed friendly-name-based NPU detection heuristics
 * Improved console readability for spinner and backend NOTE/WARNING output
+* Default launcher flow remains memory-only (CPU + GPU) unless --ai is explicitly provided
+* Added dedicated run_stream_ai.ps1 launcher for memory + AI combined runs
+* --ai now augments default memory run path instead of replacing it
+* AI output now prints full multiline Q1/Q2 responses and persists full response_text in JSON
+* Fixed NPU memory result filename to stream_npu_results_* (prevents GPU file overwrite)
+
+Release workflow:
+* Added run_stream_ai.ps1 as a GitHub release asset alongside run_stream.ps1
 
 -------------------------------------------------------------------------
 
