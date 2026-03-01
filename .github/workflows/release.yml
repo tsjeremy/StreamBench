@@ -206,7 +206,7 @@ jobs:
   release:
     name: Upload Release Assets
     needs: [build-macos, build-windows]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
     runs-on: ubuntu-latest
 
     steps:
