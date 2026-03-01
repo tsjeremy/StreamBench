@@ -397,8 +397,6 @@ async Task<int> RunAiBenchmarkAsync(
     foreach (var r in results)
         ConsoleOutput.PrintAiResult(r);
 
-    ConsoleOutput.PrintAiSummary(results);
-
     if (!noSave)
     {
         ConsoleOutput.WriteMarkup("[bold white]Saving AI benchmark results...[/]");
@@ -407,16 +405,23 @@ async Task<int> RunAiBenchmarkAsync(
         Console.WriteLine();
     }
 
+    AiLocalRelationSummaryResult? relationSummary = null;
     if (includeLocalSummary)
     {
         string summaryDir = Path.GetFullPath(outputDir ?? ".");
-        var relationSummary = await AiBenchmarkRunner.RunLocalRelationSummaryAsync(summaryDir, modelAlias);
+        relationSummary = await AiBenchmarkRunner.RunLocalRelationSummaryAsync(summaryDir, modelAlias);
         if (relationSummary is null)
         {
             ConsoleOutput.WriteMarkup("[yellow][WARN][/] Local relation summary did not produce results.");
             return 1;
         }
+    }
 
+    // Print Device Comparison after relation summary so Q3 data is available
+    ConsoleOutput.PrintAiSummary(results, relationSummary);
+
+    if (relationSummary is not null)
+    {
         ConsoleOutput.PrintAiRelationSummary(relationSummary);
 
         if (!noSave)

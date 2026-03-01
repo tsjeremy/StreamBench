@@ -520,10 +520,17 @@ public static class ConsoleOutput
 
     /// <summary>
     /// Prints a summary comparison table across all benchmarked devices.
+    /// When a relation summary is provided, Q3 timing columns are included.
     /// </summary>
-    public static void PrintAiSummary(IReadOnlyList<StreamBench.Models.AiDeviceBenchmarkResult> results)
+    public static void PrintAiSummary(
+        IReadOnlyList<StreamBench.Models.AiDeviceBenchmarkResult> results,
+        AiLocalRelationSummaryResult? relationSummary = null)
     {
         if (results.Count == 0) return;
+
+        // Find Q3 run from relation summary (index 3 = third question)
+        var q3Run = relationSummary?.Questions
+            .FirstOrDefault(q => q.Index == 3)?.Run;
 
         Console.WriteLine();
         WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
@@ -538,10 +545,17 @@ public static class ConsoleOutput
             .AddColumn("[white]Q1 Total (s)[/]",     14, rightAlign: true)
             .AddColumn("[bold cyan]Q1 Tok/s[/]",     10, rightAlign: true)
             .AddColumn("[white]Q2 Total (s)[/]",     14, rightAlign: true)
-            .AddColumn("[bold cyan]Q2 Tok/s[/]",     10, rightAlign: true);
+            .AddColumn("[bold cyan]Q2 Tok/s[/]",     10, rightAlign: true)
+            .AddColumn("[white]Q3 Total (s)[/]",     14, rightAlign: true)
+            .AddColumn("[bold cyan]Q3 Tok/s[/]",     10, rightAlign: true);
 
         foreach (var r in results)
         {
+            // Q3 is only available for CPU via the relation summary
+            bool isCpu = r.DeviceType.Equals("CPU", StringComparison.OrdinalIgnoreCase);
+            string q3Time = isCpu && q3Run is not null ? $"[bold green]{q3Run.ResponseTimeSec:F3}[/]" : "[dim]—[/]";
+            string q3Toks = isCpu && q3Run is not null ? $"[bold cyan]{q3Run.TokensPerSecond:F1}[/]" : "[dim]—[/]";
+
             table.AddRow(
                 $"[bold white]{r.DeviceType}[/]",
                 $"[dim]{r.ModelAlias}[/]",
@@ -549,7 +563,9 @@ public static class ConsoleOutput
                 $"[bold green]{r.Run1.TotalTimeSec:F3}[/]",
                 $"[bold cyan]{r.Run1.TokensPerSecond:F1}[/]",
                 $"[bold green]{r.Run2.ResponseTimeSec:F3}[/]",
-                $"[bold cyan]{r.Run2.TokensPerSecond:F1}[/]");
+                $"[bold cyan]{r.Run2.TokensPerSecond:F1}[/]",
+                q3Time,
+                q3Toks);
         }
 
         table.Render();
