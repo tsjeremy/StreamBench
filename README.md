@@ -198,6 +198,7 @@ AI Inference Benchmark (requires Microsoft AI Foundry Local):
 --ai                     Add AI inference benchmark (memory benchmarks still run by default)
 --ai-device LIST         Comma-separated devices: cpu, gpu, npu (default: all)
 --ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)
+--ai-local-summary       Add Q3 local-JSON summary (Q1/Q2 remain benchmark prompts)
 ```
 
 ---
@@ -250,6 +251,9 @@ brew install foundrylocal
 
 # Use a specific model
 .\StreamBench.exe --ai --ai-model phi-3.5-mini
+
+# Add Q3 local JSON summary after Q1/Q2
+.\StreamBench.exe --ai --ai-local-summary
 
 # Don't save the JSON result file
 .\StreamBench.exe --ai --no-save
@@ -304,6 +308,11 @@ NPU variants on every Windows machine/driver stack.
 Results are saved as `ai_inference_benchmark_<timestamp>.json` with full details
 including model info, per-run timings, token counts, full Q1/Q2 response text,
 and response previews.
+
+When `--ai-local-summary` is enabled, StreamBench also saves
+`ai_relation_summary_<model-alias>_<timestamp>.json` containing Q1 (cold),
+Q2 (warm), and Q3 (local JSON summary) plus parsed cross-file relation
+aggregates for model comparison over time.
 
 ### Interpreting results
 

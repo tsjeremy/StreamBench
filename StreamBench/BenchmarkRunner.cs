@@ -228,13 +228,22 @@ public record GpuDeviceInfo
         if (string.IsNullOrEmpty(deviceName)) return false;
         var n = deviceName.ToUpperInvariant();
 
+        // Explicit NPU signatures from the device name.
+        if (n.Contains("NPU")
+            || n.Contains("NEURAL")
+            || n.Contains("HEXAGON")
+            || n.Contains("VPU")
+            || n.Contains("AI BOOST"))
+            return true;
+
         // Strategy 1 — OS-level class GUID (highest priority, ground truth).
         // If Windows has a registered NPU device (ComputeAccelerator or Neural
         // Processors class) and this OpenCL device has vendor "Microsoft" (not
-        // the WARP software rasterizer), it's the NPU.
+        // the WARP software rasterizer) and isn't explicitly a GPU, it's the NPU.
         if (!string.IsNullOrEmpty(vendor)
             && vendor.Contains("Microsoft", StringComparison.OrdinalIgnoreCase)
             && !n.Contains("BASIC RENDER")
+            && !n.Contains("GPU")
             && DetectNpuFromOs() is not null)
             return true;
 

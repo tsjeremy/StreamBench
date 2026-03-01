@@ -556,6 +556,59 @@ public static class ConsoleOutput
         Console.WriteLine();
     }
 
+    /// <summary>
+    /// Prints 3-question local-AI relation summary generated from local JSON files.
+    /// </summary>
+    public static void PrintAiRelationSummary(AiLocalRelationSummaryResult summary)
+    {
+        Console.WriteLine();
+        WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+        WriteMarkup("[bold cyan]  Local JSON Relation Summary — Memory Bandwidth vs AI[/]");
+        WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+        WriteMarkup($"[dim]  Source folder: {summary.SourceDirectory}[/]");
+        WriteMarkup($"[dim]  Files parsed: memory {summary.MemoryJsonFiles}, AI {summary.AiJsonFiles}[/]");
+        WriteMarkup($"[dim]  Samples parsed: memory {summary.MemorySamples}, AI {summary.AiSamples}[/]");
+        WriteMarkup($"[dim]  Model: {summary.ModelAlias} ({summary.ExecutionProvider})[/]");
+        Console.WriteLine();
+
+        if (summary.DeviceAggregates.Count > 0)
+        {
+            var table = new SimpleTable("[bold white]Device Aggregates[/]")
+                .AddColumn("[bold white]Device[/]",            8)
+                .AddColumn("[white]Mem Samples[/]",            13, rightAlign: true)
+                .AddColumn("[white]Avg Triad GB/s[/]",         16, rightAlign: true)
+                .AddColumn("[white]AI Samples[/]",             11, rightAlign: true)
+                .AddColumn("[bold cyan]Avg Warm Tok/s[/]",     16, rightAlign: true);
+
+            foreach (var d in summary.DeviceAggregates)
+            {
+                table.AddRow(
+                    $"[bold white]{d.DeviceType}[/]",
+                    $"[white]{d.MemorySamples}[/]",
+                    $"[white]{d.AvgMemoryTriadGbps:F2}[/]",
+                    $"[white]{d.AiSamples}[/]",
+                    $"[bold cyan]{d.AvgAiWarmTokensPerSecond:F2}[/]");
+            }
+
+            table.Render();
+            Console.WriteLine();
+        }
+
+        if (summary.DeviceLevelCorrelation.HasValue)
+            WriteMarkup($"[bold white]Device-level correlation:[/] [bold cyan]{summary.DeviceLevelCorrelation.Value:F3}[/]");
+        else
+            WriteMarkup("[bold white]Device-level correlation:[/] [dim]insufficient paired device data[/]");
+
+        foreach (var qa in summary.Questions.OrderBy(q => q.Index))
+        {
+            Console.WriteLine();
+            WriteMarkup($"[bold yellow]  Q{qa.Index}:[/] [white]{qa.Question}[/]");
+            WriteMultilineAnswer(qa.Answer);
+        }
+
+        Console.WriteLine();
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────
 
     private static void WriteMultilineAnswer(string text)

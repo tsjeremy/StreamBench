@@ -4,7 +4,7 @@
 //   StreamBench [--cpu] [--gpu] [--gpu-device N] [--array-size N] [--ntimes N]
 //               [--range START:END:STEP] [--no-save] [--output-dir DIR]
 //               [--exe PATH]
-//               [--ai] [--ai-device cpu|gpu|npu] [--ai-model ALIAS]
+//               [--ai] [--ai-device cpu|gpu|npu] [--ai-model ALIAS] [--ai-local-summary]
 //
 // If neither --cpu nor --gpu is specified, both benchmarks run automatically
 // and all available GPUs are benchmarked.
@@ -31,6 +31,7 @@ bool   wantCpu    = false;
 bool   wantGpu    = false;
 bool   modeSet    = false;   // true if user explicitly passed --cpu or --gpu
 bool   wantAi     = false;   // --ai flag
+bool   aiLocalSummary = false; // --ai-local-summary
 string? aiModel   = null;    // --ai-model ALIAS
 string? aiDevices = null;    // --ai-device cpu,gpu,npu (comma-separated)
 long?  arraySize  = null;
@@ -47,6 +48,7 @@ for (int i = 0; i < args.Length; i++)
         case "--cpu":   wantCpu = true; modeSet = true; break;
         case "--gpu":   wantGpu = true; modeSet = true; break;
         case "--ai":    wantAi  = true; break;
+        case "--ai-local-summary": aiLocalSummary = true; break;
         case "--no-save": noSave = true; break;
 
         case "--ai-model" when i + 1 < args.Length:
@@ -91,7 +93,7 @@ for (int i = 0; i < args.Length; i++)
 }
 
 // If user provided AI-specific options, enable AI mode automatically.
-if (!wantAi && (!string.IsNullOrWhiteSpace(aiModel) || !string.IsNullOrWhiteSpace(aiDevices)))
+if (!wantAi && (!string.IsNullOrWhiteSpace(aiModel) || !string.IsNullOrWhiteSpace(aiDevices) || aiLocalSummary))
     wantAi = true;
 
 // Default: run both CPU and GPU when user didn't specify
@@ -124,9 +126,14 @@ if (wantGpu)
 
 if (wantAi)
 {
+#if ENABLE_AI
     if (wantCpu || wantGpu) Console.WriteLine();
-    int aiCode = await RunAiBenchmarkAsync(aiDevices, aiModel, noSave, outputDir);
+    int aiCode = await RunAiBenchmarkAsync(aiDevices, aiModel, noSave, outputDir, aiLocalSummary);
     if (aiCode != 0) exitCode = aiCode;
+#else
+    ConsoleOutput.WriteMarkup("[yellow][SKIP][/] AI benchmark is not available in this build.");
+    ConsoleOutput.WriteMarkup("[dim]  Rebuild with -p:EnableAI=true or use the pre-built binary with --ai.[/]");
+#endif
 }
 
 return exitCode;
@@ -357,8 +364,9 @@ void DisplayAndSave(BenchmarkResult result, bool noSave, string? outputDir, bool
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 // ── AI inference benchmark ─────────────────────────────────────────────────
+#if ENABLE_AI
 async Task<int> RunAiBenchmarkAsync(
-    string? deviceArg, string? modelAlias, bool noSave, string? outputDir)
+    string? deviceArg, string? modelAlias, bool noSave, string? outputDir, bool includeLocalSummary)
 {
     // Parse comma-separated device list (e.g. "cpu,gpu,npu" or "npu")
     IEnumerable<string>? deviceFilter = null;
@@ -399,8 +407,30 @@ async Task<int> RunAiBenchmarkAsync(
         Console.WriteLine();
     }
 
+    if (includeLocalSummary)
+    {
+        string summaryDir = Path.GetFullPath(outputDir ?? ".");
+        var relationSummary = await AiBenchmarkRunner.RunLocalRelationSummaryAsync(summaryDir, modelAlias);
+        if (relationSummary is null)
+        {
+            ConsoleOutput.WriteMarkup("[yellow][WARN][/] Local relation summary did not produce results.");
+            return 1;
+        }
+
+        ConsoleOutput.PrintAiRelationSummary(relationSummary);
+
+        if (!noSave)
+        {
+            ConsoleOutput.WriteMarkup("[bold white]Saving AI relation summary...[/]");
+            var summaryPath = ResultSaver.SaveAiRelationSummaryJson(relationSummary, outputDir);
+            if (summaryPath is not null) ConsoleOutput.PrintFileSaved(summaryPath);
+            Console.WriteLine();
+        }
+    }
+
     return 0;
 }
+#endif
 
 static long ParseSize(string s)
 {
@@ -433,6 +463,7 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--ai[/]                     Run AI inference benchmark on all available devices");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-local-summary[/]       Add Q3 local-JSON summary (Q1/Q2 remain benchmark prompts)");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Examples:[/]");
@@ -447,5 +478,6 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  StreamBench --ai                          AI benchmark on all devices (CPU/GPU/NPU)");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-device cpu,npu      AI benchmark on CPU and NPU only");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-model phi-3.5-mini  Use a specific model");
+    ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-local-summary       Add Q3 local JSON summary after Q1/Q2");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --no-save                Run without saving JSON");
 }

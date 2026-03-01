@@ -121,7 +121,53 @@ public static class ResultSaver
         }
     }
 
+    /// <summary>
+    /// Saves the local-AI relation summary (3-question output) as JSON.
+    /// Returns the path written, or null on failure.
+    /// </summary>
+    public static string? SaveAiRelationSummaryJson(
+        StreamBench.Models.AiLocalRelationSummaryResult summary,
+        string? outputDir = null)
+    {
+        string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+        string modelTag = SanitizeFilenamePart(summary.ModelAlias);
+        string name = $"ai_relation_summary_{modelTag}_{timestamp}.json";
+        string filename = outputDir is not null ? Path.Combine(outputDir, name) : name;
+
+        try
+        {
+            string json = JsonSerializer.Serialize(summary, PrettyJson);
+            File.WriteAllText(filename, json,
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return filename;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Warning: Could not save AI relation summary JSON: {ex.Message}");
+            return null;
+        }
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────
+
+    private static string SanitizeFilenamePart(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "unknown-model";
+
+        var chars = value.Trim().ToLowerInvariant()
+            .Select(c => char.IsLetterOrDigit(c) ? c : '-')
+            .ToArray();
+
+        var cleaned = new string(chars).Trim('-');
+        while (cleaned.Contains("--", StringComparison.Ordinal))
+            cleaned = cleaned.Replace("--", "-", StringComparison.Ordinal);
+
+        if (string.IsNullOrWhiteSpace(cleaned))
+            return "unknown-model";
+
+        return cleaned.Length > 48 ? cleaned[..48] : cleaned;
+    }
 
     private static void WriteCsvHeader(StreamWriter sw)
     {

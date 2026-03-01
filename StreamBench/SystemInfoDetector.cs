@@ -262,6 +262,7 @@ $cpu = Get-WmiObject Win32_Processor | Select-Object -First 1
         if (!doc.RootElement.TryGetProperty("SPMemoryDataType", out var arr)) return NoMemoryInfo;
 
         var modules = new List<MemoryModule>();
+#pragma warning disable IDISP004 // JsonElement.ArrayEnumerator is disposed by foreach
         foreach (var item in arr.EnumerateArray())
         {
             if (item.TryGetProperty("dimm_size", out _))
@@ -288,6 +289,7 @@ $cpu = Get-WmiObject Win32_Processor | Select-Object -First 1
                     modules.Add(MakeModule("Unified", sizeMb, dimmType, "Unified", 0, 0, mfr, ""));
             }
         }
+#pragma warning restore IDISP004
         return BuildMemoryInfo(modules);
     }
 
@@ -366,6 +368,7 @@ $mems | ConvertTo-Json -Depth 1
 
         using var doc = JsonDocument.Parse(json);
         var modules = new List<MemoryModule>();
+#pragma warning disable IDISP004 // JsonElement.ArrayEnumerator is disposed by foreach
         foreach (var item in doc.RootElement.EnumerateArray())
         {
             int mb = IntProp(item, "mb");
@@ -376,6 +379,7 @@ $mems | ConvertTo-Json -Depth 1
                 IntProp(item, "spd"), IntProp(item, "cspd"),
                 StrProp(item, "mfr"), StrProp(item, "part")));
         }
+#pragma warning restore IDISP004
         return BuildMemoryInfo(modules);
     }
 
