@@ -383,7 +383,8 @@ public static class AiBenchmarkRunner
                 answers.Add(new AiRelationQuestionAnswer(
                     Index: i + 1,
                     Question: question,
-                    Answer: run.ResponseText.Trim()));
+                    Answer: run.ResponseText.Trim(),
+                    Run: run));
             }
 
             return new AiLocalRelationSummaryResult(

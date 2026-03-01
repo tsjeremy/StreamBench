@@ -51,7 +51,8 @@ public record AiRelationDeviceAggregate(
 public record AiRelationQuestionAnswer(
     [property: JsonPropertyName("index")]                        int Index,
     [property: JsonPropertyName("question")]                     string Question,
-    [property: JsonPropertyName("answer")]                       string Answer
+    [property: JsonPropertyName("answer")]                       string Answer,
+    [property: JsonPropertyName("run")]                          AiInferenceRun? Run = null
 );
 
 /// <summary>
