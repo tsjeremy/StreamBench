@@ -29,7 +29,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AI.Foundry.Local" Version="0.8.2.1" />
     <!-- Work around broken native refs in OnnxRuntime GPU Linux transitive package (MSB3030) -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu.Linux" ExcludeAssets="native" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu.Linux" Version="*" ExcludeAssets="native" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>
