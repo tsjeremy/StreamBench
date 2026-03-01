@@ -20,7 +20,9 @@
     <NoWarn>$(NoWarn);NU1603</NoWarn>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(OS)' == 'Windows_NT' and '$(PROCESSOR_ARCHITECTURE)' == 'ARM64'">
+  <!-- Always target win-x64 on Windows: native on x64, Prism emulation on ARM64.
+       Required so that OnnxRuntime native packages (AI path) resolve during restore. -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
