@@ -46,7 +46,7 @@ for (int i = 0; i < args.Length; i++)
     {
         case "--cpu":   wantCpu = true; modeSet = true; break;
         case "--gpu":   wantGpu = true; modeSet = true; break;
-        case "--ai":    wantAi  = true; modeSet = true; break;
+        case "--ai":    wantAi  = true; break;
         case "--no-save": noSave = true; break;
 
         case "--ai-model" when i + 1 < args.Length:
@@ -89,6 +89,10 @@ for (int i = 0; i < args.Length; i++)
             return 0;
     }
 }
+
+// If user provided AI-specific options, enable AI mode automatically.
+if (!wantAi && (!string.IsNullOrWhiteSpace(aiModel) || !string.IsNullOrWhiteSpace(aiDevices)))
+    wantAi = true;
 
 // Default: run both CPU and GPU when user didn't specify
 if (!modeSet)
@@ -428,7 +432,7 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("[bold white]AI Inference Benchmark (Microsoft.AI.Foundry.Local):[/]");
     ConsoleOutput.WriteMarkup("  [cyan]--ai[/]                     Run AI inference benchmark on all available devices");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
-    ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Examples:[/]");

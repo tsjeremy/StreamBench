@@ -12,6 +12,7 @@
 using System.Diagnostics;
 using Betalgo.Ranul.OpenAI.ObjectModels.RequestModels;
 using Microsoft.AI.Foundry.Local;
+using Microsoft.Extensions.Logging.Abstractions;
 using StreamBench.Models;
 
 namespace StreamBench;
@@ -19,18 +20,56 @@ namespace StreamBench;
 public static class AiBenchmarkRunner
 {
     // ── Benchmark prompts ─────────────────────────────────────────────────
-    public const string Q1 = "What is DRIPS in Windows?";
-    public const string Q2 = "How to improve DRIPS% on Windows?";
+    public const string Q1 = "Hello World!";
+    public const string Q2 = "How to calculate memory bandwidth on different memory?";
 
-    // Preferred model aliases in priority order (smallest / fastest first).
-    // These are well-known small models available in the Foundry Local catalog.
-    private static readonly string[] PreferredAliases =
+    // Preferred aliases by device (quality-focused defaults).
+    // The runner falls back automatically when a preferred alias is unavailable.
+    private static readonly string[] PreferredAliasesCpu =
     [
-        "qwen2.5-0.5b",
+        "deepseek-r1-14b",
+        "phi-4-mini-reasoning",
+        "gpt-oss-20b",
+        "qwen2.5-14b",
+        "phi-4",
+        "phi-4-mini",
+        "qwen2.5-7b",
         "phi-3.5-mini",
         "qwen2.5-1.5b",
+        "qwen2.5-0.5b",
+    ];
+
+    private static readonly string[] PreferredAliasesGpu =
+    [
+        "deepseek-r1-14b",
+        "qwen2.5-1.5b",
+        "qwen2.5-0.5b",
         "phi-4-mini",
-        "phi-4",
+        "phi-3.5-mini",
+    ];
+
+    private static readonly string[] PreferredAliasesNpu =
+    [
+        "deepseek-r1-14b",
+        "qwen2.5-7b",
+        "qwen2.5-1.5b",
+        "phi-3.5-mini",
+        "phi-3-mini-128k",
+        "phi-3-mini-4k",
+    ];
+
+    // Shared-model priorities used when benchmarking multiple devices side-by-side.
+    // Goal: maximize coverage across selected devices while preferring stronger common aliases.
+    private static readonly string[] SharedAliasPriority =
+    [
+        "deepseek-r1-14b",
+        "qwen2.5-1.5b",
+        "qwen2.5-7b",
+        "qwen2.5-0.5b",
+        "phi-3.5-mini",
+        "phi-3-mini-128k",
+        "phi-3-mini-4k",
+        "deepseek-r1-7b",
     ];
 
     // ── Public entry point ────────────────────────────────────────────────
@@ -54,7 +93,27 @@ public static class AiBenchmarkRunner
     {
         var results = new List<AiDeviceBenchmarkResult>();
 
-        var manager = FoundryLocalManager.Instance;
+        FoundryLocalManager manager;
+        try
+        {
+            manager = FoundryLocalManager.Instance;
+        }
+        catch (FoundryLocalException)
+        {
+            await FoundryLocalManager.CreateAsync(
+                new Configuration
+                {
+                    AppName = "StreamBench",
+                    Web = new Configuration.WebService
+                    {
+                        Urls = "http://127.0.0.1:5273"
+                    }
+                },
+                NullLogger.Instance,
+                cancellationToken);
+            manager = FoundryLocalManager.Instance;
+        }
+
         ConsoleOutput.WriteMarkup("[bold cyan]Starting Microsoft AI Foundry Local service...[/]");
 
         try
@@ -72,11 +131,96 @@ public static class AiBenchmarkRunner
             }
 
             var targetDevices = ParseDeviceFilter(devices);
+            string? effectiveAlias = modelAlias;
+            bool strictAlias = false;
+
+            // For multi-device side-by-side comparison, auto-pick and retry shared aliases
+            // so all devices use the same model whenever possible.
+            if (string.IsNullOrWhiteSpace(effectiveAlias) && targetDevices.Count > 1)
+            {
+                var sharedCandidates = SelectSharedAliasCandidates(allVariants, targetDevices);
+                if (sharedCandidates.Count > 0)
+                {
+                    strictAlias = true;
+
+                    int bestSuccessCount = -1;
+                    List<AiDeviceBenchmarkResult> bestAttemptResults = [];
+
+                    foreach (var sharedAlias in sharedCandidates)
+                    {
+                        ConsoleOutput.WriteMarkup(
+                            $"[bold cyan]Trying shared model alias for side-by-side comparison:[/] [white]{sharedAlias}[/]");
+
+                        var attemptResults = new List<AiDeviceBenchmarkResult>();
+                        int successCount = 0;
+
+                        foreach (var deviceType in targetDevices)
+                        {
+                            ModelVariant? variant = await FindBestVariantAsync(
+                                catalog, allVariants, deviceType, sharedAlias, strictAlias, cancellationToken);
+
+                            if (variant is null)
+                            {
+                                ConsoleOutput.WriteMarkup(
+                                    $"[yellow][SKIP][/] Shared alias [white]{sharedAlias}[/] not available for [white]{deviceType}[/].");
+                                continue;
+                            }
+
+                            Console.WriteLine();
+                            ConsoleOutput.WriteMarkup(
+                                $"[bold cyan]── AI Benchmark: {deviceType} ({variant.Id}) ──[/]");
+
+                            var result = await BenchmarkVariantAsync(variant, deviceType, cancellationToken);
+                            if (result is not null)
+                            {
+                                attemptResults.Add(result);
+                                successCount++;
+                            }
+                        }
+
+                        if (successCount > bestSuccessCount)
+                        {
+                            bestSuccessCount = successCount;
+                            bestAttemptResults = attemptResults;
+                        }
+
+                        if (successCount == targetDevices.Count)
+                        {
+                            return attemptResults;
+                        }
+
+                        ConsoleOutput.WriteMarkup(
+                            $"[yellow][WARN][/] Shared alias [white]{sharedAlias}[/] covered [white]{successCount}/{targetDevices.Count}[/] devices; trying next candidate.[/]");
+                    }
+
+                    if (bestAttemptResults.Count > 0)
+                    {
+                        ConsoleOutput.WriteMarkup(
+                            $"[yellow][WARN][/] No single shared model covered all selected devices; returning best coverage result [white]{bestAttemptResults.Count}/{targetDevices.Count}[/].");
+                        return bestAttemptResults;
+                    }
+
+                    ConsoleOutput.WriteMarkup(
+                        "[yellow][WARN][/] No shared alias produced successful results; falling back to per-device defaults.");
+                    strictAlias = false;
+                    effectiveAlias = null;
+                }
+                else
+                {
+                    ConsoleOutput.WriteMarkup(
+                        "[yellow][WARN][/] No shared alias found across selected devices; using per-device defaults.");
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(effectiveAlias))
+            {
+                // If user provided alias explicitly, do not silently switch models.
+                strictAlias = true;
+            }
 
             foreach (var deviceType in targetDevices)
             {
                 ModelVariant? variant = await FindBestVariantAsync(
-                    catalog, allVariants, deviceType, modelAlias, cancellationToken);
+                    catalog, allVariants, deviceType, effectiveAlias, strictAlias, cancellationToken);
 
                 if (variant is null)
                 {
@@ -250,24 +394,26 @@ public static class AiBenchmarkRunner
             PromptTokens:      promptTokens,
             CompletionTokens:  completionTokens,
             TokensPerSecond:   tokensPerSec,
+            ResponseText:      content,
             ResponsePreview:   preview);
     }
 
     // ── Model discovery ───────────────────────────────────────────────────
 
     /// <summary>
-    /// Finds the best cached (or available) model variant for the given device type.
-    /// Preference: user-specified alias → preferred aliases (smallest first) → any available.
-    /// Cached models are preferred over downloadable ones to avoid long waits.
+    /// Finds the best model variant for the given device type.
+    /// Preference: user-specified alias → preferred alias order → any cached → smallest available.
     /// </summary>
     private static async Task<ModelVariant?> FindBestVariantAsync(
         ICatalog catalog,
         List<ModelVariant> allVariants,
         string deviceLabel,
         string? aliasHint,
+        bool strictAlias,
         CancellationToken ct)
     {
         DeviceType targetType = DeviceLabelToEnum(deviceLabel);
+        var preferredAliases = GetPreferredAliases(deviceLabel);
 
         // Filter to variants matching the target device
         var candidates = allVariants
@@ -289,20 +435,22 @@ public static class AiBenchmarkRunner
 
             ConsoleOutput.WriteMarkup(
                 $"[yellow][WARN][/] Model '{aliasHint}' not found for {deviceLabel}; falling back to preferred list.");
+
+            if (strictAlias)
+                return null;
         }
 
-        // Check cached models first (no download needed)
+        // Cache index for fallback heuristics
         var cached = await TryCachedModelsAsync(catalog, ct);
         var cachedIds = new HashSet<string>(
             cached.Select(v => v.Id), StringComparer.OrdinalIgnoreCase);
 
-        // 1. Preferred aliases that are already cached
-        foreach (var alias in PreferredAliases)
+        // 1. Preferred aliases in configured order (download if needed)
+        foreach (var alias in preferredAliases)
         {
             var v = candidates.FirstOrDefault(c =>
-                cachedIds.Contains(c.Id)
-                && (c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
-                    || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)));
+                c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
+                    || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase));
             if (v is not null) return v;
         }
 
@@ -310,19 +458,65 @@ public static class AiBenchmarkRunner
         var anyCached = candidates.FirstOrDefault(c => cachedIds.Contains(c.Id));
         if (anyCached is not null) return anyCached;
 
-        // 3. Preferred aliases not yet cached (will require download)
-        foreach (var alias in PreferredAliases)
-        {
-            var v = candidates.FirstOrDefault(c =>
-                c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
-                || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase));
-            if (v is not null) return v;
-        }
-
-        // 4. Smallest available model
+        // 3. Smallest available model
         return candidates
             .OrderBy(c => c.Info?.FileSizeMb ?? double.MaxValue)
             .FirstOrDefault();
+    }
+
+    private static IReadOnlyList<string> GetPreferredAliases(string deviceLabel) =>
+        deviceLabel.ToUpperInvariant() switch
+        {
+            "GPU" => PreferredAliasesGpu,
+            "NPU" => PreferredAliasesNpu,
+            _     => PreferredAliasesCpu,
+        };
+
+    private static List<string> SelectSharedAliasCandidates(
+        IReadOnlyList<ModelVariant> allVariants,
+        IReadOnlyList<string> targetDevices)
+    {
+        if (targetDevices.Count == 0)
+            return [];
+
+        var targetSet = new HashSet<string>(targetDevices.Select(d => d.ToUpperInvariant()));
+
+        var byAlias = allVariants
+            .Where(v => !string.IsNullOrWhiteSpace(v.Alias)
+                     && (v.Info?.Task?.Contains("chat", StringComparison.OrdinalIgnoreCase) ?? true))
+            .GroupBy(v => v.Alias, StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var deviceSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var v in g)
+                {
+                    string? device = v.Info?.Runtime?.DeviceType.ToString();
+                    if (!string.IsNullOrWhiteSpace(device))
+                        deviceSet.Add(device.ToUpperInvariant());
+                }
+
+                int coverage = deviceSet.Count(d => targetSet.Contains(d));
+                return new { Alias = g.Key, Coverage = coverage, Devices = deviceSet };
+            })
+            .Where(x => x.Coverage > 0)
+            .ToList();
+
+        if (byAlias.Count == 0)
+            return [];
+
+        int PriorityIndex(string alias)
+        {
+            int idx = Array.FindIndex(SharedAliasPriority,
+                p => p.Equals(alias, StringComparison.OrdinalIgnoreCase));
+            return idx < 0 ? int.MaxValue : idx;
+        }
+
+        return byAlias
+            .OrderBy(x => PriorityIndex(x.Alias))
+            .ThenByDescending(x => x.Coverage)
+            .ThenBy(x => x.Alias, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.Alias)
+            .ToList();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

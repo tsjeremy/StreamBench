@@ -15,6 +15,7 @@ public record AiInferenceRun(
     [property: JsonPropertyName("prompt_tokens")]       int PromptTokens,
     [property: JsonPropertyName("completion_tokens")]   int CompletionTokens,
     [property: JsonPropertyName("tokens_per_second")]   double TokensPerSecond,
+    [property: JsonPropertyName("response_text")]       string ResponseText,
     [property: JsonPropertyName("response_preview")]    string ResponsePreview
 );
 

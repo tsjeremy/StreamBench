@@ -510,10 +510,11 @@ public static class ConsoleOutput
 
         table.Render();
 
-        WriteMarkup($"[dim]  Q1: {r.Question1}[/]");
-        WriteMarkup($"[dim]  ↳  {TruncatePreview(r.Run1.ResponsePreview)}[/]");
-        WriteMarkup($"[dim]  Q2: {r.Question2}[/]");
-        WriteMarkup($"[dim]  ↳  {TruncatePreview(r.Run2.ResponsePreview)}[/]");
+        WriteMarkup($"[bold yellow]  Q1 (cold):[/] [white]{r.Question1}[/]");
+        WriteMultilineAnswer(r.Run1.ResponseText);
+        Console.WriteLine();
+        WriteMarkup($"[bold yellow]  Q2 (warm):[/] [white]{r.Question2}[/]");
+        WriteMultilineAnswer(r.Run2.ResponseText);
         Console.WriteLine();
     }
 
@@ -557,12 +558,23 @@ public static class ConsoleOutput
 
     // ── Private helpers ───────────────────────────────────────────────────
 
-    private static string TruncatePreview(string text, int maxLen = 100)
+    private static void WriteMultilineAnswer(string text)
     {
-        if (string.IsNullOrEmpty(text)) return "(no response)";
-        // Replace newlines with spaces for single-line display
-        text = text.Replace('\n', ' ').Replace('\r', ' ');
-        return text.Length > maxLen ? text[..maxLen] + "…" : text;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            WriteMarkup("[gray]  │ (no response)[/]");
+            return;
+        }
+
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var lines = normalized.Split('\n');
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                WriteMarkup("[gray]  │[/]");
+            else
+                WriteMarkup($"[gray]  │[/] [white]{line}[/]");
+        }
     }
 
     private static string FormatKb(int kb) =>

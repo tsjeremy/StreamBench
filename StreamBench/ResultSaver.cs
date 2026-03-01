@@ -152,7 +152,17 @@ public static class ResultSaver
 
     private static string BuildFilename(BenchmarkResult result, string ext, string? outputDir)
     {
-        string type     = result.Type.ToLower();
+        string type = result.Type.ToLowerInvariant();
+        if (type == "gpu" && result.Device is not null)
+        {
+            string? npuName = GpuDeviceInfo.InferNpuDisplayName(
+                result.Device.Name,
+                result.Device.Vendor,
+                result.System?.CpuModel);
+            if (!string.IsNullOrWhiteSpace(npuName))
+                type = "npu";
+        }
+
         long   sizeMels = result.Config.ArraySizeElements / 1_000_000;
         string name     = $"stream_{type}_results_{sizeMels}M.{ext}";
         return outputDir is not null ? Path.Combine(outputDir, name) : name;
