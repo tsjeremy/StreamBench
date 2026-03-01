@@ -6,6 +6,8 @@
 #
 # Triggers:
 #   - Push of a tag matching v*.*.*  (e.g. git push origin v5.10.04)
+#   - Push to main branch (build + smoke-test only, no release)
+#   - Pull requests targeting main (build + smoke-test only, no release)
 #   - Manual dispatch (Actions tab -> Run workflow, supply the tag name)
 #     Use manual dispatch to add binaries to a release that was created
 #     before this workflow existed (e.g. v5.10.04).
@@ -16,6 +18,11 @@ on:
   push:
     tags:
       - 'v*.*.*'
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       tag:
@@ -60,6 +67,18 @@ jobs:
           clang -arch x86_64 -O2 ${OMP} ${CPU_DEFS} -o stream_cpu_macos_x64 stream.c 2>/dev/null \
             || clang -arch x86_64 -O2 ${CPU_DEFS} -o stream_cpu_macos_x64 stream.c
           clang -arch x86_64 -O2 ${GPU_DEFS} -o stream_gpu_macos_x64 stream_gpu.c -lm
+
+      - name: Smoke-test C binaries
+        timeout-minutes: 2
+        run: |
+          OMP_PREFIX="$(brew --prefix libomp)"
+          OMP="-Xpreprocessor -fopenmp -I${OMP_PREFIX}/include -L${OMP_PREFIX}/lib -lomp"
+          clang -O2 ${OMP} -DTUNED -DSTREAM_ARRAY_SIZE=1000 -DNTIMES=1 -o stream_cpu_test stream.c
+          clang -O2 -DSTREAM_ARRAY_SIZE=1000 -DNTIMES=1 -o stream_gpu_test stream_gpu.c -lm
+          echo "=== CPU smoke-test ==="
+          ./stream_cpu_test
+          echo "=== GPU smoke-test ==="
+          ./stream_gpu_test
 
       - name: Publish StreamBench (osx-arm64, self-contained with embedded backends)
         run: |
@@ -120,6 +139,17 @@ jobs:
           cl.exe /nologo /O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp /Fe:stream_cpu_win_x64.exe stream.c /link advapi32.lib
           cl.exe /nologo /O2           /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100         /Fe:stream_gpu_win_x64.exe stream_gpu.c /link advapi32.lib
 
+      - name: Smoke-test C binaries (x64)
+        timeout-minutes: 2
+        shell: cmd
+        run: |
+          cl.exe /nologo /O2 /DTUNED /DSTREAM_ARRAY_SIZE=1000 /DNTIMES=1 /openmp /Fe:stream_cpu_test.exe stream.c /link advapi32.lib
+          cl.exe /nologo /O2         /DSTREAM_ARRAY_SIZE=1000 /DNTIMES=1         /Fe:stream_gpu_test.exe stream_gpu.c /link advapi32.lib
+          echo === CPU smoke-test ===
+          stream_cpu_test.exe
+          echo === GPU smoke-test ===
+          stream_gpu_test.exe
+
       # Publish win-x64 BEFORE switching to ARM64 MSVC environment,
       # otherwise the Platform=ARM64 env var from ilammy/msvc-dev-cmd
       # leaks into dotnet and conflicts with the win-x64 RID.
@@ -174,6 +204,7 @@ jobs:
   release:
     name: Upload Release Assets
     needs: [build-macos, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
 
     steps:
