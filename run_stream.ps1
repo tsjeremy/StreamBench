@@ -58,24 +58,42 @@ Write-Host ''
 #  Resolve executable paths
 # ------------------------------------------------------------------
 # StreamBench self-contained binary (has CPU+GPU backends embedded):
-#   Windows:  StreamBench_win-x64.exe    / StreamBench_win-arm64.exe
+#   Windows:  StreamBench_win_x64.exe    / StreamBench_win_arm64.exe
 #   macOS:    StreamBench_osx-arm64      / StreamBench_osx-x64
 #   Linux:    StreamBench_linux-arm64    / StreamBench_linux-x64
 if ($osTag -eq 'win') {
-    $benchName = "StreamBench_win-${archTag}${ext}"
+    $benchNames = @(
+        "StreamBench_win-${archTag}${ext}",
+        "StreamBench_win_${archTag}${ext}"
+    )
 } elseif ($osTag -eq 'macos') {
-    $benchName = "StreamBench_osx-${archTag}${ext}"
+    $benchNames = @(
+        "StreamBench_osx-${archTag}${ext}",
+        "StreamBench_osx_${archTag}${ext}"
+    )
 } else {
-    $benchName = "StreamBench_linux-${archTag}${ext}"
+    $benchNames = @(
+        "StreamBench_linux-${archTag}${ext}",
+        "StreamBench_linux_${archTag}${ext}"
+    )
 }
 
-$benchExe = Join-Path $ScriptDir $benchName
+$benchName = $null
+$benchExe  = $null
+foreach ($name in $benchNames) {
+    $candidate = Join-Path $ScriptDir $name
+    if (Test-Path $candidate) {
+        $benchName = $name
+        $benchExe  = $candidate
+        break
+    }
+}
 
 # Also check for standalone C backend executables (build-from-source scenario)
 $cpuExe = Join-Path $ScriptDir "stream_cpu_${osTag}_${archTag}${ext}"
 $gpuExe = Join-Path $ScriptDir "stream_gpu_${osTag}_${archTag}${ext}"
 
-$hasBench = Test-Path $benchExe
+$hasBench = $null -ne $benchExe
 $hasCpu   = Test-Path $cpuExe
 $hasGpu   = Test-Path $gpuExe
 
@@ -99,20 +117,20 @@ if ($hasBench) {
         Write-Host '  [OK] Using dotnet run (dev mode)' -ForegroundColor Green
     } else {
         Write-Host ''
-        Write-Host "  [ERROR] StreamBench frontend not found: $benchName" -ForegroundColor Red
+        Write-Host "  [ERROR] StreamBench frontend not found: $($benchNames[0])" -ForegroundColor Red
         Write-Host '          Or: .NET 10 SDK + StreamBench/ project folder' -ForegroundColor Red
         Write-Host '          Install .NET from: https://dot.net'
         exit 1
     }
 } else {
     Write-Host ''
-    Write-Host "  [ERROR] StreamBench binary not found: $benchName" -ForegroundColor Red
+    Write-Host "  [ERROR] StreamBench binary not found: $($benchNames[0])" -ForegroundColor Red
     Write-Host "          Expected in: $ScriptDir" -ForegroundColor Red
     Write-Host ''
     Write-Host '  Download it from:' -ForegroundColor Yellow
     Write-Host '    https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.08'
     Write-Host ''
-    Write-Host "  Place $benchName in the same folder as this script and re-run."
+    Write-Host "  Place $($benchNames[0]) in the same folder as this script and re-run."
     exit 1
 }
 

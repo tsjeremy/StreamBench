@@ -32,17 +32,21 @@ if ($IsWindows) {
 }
 
 if ($osTag -eq 'win') {
+    # Prefer AI-specific exe, then standard naming variants
     $benchNames = @(
+        "StreamBench_win_${archTag}_ai${ext}",
         "StreamBench_win-${archTag}${ext}",
         "StreamBench_win_${archTag}${ext}"
     )
 } elseif ($osTag -eq 'macos') {
     $benchNames = @(
+        "StreamBench_osx_${archTag}_ai${ext}",
         "StreamBench_osx-${archTag}${ext}",
         "StreamBench_osx_${archTag}${ext}"
     )
 } else {
     $benchNames = @(
+        "StreamBench_linux_${archTag}_ai${ext}",
         "StreamBench_linux-${archTag}${ext}",
         "StreamBench_linux_${archTag}${ext}"
     )
