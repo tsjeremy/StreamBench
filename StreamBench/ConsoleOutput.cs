@@ -606,6 +606,35 @@ public static class ConsoleOutput
             WriteMultilineAnswer(qa.Answer);
         }
 
+        // ── Q1/Q2/Q3 inference timing table ──
+        var qWithRun = summary.Questions.Where(q => q.Run is not null).OrderBy(q => q.Index).ToList();
+        if (qWithRun.Count > 0)
+        {
+            Console.WriteLine();
+            var qTable = new SimpleTable("[bold white]Relation Summary — Inference Timing[/]")
+                .AddColumn("[bold white]Run[/]",        26)
+                .AddColumn("[white]Response (s)[/]",    14, rightAlign: true)
+                .AddColumn("[bold cyan]Tok/s[/]",       10, rightAlign: true)
+                .AddColumn("[white]Tokens Out[/]",      12, rightAlign: true);
+
+            foreach (var qa in qWithRun)
+            {
+                string label = qa.Index switch
+                {
+                    1 => "Q1 (cold)",
+                    2 => "Q2 (warm)",
+                    _ => $"Q{qa.Index} (relation summary)",
+                };
+                qTable.AddRow(
+                    $"[bold white]{label}[/]",
+                    $"[white]{qa.Run!.ResponseTimeSec:F3}[/]",
+                    $"[bold cyan]{qa.Run.TokensPerSecond:F1}[/]",
+                    $"[white]{qa.Run.CompletionTokens}[/]");
+            }
+
+            qTable.Render();
+        }
+
         Console.WriteLine();
     }
 
