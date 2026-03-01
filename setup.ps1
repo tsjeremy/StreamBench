@@ -7,10 +7,10 @@
 # machine (no Visual Studio required for running).
 #
 # What this script does:
-#   1. Installs .NET 10 SDK (via winget) if missing
-#   2. Installs Visual C++ Redistributable 2015+ (for vcomp140.dll)
-#   3. Runs "dotnet restore" so the project assets file is created
-#      (fixes: NETSDK1047 - assets file missing target net10.0/win-x64)
+#   1. Installs Visual C++ Redistributable 2015+ (for vcomp140.dll)
+#   2. (Source mode only) Installs .NET 10 SDK if missing
+#   3. (Source mode only) Runs "dotnet restore" for base + AI packages
+#   4. (Optional) Installs Microsoft Foundry Local for AI benchmark
 #
 # Usage:
 #   .\setup.ps1
@@ -31,6 +31,18 @@ Write-Host ''
 $errors = 0
 
 # ------------------------------------------------------------------
+#  Detect mode: standalone (exe only) vs source (has StreamBench.csproj)
+# ------------------------------------------------------------------
+$csproj = Join-Path $ScriptDir 'StreamBench\StreamBench.csproj'
+$hasSource = Test-Path $csproj
+if ($hasSource) {
+    Write-Host '  Mode: Source (StreamBench project found)' -ForegroundColor DarkGray
+} else {
+    Write-Host '  Mode: Standalone (pre-built executables only)' -ForegroundColor DarkGray
+}
+Write-Host ''
+
+# ------------------------------------------------------------------
 #  Helper: check winget availability
 # ------------------------------------------------------------------
 $hasWinget = [bool](Get-Command winget -ErrorAction SilentlyContinue)
@@ -42,46 +54,9 @@ if (-not $hasWinget) {
 }
 
 # ------------------------------------------------------------------
-#  1. .NET 10 SDK
+#  1. Visual C++ Redistributable (vcomp140.dll for OpenMP)
 # ------------------------------------------------------------------
-Write-Host '  [1/4] Checking .NET 10 SDK...' -ForegroundColor Cyan
-
-$dotnetOk = $false
-if (Get-Command dotnet -ErrorAction SilentlyContinue) {
-    $sdks = & dotnet --list-sdks 2>$null
-    if ($sdks -match '^10\.') {
-        Write-Host '  [OK] .NET 10 SDK is already installed.' -ForegroundColor Green
-        $dotnetOk = $true
-    }
-}
-
-if (-not $dotnetOk) {
-    Write-Host '  [!] .NET 10 SDK not found.' -ForegroundColor Yellow
-    if ($hasWinget) {
-        Write-Host '  Installing .NET 10 SDK via winget...' -ForegroundColor Yellow
-        winget install Microsoft.DotNet.SDK.10 --accept-package-agreements --accept-source-agreements
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host '  [OK] .NET 10 SDK installed.' -ForegroundColor Green
-            # Refresh PATH for this session
-            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
-                        [System.Environment]::GetEnvironmentVariable('PATH', 'User')
-            $dotnetOk = $true
-        } else {
-            Write-Host '  [FAIL] .NET 10 SDK installation failed.' -ForegroundColor Red
-            Write-Host '         Download manually: https://dot.net/download'
-            $errors++
-        }
-    } else {
-        Write-Host '  Download .NET 10 SDK from: https://dot.net/download' -ForegroundColor Yellow
-        $errors++
-    }
-}
-Write-Host ''
-
-# ------------------------------------------------------------------
-#  2. Visual C++ Redistributable (vcomp140.dll for OpenMP)
-# ------------------------------------------------------------------
-Write-Host '  [2/4] Checking Visual C++ Redistributable...' -ForegroundColor Cyan
+Write-Host '  [1/4] Checking Visual C++ Redistributable...' -ForegroundColor Cyan
 
 $vcRedistOk = (Test-Path "$env:SystemRoot\System32\vcomp140.dll") -or
               (Test-Path "$env:SystemRoot\SysWOW64\vcomp140.dll")
@@ -106,53 +81,108 @@ if ($vcRedistOk) {
 Write-Host ''
 
 # ------------------------------------------------------------------
-#  3. dotnet restore (creates project.assets.json for net10.0/win-x64)
+#  2. .NET 10 SDK (source mode only)
 # ------------------------------------------------------------------
-Write-Host '  [3/4] Running dotnet restore...' -ForegroundColor Cyan
+if ($hasSource) {
+    Write-Host '  [2/4] Checking .NET 10 SDK...' -ForegroundColor Cyan
 
-$csproj = Join-Path $ScriptDir 'StreamBench\StreamBench.csproj'
-if (-not (Test-Path $csproj)) {
-    Write-Host "  [FAIL] Project file not found: $csproj" -ForegroundColor Red
-    $errors++
-} elseif (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    Write-Host '  [SKIP] dotnet not available — install .NET 10 SDK first.' -ForegroundColor Yellow
-} else {
-    # Restore base (no RID) so Debug builds work
-    dotnet restore "$csproj" --nologo
-    $restoreBase = $LASTEXITCODE
-
-    # Restore with win-x64 RID so publish/release builds work
-    dotnet restore "$csproj" -r win-x64 --nologo
-    $restoreX64 = $LASTEXITCODE
-
-    # Restore with win-arm64 RID for ARM64 machines
-    dotnet restore "$csproj" -r win-arm64 --nologo
-    $restoreArm64 = $LASTEXITCODE
-
-    if ($restoreBase -eq 0 -and $restoreX64 -eq 0 -and $restoreArm64 -eq 0) {
-        Write-Host '  [OK] dotnet restore succeeded (base, win-x64, win-arm64).' -ForegroundColor Green
-    } else {
-        Write-Host '  [FAIL] dotnet restore returned errors. Check the output above.' -ForegroundColor Red
-        $errors++
+    $dotnetOk = $false
+    if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+        $sdks = & dotnet --list-sdks 2>$null
+        if ($sdks -match '^10\.') {
+            Write-Host '  [OK] .NET 10 SDK is already installed.' -ForegroundColor Green
+            $dotnetOk = $true
+        }
     }
+
+    if (-not $dotnetOk) {
+        Write-Host '  [!] .NET 10 SDK not found.' -ForegroundColor Yellow
+        if ($hasWinget) {
+            Write-Host '  Installing .NET 10 SDK via winget...' -ForegroundColor Yellow
+            winget install Microsoft.DotNet.SDK.10 --accept-package-agreements --accept-source-agreements
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host '  [OK] .NET 10 SDK installed.' -ForegroundColor Green
+                $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                            [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+                $dotnetOk = $true
+            } else {
+                Write-Host '  [FAIL] .NET 10 SDK installation failed.' -ForegroundColor Red
+                Write-Host '         Download manually: https://dot.net/download'
+                $errors++
+            }
+        } else {
+            Write-Host '  Download .NET 10 SDK from: https://dot.net/download' -ForegroundColor Yellow
+            $errors++
+        }
+    }
+} else {
+    Write-Host '  [2/4] .NET 10 SDK — [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
 }
 Write-Host ''
 
 # ------------------------------------------------------------------
-#  4. dotnet restore with AI packages (for run_stream_ai.ps1)
+#  3. dotnet restore (source mode only)
 # ------------------------------------------------------------------
-Write-Host '  [4/4] Running dotnet restore (AI packages)...' -ForegroundColor Cyan
+if ($hasSource) {
+    Write-Host '  [3/4] Running dotnet restore...' -ForegroundColor Cyan
 
-if (-not (Test-Path $csproj)) {
-    Write-Host "  [SKIP] Project file not found." -ForegroundColor Yellow
-} elseif (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    Write-Host '  [SKIP] dotnet not available.' -ForegroundColor Yellow
-} else {
-    dotnet restore "$csproj" -p:EnableAI=true --nologo
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host '  [OK] AI package restore succeeded.' -ForegroundColor Green
+    if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+        Write-Host '  [SKIP] dotnet not available — install .NET 10 SDK first.' -ForegroundColor Yellow
     } else {
-        Write-Host '  [!] AI package restore failed (non-fatal — AI benchmark is optional).' -ForegroundColor Yellow
+        dotnet restore "$csproj" --nologo
+        $restoreBase = $LASTEXITCODE
+
+        dotnet restore "$csproj" -r win-x64 --nologo
+        $restoreX64 = $LASTEXITCODE
+
+        dotnet restore "$csproj" -r win-arm64 --nologo
+        $restoreArm64 = $LASTEXITCODE
+
+        if ($restoreBase -eq 0 -and $restoreX64 -eq 0 -and $restoreArm64 -eq 0) {
+            Write-Host '  [OK] dotnet restore succeeded (base, win-x64, win-arm64).' -ForegroundColor Green
+        } else {
+            Write-Host '  [FAIL] dotnet restore returned errors. Check the output above.' -ForegroundColor Red
+            $errors++
+        }
+
+        # AI package restore
+        Write-Host ''
+        Write-Host '  Running dotnet restore (AI packages)...' -ForegroundColor Cyan
+        dotnet restore "$csproj" -p:EnableAI=true --nologo
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host '  [OK] AI package restore succeeded.' -ForegroundColor Green
+        } else {
+            Write-Host '  [!] AI package restore failed (non-fatal — AI benchmark is optional).' -ForegroundColor Yellow
+        }
+    }
+} else {
+    Write-Host '  [3/4] dotnet restore — [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
+}
+Write-Host ''
+
+# ------------------------------------------------------------------
+#  4. Microsoft Foundry Local (for AI benchmark)
+# ------------------------------------------------------------------
+Write-Host '  [4/4] Checking Microsoft Foundry Local (AI benchmark)...' -ForegroundColor Cyan
+
+$foundryOk = [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
+if ($foundryOk) {
+    Write-Host '  [OK] Microsoft Foundry Local is installed.' -ForegroundColor Green
+} else {
+    Write-Host '  [!] Foundry Local not found (required for AI benchmark).' -ForegroundColor Yellow
+    if ($hasWinget) {
+        Write-Host '  Installing Microsoft Foundry Local via winget...' -ForegroundColor Yellow
+        winget install Microsoft.FoundryLocal --accept-package-agreements --accept-source-agreements
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host '  [OK] Foundry Local installed.' -ForegroundColor Green
+            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                        [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+        } else {
+            Write-Host '  [!] Installation may have failed (non-fatal — AI benchmark is optional).' -ForegroundColor Yellow
+            Write-Host '      Install manually: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host '  Install manually: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
     }
 }
 Write-Host ''

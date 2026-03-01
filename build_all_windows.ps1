@@ -178,6 +178,7 @@ foreach ($t in $publishTargets) {
     if (Test-Path $cpuSrc) { Copy-Item $cpuSrc $backendDir }
     if (Test-Path $gpuSrc) { Copy-Item $gpuSrc $backendDir }
 
+    # Standard (memory-only) publish
     dotnet publish "$ScriptDir\StreamBench\StreamBench.csproj" `
         -c Release -r $t.Rid --self-contained true `
         -p:PublishSingleFile=true `
@@ -191,6 +192,24 @@ foreach ($t in $publishTargets) {
         Write-Host "[OK] $outExe (with embedded CPU + GPU backends)" -ForegroundColor Green
     } else {
         Write-Host "[FAIL] StreamBench_win_$($t.Tag).exe" -ForegroundColor Red
+        $Errors++
+    }
+
+    # AI-enabled publish (includes Foundry Local + ONNX runtime)
+    dotnet publish "$ScriptDir\StreamBench\StreamBench.csproj" `
+        -c Release -r $t.Rid --self-contained true `
+        -p:PublishSingleFile=true `
+        -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:EnableCompressionInSingleFile=true `
+        -p:EnableAI=true `
+        -o "$ScriptDir\publish\$($t.Rid)-ai" --nologo -v quiet
+
+    if ($LASTEXITCODE -eq 0) {
+        $outExeAi = "StreamBench_win_$($t.Tag)_ai.exe"
+        Copy-Item "$ScriptDir\publish\$($t.Rid)-ai\StreamBench.exe" "$ScriptDir\$outExeAi"
+        Write-Host "[OK] $outExeAi (with embedded CPU + GPU backends + AI)" -ForegroundColor Green
+    } else {
+        Write-Host "[FAIL] StreamBench_win_$($t.Tag)_ai.exe" -ForegroundColor Red
         $Errors++
     }
 
