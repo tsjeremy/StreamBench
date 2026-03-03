@@ -335,14 +335,17 @@ public static class ConsoleOutput
         string? npuName = GpuDeviceInfo.InferNpuDisplayName(dev.Name, dev.Vendor, cpuModel);
         bool isNpu = npuName is not null;
         string devKind = isNpu ? "NPU" : "GPU";
-        string displayName = npuName ?? dev.Name;
+        // Resolve friendly name for both NPU and GPU devices
+        string displayName = npuName
+            ?? GpuDeviceInfo.InferGpuDisplayName(dev.Name, dev.Vendor)
+            ?? dev.Name;
 
         var gpuTable = new SimpleTable($"[bold white]{devKind} Device[/]")
             .AddColumn("[cyan]Property[/]", 22)
             .AddColumn("[white]Value[/]");
 
         gpuTable.AddRow("[cyan]Device[/]",         $"[bold cyan]{displayName}[/]");
-        if (isNpu && !displayName.Equals(dev.Name, StringComparison.Ordinal))
+        if (!displayName.Equals(dev.Name, StringComparison.Ordinal))
             gpuTable.AddRow("[cyan]OpenCL Name[/]", $"[dim]{dev.Name}[/]");
         gpuTable.AddRow("[cyan]Type[/]",            $"[white]{devKind}[/]");
         gpuTable.AddRow("[cyan]Vendor[/]",          $"[white]{dev.Vendor}[/]");

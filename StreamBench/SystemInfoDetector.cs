@@ -24,10 +24,14 @@ public static class SystemInfoDetector
     /// </summary>
     public static async Task<(SystemInfo System, MemoryInfo Memory, CacheInfo Cache)> DetectAsync()
     {
+        TraceLog.SystemInfoDetectionStarted();
+
         var systemTask = Task.Run(DetectSystem);
         var memoryTask = Task.Run(DetectMemory);
         var cacheTask  = Task.Run(DetectCache);
         await Task.WhenAll(systemTask, memoryTask, cacheTask);
+
+        TraceLog.SystemInfoDetectionCompleted();
         return (systemTask.Result, memoryTask.Result, cacheTask.Result);
     }
 
@@ -36,13 +40,13 @@ public static class SystemInfoDetector
     private static SystemInfo DetectSystem()
     {
         string hostname = Environment.MachineName;
-        string os       = GetOsName();
+        string os       = SafeDetect("OS", GetOsName, RuntimeInformation.OSDescription);
         string arch     = RuntimeInformation.OSArchitecture.ToString();
-        string cpu      = GetCpuModel();
+        string cpu      = SafeDetect("CPU", GetCpuModel, "Unknown");
         int    cpus     = Environment.ProcessorCount;
-        double ram      = GetTotalRamGb();
-        var (baseMhz, maxMhz) = GetCpuFreqMhz();
-        int    numa     = GetNumaNodes();
+        double ram      = SafeDetect("RAM", GetTotalRamGb, 0.0);
+        var (baseMhz, maxMhz) = SafeDetect("CPUFreq", GetCpuFreqMhz, (0, 0));
+        int    numa     = SafeDetect("NUMA", GetNumaNodes, 1);
 
         return new SystemInfo(
             Hostname:     hostname,
@@ -58,115 +62,99 @@ public static class SystemInfoDetector
 
     private static string GetOsName()
     {
-        try
+        if (IsOSX)
         {
-            if (IsOSX)
-            {
-                string v = Run("sw_vers", "-productVersion").Trim();
-                return string.IsNullOrEmpty(v) ? "macOS" : $"macOS {v}";
-            }
-            if (IsLinux)
-            {
-                foreach (var line in File.ReadLines("/etc/os-release"))
-                    if (line.StartsWith("PRETTY_NAME="))
-                        return line[12..].Trim('"');
-                return "Linux";
-            }
-            return RuntimeInformation.OSDescription;
+            string v = Run("sw_vers", "-productVersion").Trim();
+            return string.IsNullOrEmpty(v) ? "macOS" : $"macOS {v}";
         }
-        catch { return RuntimeInformation.OSDescription; }
+        if (IsLinux)
+        {
+            foreach (var line in File.ReadLines("/etc/os-release"))
+                if (line.StartsWith("PRETTY_NAME="))
+                    return line[12..].Trim('"');
+            return "Linux";
+        }
+        return RuntimeInformation.OSDescription;
     }
 
     private static string GetCpuModel()
     {
-        try
-        {
-            if (IsOSX)
-                return Run("sysctl", "-n machdep.cpu.brand_string").Trim();
+        if (IsOSX)
+            return Run("sysctl", "-n machdep.cpu.brand_string").Trim();
 
-            if (IsLinux)
-            {
-                foreach (var line in File.ReadLines("/proc/cpuinfo"))
-                    if (line.StartsWith("model name") || line.StartsWith("Model"))
-                    {
-                        int i = line.IndexOf(':');
-                        if (i >= 0) return line[(i + 1)..].Trim();
-                    }
-                return "Unknown";
-            }
-            // Windows: WMI via PowerShell
-            return RunPowerShell("(Get-WmiObject Win32_Processor | Select-Object -First 1).Name").Trim();
+        if (IsLinux)
+        {
+            foreach (var line in File.ReadLines("/proc/cpuinfo"))
+                if (line.StartsWith("model name") || line.StartsWith("Model"))
+                {
+                    int i = line.IndexOf(':');
+                    if (i >= 0) return line[(i + 1)..].Trim();
+                }
+            return "Unknown";
         }
-        catch { return "Unknown"; }
+        // Windows: WMI via PowerShell
+        return RunPowerShell("(Get-WmiObject Win32_Processor | Select-Object -First 1).Name").Trim();
     }
 
     private static double GetTotalRamGb()
     {
-        try
+        if (IsOSX)
         {
-            if (IsOSX)
-            {
-                if (long.TryParse(Run("sysctl", "-n hw.memsize").Trim(), out long b))
-                    return b / (1024.0 * 1024.0 * 1024.0);
-            }
-            else if (IsLinux)
-            {
-                foreach (var line in File.ReadLines("/proc/meminfo"))
-                    if (line.StartsWith("MemTotal:"))
-                    {
-                        var p = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                        if (p.Length >= 2 && long.TryParse(p[1], out long kb))
-                            return kb / (1024.0 * 1024.0);
-                    }
-            }
-            else
-            {
-                // Windows: TotalPhysicalMemory in bytes
-                if (long.TryParse(
-                    RunPowerShell("(Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory").Trim(),
-                    out long b))
-                    return b / (1024.0 * 1024.0 * 1024.0);
-            }
+            if (long.TryParse(Run("sysctl", "-n hw.memsize").Trim(), out long b))
+                return b / (1024.0 * 1024.0 * 1024.0);
         }
-        catch { }
+        else if (IsLinux)
+        {
+            foreach (var line in File.ReadLines("/proc/meminfo"))
+                if (line.StartsWith("MemTotal:"))
+                {
+                    var p = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (p.Length >= 2 && long.TryParse(p[1], out long kb))
+                        return kb / (1024.0 * 1024.0);
+                }
+        }
+        else
+        {
+            // Windows: TotalPhysicalMemory in bytes
+            if (long.TryParse(
+                RunPowerShell("(Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory").Trim(),
+                out long b))
+                return b / (1024.0 * 1024.0 * 1024.0);
+        }
         return 0;
     }
 
     private static (int Base, int Max) GetCpuFreqMhz()
     {
-        try
+        if (IsLinux)
         {
-            if (IsLinux)
-            {
-                int b = 0, m = 0;
-                var bf = TryReadFile("/sys/devices/system/cpu/cpu0/cpufreq/base_frequency");
-                if (int.TryParse(bf?.Trim(), out int bk)) b = bk / 1000;
-                var mf = TryReadFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
-                if (int.TryParse(mf?.Trim(), out int mk)) m = mk / 1000;
-                if (b == 0)
-                    foreach (var line in File.ReadLines("/proc/cpuinfo"))
-                        if (line.StartsWith("cpu MHz"))
-                        {
-                            int ci = line.IndexOf(':');
-                            if (ci >= 0 && double.TryParse(line[(ci + 1)..].Trim(), out double mhz))
-                            { b = (int)mhz; break; }
-                        }
-                return (b, m);
-            }
-            if (IsOSX)
-            {
-                // Intel Macs expose hw.cpufrequency; Apple Silicon returns 0
-                if (long.TryParse(Run("sysctl", "-n hw.cpufrequency").Trim(), out long hz) && hz > 0)
-                    return ((int)(hz / 1_000_000), 0);
-                return (0, 0);
-            }
-            // Windows: MaxClockSpeed in MHz
-            if (int.TryParse(
-                RunPowerShell("(Get-WmiObject Win32_Processor | Select-Object -First 1).MaxClockSpeed").Trim(),
-                out int mhzW))
-                return (mhzW, mhzW);
+            int b = 0, m = 0;
+            var bf = TryReadFile("/sys/devices/system/cpu/cpu0/cpufreq/base_frequency");
+            if (int.TryParse(bf?.Trim(), out int bk)) b = bk / 1000;
+            var mf = TryReadFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
+            if (int.TryParse(mf?.Trim(), out int mk)) m = mk / 1000;
+            if (b == 0)
+                foreach (var line in File.ReadLines("/proc/cpuinfo"))
+                    if (line.StartsWith("cpu MHz"))
+                    {
+                        int ci = line.IndexOf(':');
+                        if (ci >= 0 && double.TryParse(line[(ci + 1)..].Trim(), out double mhz))
+                        { b = (int)mhz; break; }
+                    }
+            return (b, m);
         }
-        catch { }
+        if (IsOSX)
+        {
+            // Intel Macs expose hw.cpufrequency; Apple Silicon returns 0
+            if (long.TryParse(Run("sysctl", "-n hw.cpufrequency").Trim(), out long hz) && hz > 0)
+                return ((int)(hz / 1_000_000), 0);
+            return (0, 0);
+        }
+        // Windows: MaxClockSpeed in MHz
+        if (int.TryParse(
+            RunPowerShell("(Get-WmiObject Win32_Processor | Select-Object -First 1).MaxClockSpeed").Trim(),
+            out int mhzW))
+            return (mhzW, mhzW);
         return (0, 0);
     }
 
@@ -234,7 +222,10 @@ $cpu = Get-WmiObject Win32_Processor | Select-Object -First 1
                     }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            TraceLog.SystemInfoDetectionWarning("Cache", ex.Message);
+        }
         return new CacheInfo(l1d, l1i, l2, l3);
     }
 
@@ -250,7 +241,11 @@ $cpu = Get-WmiObject Win32_Processor | Select-Object -First 1
             if (IsLinux) return DetectMemoryLinux();
             return DetectMemoryWindows();
         }
-        catch { return NoMemoryInfo; }
+        catch (Exception ex)
+        {
+            TraceLog.SystemInfoDetectionWarning("Memory", ex.Message);
+            return NoMemoryInfo;
+        }
     }
 
     private static MemoryInfo DetectMemoryMacOS()
@@ -387,6 +382,23 @@ $mems | ConvertTo-Json -Depth 1
 
     private static bool IsOSX   => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
     private static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
+
+    /// <summary>
+    /// Safely runs a detection function; returns the default value on any exception
+    /// and logs a warning via ETW.
+    /// </summary>
+    private static T SafeDetect<T>(string component, Func<T> detect, T defaultValue)
+    {
+        try
+        {
+            return detect();
+        }
+        catch (Exception ex)
+        {
+            TraceLog.SystemInfoDetectionWarning(component, ex.Message);
+            return defaultValue;
+        }
+    }
 
     private static MemoryInfo BuildMemoryInfo(List<MemoryModule> modules)
     {

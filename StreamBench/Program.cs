@@ -9,7 +9,7 @@
 // If neither --cpu nor --gpu is specified, both benchmarks run automatically
 // and all available GPUs are benchmarked.
 //
-// --ai runs the Microsoft.AI.Foundry.Local inference benchmark separately.
+// --ai runs the AI inference benchmark via Foundry Local CLI + REST API.
 //
 // Examples:
 //   StreamBench                              # runs both CPU and GPU
@@ -26,344 +26,413 @@ using StreamBench.Models;
 
 Console.OutputEncoding = Encoding.UTF8;
 
-// ── Parse arguments ────────────────────────────────────────────────────────
-bool   wantCpu    = false;
-bool   wantGpu    = false;
-bool   modeSet    = false;   // true if user explicitly passed --cpu or --gpu
-bool   wantAi     = false;   // --ai flag
-bool   aiLocalSummary = false; // --ai-local-summary
-string? aiModel   = null;    // --ai-model ALIAS
-string? aiDevices = null;    // --ai-device cpu,gpu,npu (comma-separated)
-long?  arraySize  = null;
-bool   noSave     = false;
-string? outputDir = null;
-string? exePath   = null;
-int?   gpuDevice  = null;    // specific GPU device index (null = all)
-long   rangeStart = 0, rangeEnd = 0, rangeStep = 50_000_000;
-
-for (int i = 0; i < args.Length; i++)
+// ── Global unhandled exception handler ─────────────────────────────────
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
 {
-    switch (args[i])
+    if (e.ExceptionObject is Exception ex)
     {
-        case "--cpu":   wantCpu = true; modeSet = true; break;
-        case "--gpu":   wantGpu = true; modeSet = true; break;
-        case "--ai":    wantAi  = true; break;
-        case "--ai-local-summary": aiLocalSummary = true; break;
-        case "--no-save": noSave = true; break;
+        TraceLog.UnhandledException(
+            ex.ToString(),
+            ex.TargetSite?.DeclaringType?.Name ?? "unknown",
+            0,
+            ex.TargetSite?.Name ?? "unknown");
+        Console.Error.WriteLine($"[FATAL] Unhandled exception: {ex.Message}");
+        Console.Error.WriteLine(ex.StackTrace);
+    }
+};
 
-        case "--ai-model" when i + 1 < args.Length:
-            aiModel = args[++i];
-            break;
+TraceLog.AppStarted(string.Join(" ", args));
 
-        case "--ai-device" when i + 1 < args.Length:
-            aiDevices = args[++i];
-            break;
+int finalExitCode;
+try
+{
+    finalExitCode = await RunMainAsync(args);
+}
+catch (Exception ex)
+{
+    DiagnosticHelper.LogException(ex);
+    ConsoleOutput.WriteMarkup($"[red][FATAL][/] Unexpected error: {ex.Message}");
+    ConsoleOutput.WriteMarkup($"[dim]  {ex.GetType().Name}: {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}[/]");
+    finalExitCode = 99;
+}
 
-        case "--array-size" when i + 1 < args.Length:
-            arraySize = ParseSize(args[++i]);
-            break;
+TraceLog.AppExiting(finalExitCode);
+if (finalExitCode != 0)
+    ConsoleOutput.WriteMarkup($"[dim]  Trace log: {TraceLog.LogPath}[/]");
+return finalExitCode;
 
-        case "--output-dir" when i + 1 < args.Length:
-            outputDir = args[++i];
-            break;
+// ── Main logic wrapped in a function for top-level error handling ──────
+async Task<int> RunMainAsync(string[] args)
+{
+    // ── Parse arguments ────────────────────────────────────────────────────────
+    bool   wantCpu    = false;
+    bool   wantGpu    = false;
+    bool   modeSet    = false;   // true if user explicitly passed --cpu or --gpu
+    bool   wantAi     = false;   // --ai flag
+    bool   aiLocalSummary = false; // --ai-local-summary
+    string? aiModel   = null;    // --ai-model ALIAS
+    string? aiDevices = null;    // --ai-device cpu,gpu,npu (comma-separated)
+    long?  arraySize  = null;
+    bool   noSave     = false;
+    string? outputDir = null;
+    string? exePath   = null;
+    int?   gpuDevice  = null;    // specific GPU device index (null = all)
+    long   rangeStart = 0, rangeEnd = 0, rangeStep = 50_000_000;
 
-        case "--exe" when i + 1 < args.Length:
-            exePath = args[++i];
-            break;
-
-        case "--gpu-device" when i + 1 < args.Length:
-            gpuDevice = int.Parse(args[++i]);
-            break;
-
-        case "--range" when i + 1 < args.Length:
+    for (int i = 0; i < args.Length; i++)
+    {
+        try
         {
-            var parts = args[++i].Split(':');
-            if (parts.Length >= 2)
+            switch (args[i])
             {
-                rangeStart = ParseSize(parts[0]);
-                rangeEnd   = ParseSize(parts[1]);
-                rangeStep  = parts.Length >= 3 ? ParseSize(parts[2]) : 50_000_000;
+                case "--cpu":   wantCpu = true; modeSet = true; break;
+                case "--gpu":   wantGpu = true; modeSet = true; break;
+                case "--ai":    wantAi  = true; break;
+                case "--ai-local-summary": aiLocalSummary = true; break;
+                case "--no-save": noSave = true; break;
+
+                case "--ai-model" when i + 1 < args.Length:
+                    aiModel = args[++i];
+                    break;
+
+                case "--ai-device" when i + 1 < args.Length:
+                    aiDevices = args[++i];
+                    break;
+
+                case "--array-size" when i + 1 < args.Length:
+                    arraySize = ParseSize(args[++i]);
+                    break;
+
+                case "--output-dir" when i + 1 < args.Length:
+                    outputDir = args[++i];
+                    break;
+
+                case "--exe" when i + 1 < args.Length:
+                    exePath = args[++i];
+                    break;
+
+                case "--gpu-device" when i + 1 < args.Length:
+                    gpuDevice = int.Parse(args[++i]);
+                    break;
+
+                case "--range" when i + 1 < args.Length:
+                {
+                    var parts = args[++i].Split(':');
+                    if (parts.Length >= 2)
+                    {
+                        rangeStart = ParseSize(parts[0]);
+                        rangeEnd   = ParseSize(parts[1]);
+                        rangeStep  = parts.Length >= 3 ? ParseSize(parts[2]) : 50_000_000;
+                    }
+                    break;
+                }
+                case "--help": case "-h":
+                    PrintHelp();
+                    return 0;
             }
-            break;
         }
-        case "--help": case "-h":
-            PrintHelp();
-            return 0;
-    }
-}
-
-// If user provided AI-specific options, enable AI mode automatically.
-if (!wantAi && (!string.IsNullOrWhiteSpace(aiModel) || !string.IsNullOrWhiteSpace(aiDevices) || aiLocalSummary))
-    wantAi = true;
-
-// Default: run both CPU and GPU when user didn't specify
-if (!modeSet)
-{
-    wantCpu = true;
-    wantGpu = true;
-}
-// ── Prepare output directory ───────────────────────────────────────────────
-if (outputDir is not null)
-    Directory.CreateDirectory(outputDir);
-
-// ── Run benchmarks ─────────────────────────────────────────────────────────
-int exitCode = 0;
-bool systemInfoPrinted = false;
-
-if (wantCpu)
-{
-    exitCode = await RunBenchmarkAsync(isGpu: false, exePath, arraySize,
-        rangeStart, rangeEnd, rangeStep, noSave, outputDir);
-    if (wantGpu) Console.WriteLine();
-}
-
-if (wantGpu)
-{
-    int gpuCode = await RunGpuBenchmarksAsync(exePath, arraySize,
-        rangeStart, rangeEnd, rangeStep, noSave, outputDir, gpuDevice);
-    if (gpuCode != 0) exitCode = gpuCode;
-}
-
-if (wantAi)
-{
-#if ENABLE_AI
-    if (wantCpu || wantGpu) Console.WriteLine();
-    int aiCode = await RunAiBenchmarkAsync(aiDevices, aiModel, noSave, outputDir, aiLocalSummary);
-    if (aiCode != 0) exitCode = aiCode;
-#else
-    ConsoleOutput.WriteMarkup("[yellow][SKIP][/] AI benchmark is not available in this build.");
-    ConsoleOutput.WriteMarkup("[dim]  Rebuild with -p:EnableAI=true or use the pre-built binary with --ai.[/]");
-#endif
-}
-
-return exitCode;
-
-// ── Run all GPU benchmarks (discovers GPUs, loops over each) ───────────────
-async Task<int> RunGpuBenchmarksAsync(string? exePath, long? arraySize,
-    long rangeStart, long rangeEnd, long rangeStep,
-    bool noSave, string? outputDir, int? gpuDevice)
-{
-    string? exe = exePath ?? BenchmarkRunner.FindExecutable(isGpu: true);
-    if (exe is null)
-    {
-        ConsoleOutput.WriteMarkup("[yellow][SKIP][/] GPU benchmark backend not found.");
-        ConsoleOutput.WriteMarkup("[dim]No embedded backend found and no external binary in the current directory.[/]");
-        return modeSet ? 1 : 0;
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogWarning($"Failed to parse argument '{args[i]}': {ex.Message}");
+        }
     }
 
-    // If user specified a single GPU device, run just that one
-    if (gpuDevice.HasValue)
+    // If user provided AI-specific options, enable AI mode automatically.
+    if (!wantAi && (!string.IsNullOrWhiteSpace(aiModel) || !string.IsNullOrWhiteSpace(aiDevices) || aiLocalSummary))
+        wantAi = true;
+
+    // Default: run both CPU and GPU when user didn't specify
+    if (!modeSet)
     {
-        return await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
-            noSave, outputDir, gpuDevice.Value, $"GPU #{gpuDevice.Value}");
+        wantCpu = true;
+        wantGpu = true;
+    }
+    // ── Prepare output directory ───────────────────────────────────────────────
+    if (outputDir is not null)
+    {
+        try
+        {
+            Directory.CreateDirectory(outputDir);
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogException(ex);
+            ConsoleOutput.WriteMarkup($"[red]Error:[/] Cannot create output directory: {outputDir}");
+            return 1;
+        }
     }
 
-    // Discover all GPUs
-    var gpus = await BenchmarkRunner.ListGpusAsync(exe);
-
-    if (gpus.Count == 0)
-    {
-        // Fallback: no --list-gpus support or no GPUs found — run without device index
-        return await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
-            noSave, outputDir, null, null);
-    }
-
-    if (gpus.Count == 1)
-    {
-        // Single GPU — run directly
-        return await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
-            noSave, outputDir, gpus[0].Index, null);
-    }
-
-    // Multiple devices — enumerate and run each
-    int gpuCount = gpus.Count(g => g.DeviceKind == "GPU");
-    int npuCount = gpus.Count(g => g.DeviceKind == "NPU");
-    string deviceSummary = (gpuCount, npuCount) switch
-    {
-        ( > 0, > 0) => $"{gpuCount} GPU(s) + {npuCount} NPU(s)",
-        (_, > 0)     => $"{npuCount} NPU(s)",
-        _            => $"{gpuCount} GPU(s)",
-    };
-    ConsoleOutput.WriteMarkup($"[bold cyan]Discovered {deviceSummary}:[/]");
-    for (int i = 0; i < gpus.Count; i++)
-    {
-        var g = gpus[i];
-        double memGb = g.GlobalMemoryBytes / (1024.0 * 1024.0 * 1024.0);
-        string displayName = g.DeviceKind == "NPU"
-            ? (GpuDeviceInfo.InferNpuDisplayName(g.Name, g.Vendor) ?? g.Name)
-            : g.Name;
-        ConsoleOutput.WriteMarkup(
-            $"  [white]#{g.Index}[/] [bold white]{displayName}[/] [dim]({g.DeviceKind}, {g.Vendor}, {memGb:F1} GB)[/]");
-    }
-    Console.WriteLine();
-
+    // ── Run benchmarks ─────────────────────────────────────────────────────────
     int exitCode = 0;
-    for (int i = 0; i < gpus.Count; i++)
-    {
-        if (i > 0) Console.WriteLine();
-        var g = gpus[i];
-        string displayName = g.DeviceKind == "NPU"
-            ? (GpuDeviceInfo.InferNpuDisplayName(g.Name, g.Vendor) ?? g.Name)
-            : g.Name;
-        ConsoleOutput.WriteMarkup($"[bold cyan]── {g.DeviceKind} #{g.Index}: {displayName} ──[/]");
+    bool systemInfoPrinted = false;
 
-        // Only print system info for the first device (it's the same for all)
-        int code = await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
-            noSave, outputDir, g.Index, $"{g.DeviceKind} #{g.Index} ({displayName})",
-            printSystemInfo: i == 0);
-        if (code != 0) exitCode = code;
+    if (wantCpu)
+    {
+        exitCode = await RunBenchmarkAsync(isGpu: false, exePath, arraySize,
+            rangeStart, rangeEnd, rangeStep, noSave, outputDir);
+        if (wantGpu) Console.WriteLine();
     }
+
+    if (wantGpu)
+    {
+        int gpuCode = await RunGpuBenchmarksAsync(exePath, arraySize,
+            rangeStart, rangeEnd, rangeStep, noSave, outputDir, gpuDevice);
+        if (gpuCode != 0) exitCode = gpuCode;
+    }
+
+    if (wantAi)
+    {
+#if ENABLE_AI
+        if (wantCpu || wantGpu) Console.WriteLine();
+        int aiCode = await RunAiBenchmarkAsync(aiDevices, aiModel, noSave, outputDir, aiLocalSummary);
+        if (aiCode != 0)
+        {
+            // AI failure is non-fatal when CPU/GPU benchmarks already ran successfully
+            if ((wantCpu || wantGpu) && exitCode == 0)
+            {
+                ConsoleOutput.WriteMarkup("[yellow][WARN][/] AI benchmark failed but memory benchmarks completed successfully.");
+                TraceLog.DiagnosticInfo("AI benchmark failed (non-fatal); memory benchmarks succeeded.");
+            }
+            else
+            {
+                exitCode = aiCode;
+            }
+        }
+#else
+        ConsoleOutput.WriteMarkup("[yellow][SKIP][/] AI benchmark is not available in this build.");
+        ConsoleOutput.WriteMarkup("[dim]  Rebuild with -p:EnableAI=true or use the pre-built binary with --ai.[/]");
+#endif
+    }
+
     return exitCode;
-}
 
-// ── Run a single GPU benchmark ─────────────────────────────────────────────
-async Task<int> RunSingleGpuAsync(string exe, long? arraySize,
-    long rangeStart, long rangeEnd, long rangeStep,
-    bool noSave, string? outputDir, int? gpuDeviceIndex, string? gpuLabel,
-    bool printSystemInfo = true)
-{
-    if (rangeStart > 0 && rangeEnd > rangeStart)
+    // ── Run all GPU benchmarks (discovers GPUs, loops over each) ───────────────
+    async Task<int> RunGpuBenchmarksAsync(string? exePath, long? arraySize,
+        long rangeStart, long rangeEnd, long rangeStep,
+        bool noSave, string? outputDir, int? gpuDevice)
     {
-        await RunRangeAsync(exe, isGpu: true, rangeStart, rangeEnd, rangeStep,
-            noSave, outputDir, gpuDeviceIndex, gpuLabel);
-    }
-    else
-    {
-        var result = await ConsoleOutput.RunWithSpinnerAsync(
-            exe, arraySize, isGpu: true,
-            gpuDeviceIndex: gpuDeviceIndex, gpuLabel: gpuLabel);
-        if (result is null)
+        string? exe = exePath ?? BenchmarkRunner.FindExecutable(isGpu: true);
+        if (exe is null)
         {
-            ConsoleOutput.WriteMarkup("[red]Error:[/] GPU benchmark failed or returned no output.");
-            return 1;
-        }
-        DisplayAndSave(result, noSave, outputDir, printSystemInfo);
-    }
-    return 0;
-}
-
-// ── Run a single benchmark (CPU or GPU) ────────────────────────────────────
-async Task<int> RunBenchmarkAsync(bool isGpu, string? exePath, long? arraySize,
-    long rangeStart, long rangeEnd, long rangeStep,
-    bool noSave, string? outputDir)
-{
-    string? exe = exePath ?? BenchmarkRunner.FindExecutable(isGpu);
-    if (exe is null)
-    {
-        string kind = isGpu ? "GPU" : "CPU";
-        ConsoleOutput.WriteMarkup($"[yellow][SKIP][/] {kind} benchmark backend not found.");
-        ConsoleOutput.WriteMarkup("[dim]No embedded backend found and no external binary in the current directory.[/]");
-        // Only fail if user explicitly requested this mode
-        return modeSet ? 1 : 0;
-    }
-
-    if (rangeStart > 0 && rangeEnd > rangeStart)
-    {
-        await RunRangeAsync(exe, isGpu, rangeStart, rangeEnd, rangeStep, noSave, outputDir);
-    }
-    else
-    {
-        var result = await ConsoleOutput.RunWithSpinnerAsync(exe, arraySize, isGpu);
-        if (result is null)
-        {
-            ConsoleOutput.WriteMarkup("[red]Error:[/] Benchmark failed or returned no output.");
-            return 1;
-        }
-        DisplayAndSave(result, noSave, outputDir);
-    }
-    return 0;
-}
-
-// ── Range testing loop ─────────────────────────────────────────────────────
-async Task RunRangeAsync(string exe, bool isGpu,
-    long start, long end, long step,
-    bool noSave, string? outputDir,
-    int? gpuDeviceIndex = null, string? gpuLabel = null)
-{
-    var sizes = new List<long>();
-    for (long s = start; s <= end; s += step)
-        sizes.Add(s);
-
-    ConsoleOutput.WriteMarkup(
-        $"[bold cyan]Range testing:[/] [white]{sizes.Count} sizes from " +
-        $"{start / 1_000_000}M to {end / 1_000_000}M (step {step / 1_000_000}M)[/]");
-    Console.WriteLine();
-
-    // Open consolidated CSV
-    string? rangeCsvPath = null;
-    System.IO.StreamWriter? rangeCsv = null;
-    if (!noSave)
-    {
-        rangeCsvPath = Path.Combine(outputDir ?? ".",
-            $"stream_{(isGpu ? "gpu" : "cpu")}_range_{start / 1_000_000}M" +
-            $"_to_{end / 1_000_000}M_step_{step / 1_000_000}M.csv");
-        rangeCsv = ResultSaver.OpenRangeCsv(rangeCsvPath);
-        if (rangeCsv is not null)
-            ConsoleOutput.PrintFileSaved(rangeCsvPath);
-    }
-
-    int success = 0;
-    for (int idx = 0; idx < sizes.Count; idx++)
-    {
-        var result = await ConsoleOutput.RunWithSpinnerAsync(
-            exe, sizes[idx], isGpu, idx, sizes.Count,
-            gpuDeviceIndex, gpuLabel);
-
-        if (result is null)
-        {
-            ConsoleOutput.WriteMarkup($"[red]  Test {idx + 1} failed.[/]");
-            continue;
+            ConsoleOutput.WriteMarkup("[yellow][SKIP][/] GPU benchmark backend not found.");
+            ConsoleOutput.WriteMarkup("[dim]No embedded backend found and no external binary in the current directory.[/]");
+            return modeSet ? 1 : 0;
         }
 
+        // If user specified a single GPU device, run just that one
+        if (gpuDevice.HasValue)
+        {
+            return await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
+                noSave, outputDir, gpuDevice.Value, $"GPU #{gpuDevice.Value}");
+        }
+
+        // Discover all GPUs
+        var gpus = await BenchmarkRunner.ListGpusAsync(exe);
+
+        if (gpus.Count == 0)
+        {
+            // Fallback: no --list-gpus support or no GPUs found — run without device index
+            return await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
+                noSave, outputDir, null, null);
+        }
+
+        if (gpus.Count == 1)
+        {
+            // Single GPU — run directly
+            return await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
+                noSave, outputDir, gpus[0].Index, null);
+        }
+
+        // Multiple devices — enumerate and run each
+        int gpuCount = gpus.Count(g => g.DeviceKind == "GPU");
+        int npuCount = gpus.Count(g => g.DeviceKind == "NPU");
+        string deviceSummary = (gpuCount, npuCount) switch
+        {
+            ( > 0, > 0) => $"{gpuCount} GPU(s) + {npuCount} NPU(s)",
+            (_, > 0)     => $"{npuCount} NPU(s)",
+            _            => $"{gpuCount} GPU(s)",
+        };
+        ConsoleOutput.WriteMarkup($"[bold cyan]Discovered {deviceSummary}:[/]");
+        for (int i = 0; i < gpus.Count; i++)
+        {
+            var g = gpus[i];
+            double memGb = g.GlobalMemoryBytes / (1024.0 * 1024.0 * 1024.0);
+            string displayName = g.DeviceKind == "NPU"
+                ? (GpuDeviceInfo.InferNpuDisplayName(g.Name, g.Vendor) ?? g.Name)
+                : (GpuDeviceInfo.InferGpuDisplayName(g.Name, g.Vendor) ?? g.Name);
+            ConsoleOutput.WriteMarkup(
+                $"  [white]#{g.Index}[/] [bold white]{displayName}[/] [dim]({g.DeviceKind}, {g.Vendor}, {memGb:F1} GB)[/]");
+        }
+        Console.WriteLine();
+
+        int exitCode = 0;
+        for (int i = 0; i < gpus.Count; i++)
+        {
+            if (i > 0) Console.WriteLine();
+            var g = gpus[i];
+            string displayName = g.DeviceKind == "NPU"
+                ? (GpuDeviceInfo.InferNpuDisplayName(g.Name, g.Vendor) ?? g.Name)
+                : (GpuDeviceInfo.InferGpuDisplayName(g.Name, g.Vendor) ?? g.Name);
+            ConsoleOutput.WriteMarkup($"[bold cyan]── {g.DeviceKind} #{g.Index}: {displayName} ──[/]");
+
+            // Only print system info for the first device (it's the same for all)
+            int code = await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
+                noSave, outputDir, g.Index, $"{g.DeviceKind} #{g.Index} ({displayName})",
+                printSystemInfo: i == 0);
+            if (code != 0) exitCode = code;
+        }
+        return exitCode;
+    }
+
+    // ── Run a single GPU benchmark ─────────────────────────────────────────────
+    async Task<int> RunSingleGpuAsync(string exe, long? arraySize,
+        long rangeStart, long rangeEnd, long rangeStep,
+        bool noSave, string? outputDir, int? gpuDeviceIndex, string? gpuLabel,
+        bool printSystemInfo = true)
+    {
+        if (rangeStart > 0 && rangeEnd > rangeStart)
+        {
+            await RunRangeAsync(exe, isGpu: true, rangeStart, rangeEnd, rangeStep,
+                noSave, outputDir, gpuDeviceIndex, gpuLabel);
+        }
+        else
+        {
+            var result = await ConsoleOutput.RunWithSpinnerAsync(
+                exe, arraySize, isGpu: true,
+                gpuDeviceIndex: gpuDeviceIndex, gpuLabel: gpuLabel);
+            if (result is null)
+            {
+                ConsoleOutput.WriteMarkup("[red]Error:[/] GPU benchmark failed or returned no output.");
+                return 1;
+            }
+            DisplayAndSave(result, noSave, outputDir, printSystemInfo);
+        }
+        return 0;
+    }
+
+    // ── Run a single benchmark (CPU or GPU) ────────────────────────────────────
+    async Task<int> RunBenchmarkAsync(bool isGpu, string? exePath, long? arraySize,
+        long rangeStart, long rangeEnd, long rangeStep,
+        bool noSave, string? outputDir)
+    {
+        string? exe = exePath ?? BenchmarkRunner.FindExecutable(isGpu);
+        if (exe is null)
+        {
+            string kind = isGpu ? "GPU" : "CPU";
+            ConsoleOutput.WriteMarkup($"[yellow][SKIP][/] {kind} benchmark backend not found.");
+            ConsoleOutput.WriteMarkup("[dim]No embedded backend found and no external binary in the current directory.[/]");
+            // Only fail if user explicitly requested this mode
+            return modeSet ? 1 : 0;
+        }
+
+        if (rangeStart > 0 && rangeEnd > rangeStart)
+        {
+            await RunRangeAsync(exe, isGpu, rangeStart, rangeEnd, rangeStep, noSave, outputDir);
+        }
+        else
+        {
+            var result = await ConsoleOutput.RunWithSpinnerAsync(exe, arraySize, isGpu);
+            if (result is null)
+            {
+                ConsoleOutput.WriteMarkup("[red]Error:[/] Benchmark failed or returned no output.");
+                return 1;
+            }
+            DisplayAndSave(result, noSave, outputDir);
+        }
+        return 0;
+    }
+
+    // ── Range testing loop ─────────────────────────────────────────────────────
+    async Task RunRangeAsync(string exe, bool isGpu,
+        long start, long end, long step,
+        bool noSave, string? outputDir,
+        int? gpuDeviceIndex = null, string? gpuLabel = null)
+    {
+        var sizes = new List<long>();
+        for (long s = start; s <= end; s += step)
+            sizes.Add(s);
+
+        ConsoleOutput.WriteMarkup(
+            $"[bold cyan]Range testing:[/] [white]{sizes.Count} sizes from " +
+            $"{start / 1_000_000}M to {end / 1_000_000}M (step {step / 1_000_000}M)[/]");
+        Console.WriteLine();
+
+        // Open consolidated CSV
+        string? rangeCsvPath = null;
+        System.IO.StreamWriter? rangeCsv = null;
+        if (!noSave)
+        {
+            rangeCsvPath = Path.Combine(outputDir ?? ".",
+                $"stream_{(isGpu ? "gpu" : "cpu")}_range_{start / 1_000_000}M" +
+                $"_to_{end / 1_000_000}M_step_{step / 1_000_000}M.csv");
+            rangeCsv = ResultSaver.OpenRangeCsv(rangeCsvPath);
+            if (rangeCsv is not null)
+                ConsoleOutput.PrintFileSaved(rangeCsvPath);
+        }
+
+        int success = 0;
+        for (int idx = 0; idx < sizes.Count; idx++)
+        {
+            var result = await ConsoleOutput.RunWithSpinnerAsync(
+                exe, sizes[idx], isGpu, idx, sizes.Count,
+                gpuDeviceIndex, gpuLabel);
+
+            if (result is null)
+            {
+                ConsoleOutput.WriteMarkup($"[red]  Test {idx + 1} failed.[/]");
+                continue;
+            }
+
+            ConsoleOutput.PrintResults(result);
+
+            if (!noSave)
+            {
+                if (rangeCsv is not null)
+                    ResultSaver.AppendRangeCsv(rangeCsv, result);
+                var jsonPath = ResultSaver.SaveJson(result, outputDir);
+                if (jsonPath is not null)
+                    ConsoleOutput.PrintFileSaved(jsonPath);
+            }
+
+            success++;
+        }
+
+        rangeCsv?.Dispose();
+
+        Console.WriteLine();
+        ConsoleOutput.WriteMarkup(
+            $"[bold white]Range complete:[/] [green]{success}/{sizes.Count}[/] tests passed.");
+    }
+
+    // ── Single result display + save ───────────────────────────────────────────
+    void DisplayAndSave(BenchmarkResult result, bool noSave, string? outputDir, bool printSystemInfo = true)
+    {
+        ConsoleOutput.PrintBanner(result);
+        if (printSystemInfo && !systemInfoPrinted)
+        {
+            ConsoleOutput.PrintSystemInfo(result);
+            systemInfoPrinted = true;
+        }
+        else
+            ConsoleOutput.PrintDeviceInfo(result);   // always show device box
+        ConsoleOutput.PrintConfig(result);
         ConsoleOutput.PrintResults(result);
 
         if (!noSave)
         {
-            if (rangeCsv is not null)
-                ResultSaver.AppendRangeCsv(rangeCsv, result);
+            ConsoleOutput.WriteMarkup("[bold white]Saving results...[/]");
+            var csvPath  = ResultSaver.SaveCsv(result, outputDir);
             var jsonPath = ResultSaver.SaveJson(result, outputDir);
-            if (jsonPath is not null)
-                ConsoleOutput.PrintFileSaved(jsonPath);
+            if (csvPath  is not null) ConsoleOutput.PrintFileSaved(csvPath);
+            if (jsonPath is not null) ConsoleOutput.PrintFileSaved(jsonPath);
+            Console.WriteLine();
         }
-
-        success++;
-    }
-
-    rangeCsv?.Dispose();
-
-    Console.WriteLine();
-    ConsoleOutput.WriteMarkup(
-        $"[bold white]Range complete:[/] [green]{success}/{sizes.Count}[/] tests passed.");
-}
-
-// ── Single result display + save ───────────────────────────────────────────
-void DisplayAndSave(BenchmarkResult result, bool noSave, string? outputDir, bool printSystemInfo = true)
-{
-    ConsoleOutput.PrintBanner(result);
-    if (printSystemInfo && !systemInfoPrinted)
-    {
-        ConsoleOutput.PrintSystemInfo(result);
-        systemInfoPrinted = true;
-    }
-    else
-        ConsoleOutput.PrintDeviceInfo(result);   // always show device box
-    ConsoleOutput.PrintConfig(result);
-    ConsoleOutput.PrintResults(result);
-
-    if (!noSave)
-    {
-        ConsoleOutput.WriteMarkup("[bold white]Saving results...[/]");
-        var csvPath  = ResultSaver.SaveCsv(result, outputDir);
-        var jsonPath = ResultSaver.SaveJson(result, outputDir);
-        if (csvPath  is not null) ConsoleOutput.PrintFileSaved(csvPath);
-        if (jsonPath is not null) ConsoleOutput.PrintFileSaved(jsonPath);
-        Console.WriteLine();
     }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────
 
-// ── AI inference benchmark ─────────────────────────────────────────────────
+// ── AI inference benchmark ─────────────────────────────────────────────
 #if ENABLE_AI
 async Task<int> RunAiBenchmarkAsync(
     string? deviceArg, string? modelAlias, bool noSave, string? outputDir, bool includeLocalSummary)
@@ -378,12 +447,25 @@ async Task<int> RunAiBenchmarkAsync(
     }
 
     ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-    ConsoleOutput.WriteMarkup("[bold cyan]  AI Inference Benchmark — Microsoft.AI.Foundry.Local[/]");
+    ConsoleOutput.WriteMarkup("[bold cyan]  AI Inference Benchmark — Foundry Local[/]");
     ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
     ConsoleOutput.WriteMarkup($"[dim]  Q1 (cold): {AiBenchmarkRunner.Q1}[/]");
     ConsoleOutput.WriteMarkup($"[dim]  Q2 (warm): {AiBenchmarkRunner.Q2}[/]");
 
-    var results = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias);
+    List<AiDeviceBenchmarkResult> results;
+    try
+    {
+        results = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias);
+    }
+    catch (Exception ex)
+    {
+        var diag = DiagnosticHelper.LogException(ex);
+        ConsoleOutput.WriteMarkup($"[red][FAIL][/] AI benchmark failed: {ex.Message}");
+        ConsoleOutput.WriteMarkup($"[dim]  {diag}[/]");
+        ConsoleOutput.WriteMarkup("[dim]  Ensure Microsoft AI Foundry Local is installed:[/]");
+        ConsoleOutput.WriteMarkup("[dim]  Windows: winget install Microsoft.FoundryLocal[/]");
+        return 1;
+    }
 
     if (results.Count == 0)
     {
@@ -409,7 +491,16 @@ async Task<int> RunAiBenchmarkAsync(
     if (includeLocalSummary)
     {
         string summaryDir = Path.GetFullPath(outputDir ?? ".");
-        relationSummary = await AiBenchmarkRunner.RunLocalRelationSummaryAsync(summaryDir, modelAlias);
+        try
+        {
+            relationSummary = await AiBenchmarkRunner.RunLocalRelationSummaryAsync(summaryDir, modelAlias);
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogException(ex);
+            ConsoleOutput.WriteMarkup($"[yellow][WARN][/] Local relation summary failed: {ex.Message}");
+        }
+
         if (relationSummary is null)
         {
             ConsoleOutput.WriteMarkup("[yellow][WARN][/] Local relation summary did not produce results.");
@@ -464,12 +555,15 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--output-dir[/] DIR         Directory for output files (default: current dir)");
     ConsoleOutput.WriteMarkup("  [cyan]--exe[/] PATH               Explicit path to the C backend executable");
     Console.WriteLine();
-    ConsoleOutput.WriteMarkup("[bold white]AI Inference Benchmark (Microsoft.AI.Foundry.Local):[/]");
+    ConsoleOutput.WriteMarkup("[bold white]AI Inference Benchmark (Foundry Local):[/]");
     ConsoleOutput.WriteMarkup("  [cyan]--ai[/]                     Run AI inference benchmark on all available devices");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-local-summary[/]       Add Q3 local-JSON summary (Q1/Q2 remain benchmark prompts)");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
+    Console.WriteLine();
+    ConsoleOutput.WriteMarkup("[bold white]Diagnostics:[/]");
+    ConsoleOutput.WriteMarkup("  Trace log: [cyan]StreamBench_trace_<timestamp>.log[/] (auto-created next to exe)");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Examples:[/]");
     ConsoleOutput.WriteMarkup("  StreamBench                          Run CPU + all GPUs");

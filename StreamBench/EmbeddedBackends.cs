@@ -29,6 +29,8 @@ public static class EmbeddedBackends
         string ext = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".exe" : "";
         string fileName = $"{prefix}_{os}_{arch}{ext}";
 
+        TraceLog.BackendExtracting(fileName);
+
         // Resource names use dots instead of path separators, and are prefixed
         // with the default namespace.  We embedded them under backends/ folder,
         // so the resource name is: StreamBench.backends.<filename-with-dots-escaped>
@@ -38,29 +40,57 @@ public static class EmbeddedBackends
         string? resourceName = FindResourceName(assembly, fileName);
 
         if (resourceName is null)
+        {
+            // Log all available resource names for diagnostics
+            var availableNames = assembly.GetManifestResourceNames();
+            string triedInfo = $"Wanted: {fileName}; Available resources: [{string.Join(", ", availableNames)}]";
+            TraceLog.BackendNotFound(triedInfo);
             return null;
+        }
 
-        Directory.CreateDirectory(CacheDir);
+        try
+        {
+            Directory.CreateDirectory(CacheDir);
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogException(ex);
+            return null;
+        }
+
         string targetPath = Path.Combine(CacheDir, fileName);
 
         // If already extracted and hash matches, skip extraction
         if (File.Exists(targetPath) && IsUpToDate(assembly, resourceName, targetPath))
         {
+            TraceLog.BackendCacheHit(targetPath);
             EnsureExecutable(targetPath);
             return targetPath;
         }
 
         // Extract resource to cache directory
-        using var stream = assembly.GetManifestResourceStream(resourceName);
-        if (stream is null)
+        try
+        {
+            using var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream is null)
+            {
+                DiagnosticHelper.LogError($"Resource stream is null for: {resourceName}");
+                return null;
+            }
+
+            using var fs = File.Create(targetPath);
+            stream.CopyTo(fs);
+            fs.Close();
+
+            EnsureExecutable(targetPath);
+            TraceLog.BackendExtracted(targetPath);
+            return targetPath;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogException(ex);
             return null;
-
-        using var fs = File.Create(targetPath);
-        stream.CopyTo(fs);
-        fs.Close();
-
-        EnsureExecutable(targetPath);
-        return targetPath;
+        }
     }
 
     /// <summary>
@@ -112,8 +142,9 @@ public static class EmbeddedBackends
             if (stream is null) return false;
             return new FileInfo(filePath).Length == stream.Length;
         }
-        catch
+        catch (Exception ex)
         {
+            DiagnosticHelper.LogWarning($"Cache check failed: {ex.Message}");
             return false;
         }
     }
@@ -132,7 +163,10 @@ public static class EmbeddedBackends
                     UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
                     UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
             }
-            catch { /* best effort */ }
+            catch (Exception ex)
+            {
+                DiagnosticHelper.LogWarning($"chmod failed for {path}: {ex.Message}");
+            }
         }
     }
 

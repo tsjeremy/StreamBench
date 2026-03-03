@@ -15,17 +15,44 @@
 # Usage:
 #   .\setup.ps1
 #   pwsh -ExecutionPolicy Bypass -File .\setup.ps1
+#   powershell -ExecutionPolicy Bypass -File .\setup.ps1
 # ============================================================
 
 $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
-$archTag = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+# ------------------------------------------------------------------
+#  PowerShell 5.1 compatibility: define $IsWindows if not present
+# ------------------------------------------------------------------
+if ($null -eq (Get-Variable -Name 'IsWindows' -ErrorAction SilentlyContinue)) {
+    # PowerShell 5.1 only runs on Windows
+    $IsWindows = $true
+    $IsMacOS   = $false
+    $IsLinux   = $false
+}
+
+# ------------------------------------------------------------------
+#  Reliable architecture detection (works on PS 5.1 + ARM64 Windows)
+# ------------------------------------------------------------------
+# $env:PROCESSOR_ARCHITECTURE reports the *process* architecture, not
+# the OS architecture.  On ARM64 Windows, PowerShell 5.1 is an x64
+# binary running under emulation, so $env:PROCESSOR_ARCHITECTURE
+# returns "AMD64" instead of "ARM64".
+#
+# [RuntimeInformation]::OSArchitecture returns the true OS architecture
+# regardless of the process emulation layer.
+# ------------------------------------------------------------------
+$osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+$archTag = if ($osArch -eq 'Arm64') { 'arm64' } else { 'x64' }
 
 Write-Host ''
 Write-Host '  ========================================' -ForegroundColor DarkGray
 Write-Host '   STREAM Benchmark - Windows Setup' -ForegroundColor Cyan
 Write-Host '  ========================================' -ForegroundColor DarkGray
+Write-Host ''
+Write-Host "  PowerShell version : $($PSVersionTable.PSVersion)" -ForegroundColor DarkGray
+Write-Host "  OS Architecture    : $osArch" -ForegroundColor DarkGray
+Write-Host "  Selected arch tag  : $archTag" -ForegroundColor DarkGray
 Write-Host ''
 
 $errors = 0
@@ -165,7 +192,8 @@ Write-Host ''
 # ------------------------------------------------------------------
 Write-Host '  [4/4] Checking Microsoft Foundry Local (AI benchmark)...' -ForegroundColor Cyan
 
-$foundryOk = [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
+$foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
+             [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
 if ($foundryOk) {
     Write-Host '  [OK] Microsoft Foundry Local is installed.' -ForegroundColor Green
 } else {
@@ -177,6 +205,13 @@ if ($foundryOk) {
             Write-Host '  [OK] Foundry Local installed.' -ForegroundColor Green
             $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
                         [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+            # Foundry Local MSIX alias may need a new terminal; verify
+            $foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
+                         [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
+            if (-not $foundryOk) {
+                Write-Host '  [!] Foundry Local installed but CLI not yet on PATH.' -ForegroundColor Yellow
+                Write-Host '      Please restart your terminal/PowerShell session, then re-run.' -ForegroundColor Yellow
+            }
         } else {
             Write-Host '  [!] Installation may have failed (non-fatal — AI benchmark is optional).' -ForegroundColor Yellow
             Write-Host '      Install manually: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow

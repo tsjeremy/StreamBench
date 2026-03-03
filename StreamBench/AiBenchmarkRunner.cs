@@ -1,22 +1,29 @@
 #if ENABLE_AI
 // AiBenchmarkRunner.cs
-// AI inference benchmark using Microsoft.AI.Foundry.Local.
+// AI inference benchmark using Microsoft Foundry Local CLI + REST API.
+//
+// Fix4: Replaced Microsoft.AI.Foundry.Local NuGet with direct CLI/REST calls
+// to eliminate OnnxRuntime native DLL conflicts in self-contained single-file
+// publish (TypeInitializationException at NativeMethods..cctor).
 //
 // Measures response time and tokens/second for two prompts on each
 // hardware device (CPU, GPU, NPU) using the local Foundry service:
 //
-//   Q1 "What is DRIPS in Windows?"        — cold run (includes model load)
-//   Q2 "How to improve DRIPS% on Windows?" — warm run (model already loaded)
+//   Q1 "Hello World!"                                        — cold run (includes model load)
+//   Q2 "How to calculate memory bandwidth on different memory?" — warm run (model already loaded)
 //
 // Results are displayed as formatted tables and saved as JSON when --ai is used.
+//
+// ETW events are emitted via TraceLog for diagnostics.
+// All exceptions include source file/line via DiagnosticHelper.
 
 using System.Diagnostics;
 using System.Globalization;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using Betalgo.Ranul.OpenAI.ObjectModels.RequestModels;
-using Microsoft.AI.Foundry.Local;
-using Microsoft.Extensions.Logging.Abstractions;
+using System.Text.Json.Serialization;
 using StreamBench.Models;
 
 namespace StreamBench;
@@ -34,7 +41,6 @@ public static class AiBenchmarkRunner
     ];
 
     // Preferred aliases by device (robust defaults).
-    // The runner falls back automatically when a preferred alias is unavailable.
     private static readonly string[] PreferredAliasesCpu =
     [
         "phi-3.5-mini",
@@ -73,7 +79,6 @@ public static class AiBenchmarkRunner
     ];
 
     // Shared-model priorities used when benchmarking multiple devices side-by-side.
-    // Goal: maximize coverage across selected devices while preferring stronger common aliases.
     private static readonly string[] SharedAliasPriority =
     [
         "qwen2.5-1.5b",
@@ -86,20 +91,349 @@ public static class AiBenchmarkRunner
         "deepseek-r1-14b",
     ];
 
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        AllowTrailingCommas = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    // ── Foundry CLI helpers ───────────────────────────────────────────────
+
+    /// <summary>Finds the foundry CLI executable.</summary>
+    private static string? FindFoundryCli()
+    {
+        foreach (var name in new[] { "foundry", "foundrylocal" })
+        {
+            try
+            {
+                var psi = new ProcessStartInfo(name, "--version")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                using var p = Process.Start(psi);
+                if (p is null) continue;
+                p.WaitForExit(5000);
+                if (p.ExitCode == 0) return name;
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    /// <summary>Runs a foundry CLI command and returns stdout.</summary>
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunFoundryAsync(
+        string cli, string arguments, int timeoutMs = 120_000)
+    {
+        var psi = new ProcessStartInfo(cli, arguments)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+
+        using var process = new Process { StartInfo = psi };
+        process.Start();
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        using var cts = new CancellationTokenSource(timeoutMs);
+        try
+        {
+            await process.WaitForExitAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            return (-1, "", "Timeout waiting for foundry CLI");
+        }
+
+        return (process.ExitCode, await stdoutTask, await stderrTask);
+    }
+
+    /// <summary>Starts the Foundry Local service and returns the base URL.</summary>
+    private static async Task<string?> StartServiceAsync(string cli)
+    {
+        // Check if already running
+        var (exitCode, stdout, _) = await RunFoundryAsync(cli, "service status");
+        if (stdout.Contains("http://", StringComparison.OrdinalIgnoreCase)
+            || stdout.Contains("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            var url = ExtractServiceUrl(stdout);
+            if (url is not null)
+            {
+                TraceLog.DiagnosticInfo($"Foundry service already running at {url}");
+                return url;
+            }
+        }
+
+        // Start the service
+        TraceLog.AiServiceStarting();
+        var (startExit, startOut, startErr) = await RunFoundryAsync(cli, "service start", 60_000);
+
+        // Extract URL from output (e.g. "Service is Started on http://127.0.0.1:57502/")
+        var serviceUrl = ExtractServiceUrl(startOut + "\n" + startErr);
+        if (serviceUrl is not null)
+        {
+            TraceLog.AiServiceStarted();
+            return serviceUrl;
+        }
+
+        // Fallback: try default port
+        if (startExit == 0)
+        {
+            TraceLog.AiServiceStarted();
+            return "http://127.0.0.1:5273";
+        }
+
+        TraceLog.AiServiceStartFailed(
+            $"foundry service start failed (exit={startExit}): {startErr}", "AiBenchmarkRunner.cs", 0);
+        return null;
+    }
+
+    private static string? ExtractServiceUrl(string text)
+    {
+        // Look for http://host:port pattern in the output
+        foreach (var line in text.Split('\n'))
+        {
+            int idx = line.IndexOf("http://", StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) idx = line.IndexOf("https://", StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) continue;
+
+            int end = idx;
+            while (end < line.Length && !char.IsWhiteSpace(line[end]) && line[end] != ',' && line[end] != '!')
+                end++;
+
+            string url = line[idx..end].TrimEnd('/');
+            if (Uri.TryCreate(url, UriKind.Absolute, out _))
+                return url;
+        }
+        return null;
+    }
+
+    private static async Task StopServiceAsync(string cli)
+    {
+        try
+        {
+            await RunFoundryAsync(cli, "service stop", 15_000);
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogWarning($"StopService: {ex.Message}");
+        }
+    }
+
+    // ── Model catalog via CLI ─────────────────────────────────────────────
+
+    /// <summary>Model info parsed from foundry CLI JSON output.</summary>
+    private sealed record FoundryModel(
+        string Id,
+        string Alias,
+        string DeviceType,
+        string ExecutionProvider,
+        double FileSizeMb,
+        bool IsCached);
+
+    /// <summary>Lists all available models from the foundry catalog.</summary>
+    private static async Task<List<FoundryModel>> ListModelsAsync(string cli)
+    {
+        var models = new List<FoundryModel>();
+
+        // Try JSON output first
+        var (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list --json", 180_000);
+        if (exitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
+        {
+            var jsonModels = TryParseModelListJson(stdout);
+            if (jsonModels.Count > 0)
+                return jsonModels;
+        }
+
+        // Fallback: parse text output
+        (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list", 180_000);
+        if (exitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
+        {
+            return ParseModelListText(stdout);
+        }
+
+        return models;
+    }
+
+    private static List<FoundryModel> TryParseModelListJson(string json)
+    {
+        var models = new List<FoundryModel>();
+        try
+        {
+            // Try to find JSON array in the output (skip non-JSON lines)
+            int arrayStart = json.IndexOf('[');
+            if (arrayStart < 0) return models;
+            string jsonTrimmed = json[arrayStart..];
+
+            using var doc = JsonDocument.Parse(jsonTrimmed);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return models;
+
+            foreach (var elem in doc.RootElement.EnumerateArray())
+            {
+                // Each entry may be a model with variants, or a flat model variant
+                if (elem.TryGetProperty("variants", out var variants) && variants.ValueKind == JsonValueKind.Array)
+                {
+                    string modelAlias = elem.TryGetProperty("alias", out var a) ? a.GetString() ?? "" : "";
+                    foreach (var v in variants.EnumerateArray())
+                        AddModelFromJson(models, v, modelAlias);
+                }
+                else
+                {
+                    AddModelFromJson(models, elem, null);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogWarning($"Failed to parse model list JSON: {ex.Message}");
+        }
+        return models;
+    }
+
+    private static void AddModelFromJson(List<FoundryModel> models, JsonElement elem, string? parentAlias)
+    {
+        string id = elem.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? "" : "";
+        if (string.IsNullOrEmpty(id) && elem.TryGetProperty("name", out var nameProp))
+            id = nameProp.GetString() ?? "";
+        if (string.IsNullOrEmpty(id)) return;
+
+        string alias = parentAlias ?? "";
+        if (elem.TryGetProperty("alias", out var aliasProp))
+            alias = aliasProp.GetString() ?? alias;
+        if (string.IsNullOrEmpty(alias))
+            alias = id.Split('/').Last().Split('-').FirstOrDefault() ?? id;
+
+        string device = "CPU";
+        if (elem.TryGetProperty("runtime", out var rt) && rt.ValueKind == JsonValueKind.Object)
+        {
+            if (rt.TryGetProperty("deviceType", out var dt))
+                device = dt.GetString()?.ToUpperInvariant() ?? "CPU";
+            else if (rt.TryGetProperty("device_type", out dt))
+                device = dt.GetString()?.ToUpperInvariant() ?? "CPU";
+        }
+        else if (elem.TryGetProperty("device_type", out var dt2))
+            device = dt2.GetString()?.ToUpperInvariant() ?? "CPU";
+
+        string ep = "";
+        if (elem.TryGetProperty("runtime", out var rt2) && rt2.ValueKind == JsonValueKind.Object
+            && rt2.TryGetProperty("executionProvider", out var epProp))
+            ep = epProp.GetString() ?? "";
+
+        double sizeMb = 0;
+        if (elem.TryGetProperty("fileSizeMb", out var sz))
+            sz.TryGetDouble(out sizeMb);
+        else if (elem.TryGetProperty("file_size_mb", out sz))
+            sz.TryGetDouble(out sizeMb);
+
+        bool cached = false;
+        if (elem.TryGetProperty("isCached", out var c))
+            cached = c.ValueKind == JsonValueKind.True;
+
+        models.Add(new FoundryModel(id, alias, device, ep, sizeMb, cached));
+    }
+
+    private static List<FoundryModel> ParseModelListText(string text)
+    {
+        // Best-effort text parsing for foundry model list output
+        var models = new List<FoundryModel>();
+        foreach (var line in text.Split('\n'))
+        {
+            string trimmed = line.Trim();
+            if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith('#') || trimmed.StartsWith("─"))
+                continue;
+
+            // Typical format: "alias  model-id  device  cached  size"
+            var parts = trimmed.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+            {
+                string alias = parts[0];
+                string id = parts.Length >= 2 ? parts[1] : alias;
+                string device = "CPU";
+                foreach (var p in parts)
+                {
+                    if (p.Equals("GPU", StringComparison.OrdinalIgnoreCase)) device = "GPU";
+                    else if (p.Equals("NPU", StringComparison.OrdinalIgnoreCase)) device = "NPU";
+                    else if (p.Equals("CPU", StringComparison.OrdinalIgnoreCase)) device = "CPU";
+                }
+                bool cached = parts.Any(p => p.Equals("cached", StringComparison.OrdinalIgnoreCase)
+                    || p == "✓" || p == "Yes");
+                models.Add(new FoundryModel(id, alias, device, "", 0, cached));
+            }
+        }
+        return models;
+    }
+
+    /// <summary>Loads a model via foundry CLI.</summary>
+    private static async Task<bool> LoadModelAsync(string cli, string modelId, int timeoutMs = 300_000)
+    {
+        TraceLog.AiModelLoading(modelId, "");
+        var (exitCode, _, stderr) = await RunFoundryAsync(cli, $"model load \"{modelId}\"", timeoutMs);
+        if (exitCode == 0)
+        {
+            TraceLog.AiModelLoaded(modelId, 0);
+            return true;
+        }
+        TraceLog.AiModelLoadFailed(modelId, stderr, "AiBenchmarkRunner.cs", 0);
+        return false;
+    }
+
+    /// <summary>Unloads a model via foundry CLI.</summary>
+    private static async Task UnloadModelAsync(string cli, string modelId)
+    {
+        try
+        {
+            await RunFoundryAsync(cli, $"model unload \"{modelId}\"", 15_000);
+            TraceLog.AiModelUnloaded(modelId);
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogWarning($"Model unload failed for {modelId}: {ex.Message}");
+        }
+    }
+
+    // ── REST API inference ────────────────────────────────────────────────
+
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
+
+    private sealed record ChatRequest(
+        [property: JsonPropertyName("model")] string Model,
+        [property: JsonPropertyName("messages")] ChatMsg[] Messages,
+        [property: JsonPropertyName("max_tokens")] int MaxTokens = 2048);
+
+    private sealed record ChatMsg(
+        [property: JsonPropertyName("role")] string Role,
+        [property: JsonPropertyName("content")] string Content);
+
+    private sealed record ChatResponse(
+        [property: JsonPropertyName("choices")] ChatChoice[]? Choices,
+        [property: JsonPropertyName("usage")] ChatUsage? Usage);
+
+    private sealed record ChatChoice(
+        [property: JsonPropertyName("message")] ChatChoiceMessage? Message);
+
+    private sealed record ChatChoiceMessage(
+        [property: JsonPropertyName("content")] string? Content);
+
+    private sealed record ChatUsage(
+        [property: JsonPropertyName("prompt_tokens")] int PromptTokens,
+        [property: JsonPropertyName("completion_tokens")] int CompletionTokens);
+
     // ── Public entry point ────────────────────────────────────────────────
 
     /// <summary>
     /// Runs the AI inference benchmark on the requested device(s).
     /// Returns one result per successfully benchmarked device.
     /// </summary>
-    /// <param name="devices">
-    /// Devices to test: null or empty = all with available models.
-    /// Accepted values (case-insensitive): "cpu", "gpu", "npu".
-    /// </param>
-    /// <param name="modelAlias">
-    /// Specific model alias to use (e.g. "phi-3.5-mini").
-    /// When null the runner picks the smallest available model per device.
-    /// </param>
     public static async Task<List<AiDeviceBenchmarkResult>> RunAsync(
         IEnumerable<string>? devices = null,
         string? modelAlias = null,
@@ -107,38 +441,33 @@ public static class AiBenchmarkRunner
     {
         var results = new List<AiDeviceBenchmarkResult>();
 
-        FoundryLocalManager manager;
-        try
+        string? cli = FindFoundryCli();
+        if (cli is null)
         {
-            manager = FoundryLocalManager.Instance;
-        }
-        catch (FoundryLocalException)
-        {
-            await FoundryLocalManager.CreateAsync(
-                new Configuration
-                {
-                    AppName = "StreamBench",
-                    Web = new Configuration.WebService
-                    {
-                        Urls = "http://127.0.0.1:5273"
-                    }
-                },
-                NullLogger.Instance,
-                cancellationToken);
-            manager = FoundryLocalManager.Instance;
+            ConsoleOutput.WriteMarkup("[red][FAIL][/] Foundry Local CLI not found (foundry / foundrylocal).");
+            ConsoleOutput.WriteMarkup("[dim]  Install: winget install Microsoft.FoundryLocal[/]");
+            return results;
         }
 
-        ConsoleOutput.WriteMarkup("[bold cyan]Starting Microsoft AI Foundry Local service...[/]");
+        string? serviceUrl = await StartServiceAsync(cli);
+        if (serviceUrl is null)
+        {
+            ConsoleOutput.WriteMarkup("[red][FAIL][/] Cannot start Foundry Local service.");
+            ConsoleOutput.WriteMarkup("[dim]  Try: foundry service start[/]");
+            return results;
+        }
+
+        TraceLog.DiagnosticInfo($"Foundry service URL: {serviceUrl}");
+        ConsoleOutput.WriteMarkup($"[bold cyan]Starting Microsoft AI Foundry Local service...[/]");
+        ConsoleOutput.WriteMarkup($"[dim]  Service URL: {serviceUrl}[/]");
 
         try
         {
-            await manager.StartWebServiceAsync(cancellationToken);
+            var allModels = await ListModelsAsync(cli);
 
-            var catalog = await manager.GetCatalogAsync(cancellationToken);
-            var allVariants = await TryListModelsAsync(catalog, cancellationToken);
-
-            if (allVariants.Count == 0)
+            if (allModels.Count == 0)
             {
+                TraceLog.AiCatalogUnavailable("No models found in catalog");
                 ConsoleOutput.WriteMarkup("[yellow][WARN][/] No models found in catalog. " +
                     "Ensure Foundry Local is installed and models are downloaded.");
                 return results;
@@ -148,11 +477,10 @@ public static class AiBenchmarkRunner
             string? effectiveAlias = modelAlias;
             bool strictAlias = false;
 
-            // For multi-device side-by-side comparison, auto-pick and retry shared aliases
-            // so all devices use the same model whenever possible.
+            // Multi-device side-by-side comparison with shared model
             if (string.IsNullOrWhiteSpace(effectiveAlias) && targetDevices.Count > 1)
             {
-                var sharedCandidates = SelectSharedAliasCandidates(allVariants, targetDevices);
+                var sharedCandidates = SelectSharedAliasCandidates(allModels, targetDevices);
                 if (sharedCandidates.Count > 0)
                 {
                     strictAlias = true;
@@ -170,10 +498,8 @@ public static class AiBenchmarkRunner
 
                         foreach (var deviceType in targetDevices)
                         {
-                            ModelVariant? variant = await FindBestVariantAsync(
-                                catalog, allVariants, deviceType, sharedAlias, strictAlias, cancellationToken);
-
-                            if (variant is null)
+                            var model = FindBestModel(allModels, deviceType, sharedAlias, strictAlias);
+                            if (model is null)
                             {
                                 ConsoleOutput.WriteMarkup(
                                     $"[yellow][SKIP][/] Shared alias [white]{sharedAlias}[/] not available for [white]{deviceType}[/].");
@@ -182,9 +508,10 @@ public static class AiBenchmarkRunner
 
                             Console.WriteLine();
                             ConsoleOutput.WriteMarkup(
-                                $"[bold cyan]── AI Benchmark: {deviceType} ({variant.Id}) ──[/]");
+                                $"[bold cyan]── AI Benchmark: {deviceType} ({model.Id}) ──[/]");
 
-                            var result = await BenchmarkVariantAsync(variant, deviceType, cancellationToken);
+                            var result = await BenchmarkModelAsync(
+                                cli, serviceUrl, model, deviceType, cancellationToken);
                             if (result is not null)
                             {
                                 attemptResults.Add(result);
@@ -199,9 +526,7 @@ public static class AiBenchmarkRunner
                         }
 
                         if (successCount == targetDevices.Count)
-                        {
                             return attemptResults;
-                        }
 
                         ConsoleOutput.WriteMarkup(
                             $"[yellow][WARN][/] Shared alias [white]{sharedAlias}[/] covered [white]{successCount}/{targetDevices.Count}[/] devices; trying next candidate.[/]");
@@ -227,16 +552,13 @@ public static class AiBenchmarkRunner
             }
             else if (!string.IsNullOrWhiteSpace(effectiveAlias))
             {
-                // If user provided alias explicitly, do not silently switch models.
                 strictAlias = true;
             }
 
             foreach (var deviceType in targetDevices)
             {
-                ModelVariant? variant = await FindBestVariantAsync(
-                    catalog, allVariants, deviceType, effectiveAlias, strictAlias, cancellationToken);
-
-                if (variant is null)
+                var model = FindBestModel(allModels, deviceType, effectiveAlias, strictAlias);
+                if (model is null)
                 {
                     ConsoleOutput.WriteMarkup(
                         $"[yellow][SKIP][/] No model available for [white]{deviceType}[/].");
@@ -245,21 +567,23 @@ public static class AiBenchmarkRunner
 
                 Console.WriteLine();
                 ConsoleOutput.WriteMarkup(
-                    $"[bold cyan]── AI Benchmark: {deviceType} ({variant.Id}) ──[/]");
+                    $"[bold cyan]── AI Benchmark: {deviceType} ({model.Id}) ──[/]");
 
-                var result = await BenchmarkVariantAsync(variant, deviceType, cancellationToken);
+                var result = await BenchmarkModelAsync(
+                    cli, serviceUrl, model, deviceType, cancellationToken);
                 if (result is not null)
                     results.Add(result);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            var diag = DiagnosticHelper.LogException(ex);
             ConsoleOutput.WriteMarkup($"[red]Error:[/] Foundry Local service error: {ex.Message}");
+            ConsoleOutput.WriteMarkup($"[dim]  {diag}[/]");
         }
         finally
         {
-            // Always unload models and stop the service to release resources
-            try { await manager.StopWebServiceAsync(CancellationToken.None); } catch { }
+            await StopServiceAsync(cli);
         }
 
         return results;
@@ -294,70 +618,50 @@ public static class AiBenchmarkRunner
         double? deviceCorrelation = CalculateDeviceCorrelation(deviceAggregates);
         string relationContext = BuildRelationContext(sourceDir, dataset, deviceAggregates, deviceCorrelation);
 
-        FoundryLocalManager manager;
-        try
+        string? cli = FindFoundryCli();
+        if (cli is null)
         {
-            manager = FoundryLocalManager.Instance;
+            ConsoleOutput.WriteMarkup("[red][FAIL][/] Foundry Local CLI not found for relation summary.");
+            return null;
         }
-        catch (FoundryLocalException)
+
+        string? serviceUrl = await StartServiceAsync(cli);
+        if (serviceUrl is null)
         {
-            await FoundryLocalManager.CreateAsync(
-                new Configuration
-                {
-                    AppName = "StreamBench",
-                    Web = new Configuration.WebService
-                    {
-                        Urls = "http://127.0.0.1:5273"
-                    }
-                },
-                NullLogger.Instance,
-                cancellationToken);
-            manager = FoundryLocalManager.Instance;
+            ConsoleOutput.WriteMarkup("[red][FAIL][/] Cannot start Foundry Local service for relation summary.");
+            return null;
         }
 
         ConsoleOutput.WriteMarkup("[bold cyan]Running local-AI relation summary from saved JSON files...[/]");
         ConsoleOutput.WriteMarkup($"[dim]  Source folder: {sourceDir}[/]");
         ConsoleOutput.WriteMarkup($"[dim]  Files: {dataset.MemoryFileCount} memory JSON, {dataset.AiFileCount} AI JSON[/]");
 
-        ModelVariant? variant = null;
+        FoundryModel? model = null;
         try
         {
-            await manager.StartWebServiceAsync(cancellationToken);
-
-            var catalog = await manager.GetCatalogAsync(cancellationToken);
-            var allVariants = await TryListModelsAsync(catalog, cancellationToken);
-            if (allVariants.Count == 0)
+            var allModels = await ListModelsAsync(cli);
+            if (allModels.Count == 0)
             {
                 ConsoleOutput.WriteMarkup("[yellow][WARN][/] No local AI models available for relation summary.");
                 return null;
             }
 
             bool strictAlias = !string.IsNullOrWhiteSpace(modelAlias);
-            variant = await FindBestVariantAsync(
-                catalog, allVariants, "CPU", modelAlias, strictAlias, cancellationToken);
-
-            if (variant is null)
+            model = FindBestModel(allModels, "CPU", modelAlias, strictAlias);
+            if (model is null)
             {
                 ConsoleOutput.WriteMarkup("[yellow][WARN][/] No CPU model available for local relation summary.");
                 return null;
             }
 
-            bool cached = await variant.IsCachedAsync(cancellationToken);
-            if (!cached)
+            // Load model
+            ConsoleOutput.WriteMarkup($"[dim]  Loading summary model: {model.Id}[/]");
+            if (!await LoadModelAsync(cli, model.Id))
             {
-                ConsoleOutput.WriteMarkup(
-                    $"[dim]  Downloading {variant.Info.Id} ({variant.Info.FileSizeMb:F0} MB)...[/]");
-                using var cts = new CancellationTokenSource();
-                var spinTask = SpinAsync($"Downloading {variant.Info.Id}", cts.Token);
-                await variant.DownloadAsync(_ => { }, cancellationToken);
-                await cts.CancelAsync();
-                await spinTask;
+                ConsoleOutput.WriteMarkup($"[red][FAIL][/] Failed to load model {model.Id}");
+                return null;
             }
 
-            ConsoleOutput.WriteMarkup($"[dim]  Loading summary model: {variant.Info.Id}[/]");
-            await variant.LoadAsync(cancellationToken);
-
-            var chatClient = await variant.GetChatClientAsync(cancellationToken);
             var answers = new List<AiRelationQuestionAnswer>();
 
             for (int i = 0; i < RelationQuestions.Length; i++)
@@ -372,9 +676,9 @@ public static class AiBenchmarkRunner
                 ConsoleOutput.WriteMarkup($"[dim]  Q{i + 1}: {question}[/]");
 
                 var run = await RunInferenceAsync(
-                    chatClient,
-                    prompt,
+                    serviceUrl, model.Id, prompt,
                     modelLoadSec: 0,
+                    deviceLabel: "CPU",
                     ct: cancellationToken);
 
                 if (run is null)
@@ -393,89 +697,53 @@ public static class AiBenchmarkRunner
                 AiJsonFiles: dataset.AiFileCount,
                 MemorySamples: dataset.MemorySamples.Count,
                 AiSamples: dataset.AiSamples.Count,
-                ModelId: variant.Info.Id,
-                ModelAlias: variant.Alias,
-                ExecutionProvider: variant.Info.Runtime?.ExecutionProvider ?? "unknown",
+                ModelId: model.Id,
+                ModelAlias: model.Alias,
+                ExecutionProvider: model.ExecutionProvider,
                 DeviceLevelCorrelation: deviceCorrelation,
                 DeviceAggregates: deviceAggregates,
                 Questions: answers,
                 Timestamp: DateTime.UtcNow.ToString("O"));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            var diag = DiagnosticHelper.LogException(ex);
             ConsoleOutput.WriteMarkup($"[red]Error:[/] Local relation summary failed: {ex.Message}");
+            ConsoleOutput.WriteMarkup($"[dim]  {diag}[/]");
             return null;
         }
         finally
         {
-            if (variant is not null)
-                await TryUnloadAsync(variant);
-            try { await manager.StopWebServiceAsync(CancellationToken.None); } catch { }
+            if (model is not null)
+                await UnloadModelAsync(cli, model.Id);
+            await StopServiceAsync(cli);
         }
     }
 
-    // ── Core benchmark for a single variant ──────────────────────────────
+    // ── Core benchmark for a single model ─────────────────────────────────
 
-    private static async Task<AiDeviceBenchmarkResult?> BenchmarkVariantAsync(
-        ModelVariant variant,
-        string deviceLabel,
-        CancellationToken ct)
+    private static async Task<AiDeviceBenchmarkResult?> BenchmarkModelAsync(
+        string cli, string serviceUrl, FoundryModel model,
+        string deviceLabel, CancellationToken ct)
     {
-        var info = variant.Info;
-
-        // ── Download if not already cached ────────────────────────────────
-        bool cached = await variant.IsCachedAsync(ct);
-        if (!cached)
-        {
-            ConsoleOutput.WriteMarkup(
-                $"[dim]  Downloading {info.Id} ({info.FileSizeMb:F0} MB)...[/]");
-
-            using var cts = new CancellationTokenSource();
-            var spinTask = SpinAsync($"Downloading {info.Id}", cts.Token);
-
-            await variant.DownloadAsync(
-                progress => { /* progress reported via spinner */ },
-                ct);
-
-            await cts.CancelAsync();
-            await spinTask;
-        }
-
-        // ── Time model loading ────────────────────────────────────────────
+        // Load model
         ConsoleOutput.WriteMarkup("[dim]  Loading model...[/]");
         var loadSw = Stopwatch.StartNew();
-        try
+        if (!await LoadModelAsync(cli, model.Id))
         {
-            await variant.LoadAsync(ct);
-        }
-        catch (Exception ex)
-        {
-            ConsoleOutput.WriteMarkup($"[red]  Failed to load {info.Id}:[/] {ex.Message}");
+            ConsoleOutput.WriteMarkup($"[red]  Failed to load {model.Id}[/]");
             return null;
         }
         loadSw.Stop();
         double modelLoadSec = loadSw.Elapsed.TotalSeconds;
-        ConsoleOutput.WriteMarkup(
-            $"[dim]  Model loaded in {modelLoadSec:F2} s[/]");
-
-        OpenAIChatClient chatClient;
-        try
-        {
-            chatClient = await variant.GetChatClientAsync(ct);
-        }
-        catch (Exception ex)
-        {
-            ConsoleOutput.WriteMarkup($"[red]  Failed to get chat client:[/] {ex.Message}");
-            await TryUnloadAsync(variant);
-            return null;
-        }
+        ConsoleOutput.WriteMarkup($"[dim]  Model loaded in {modelLoadSec:F2} s[/]");
 
         try
         {
-            // ── Q1: first inference (cold — model just loaded) ─────────────
+            // Q1: first inference (cold — model just loaded)
             ConsoleOutput.WriteMarkup($"[dim]  Q1: {Q1}[/]");
-            AiInferenceRun? run1 = await RunInferenceAsync(
-                chatClient, Q1, modelLoadSec, ct);
+            var run1 = await RunInferenceAsync(
+                serviceUrl, model.Id, Q1, modelLoadSec, deviceLabel, ct);
 
             if (run1 is null)
             {
@@ -483,10 +751,10 @@ public static class AiBenchmarkRunner
                 return null;
             }
 
-            // ── Q2: second inference (warm — model already in memory) ──────
+            // Q2: second inference (warm — model already in memory)
             ConsoleOutput.WriteMarkup($"[dim]  Q2: {Q2}[/]");
-            AiInferenceRun? run2 = await RunInferenceAsync(
-                chatClient, Q2, modelLoadSec: 0, ct);
+            var run2 = await RunInferenceAsync(
+                serviceUrl, model.Id, Q2, modelLoadSec: 0, deviceLabel, ct);
 
             if (run2 is null)
             {
@@ -496,59 +764,78 @@ public static class AiBenchmarkRunner
 
             return new AiDeviceBenchmarkResult(
                 DeviceType:        deviceLabel,
-                ModelId:           info.Id,
-                ModelAlias:        variant.Alias,
-                ExecutionProvider: info.Runtime?.ExecutionProvider ?? "unknown",
+                ModelId:           model.Id,
+                ModelAlias:        model.Alias,
+                ExecutionProvider: model.ExecutionProvider,
                 Question1:         Q1,
                 Run1:              run1,
                 Question2:         Q2,
                 Run2:              run2,
                 Timestamp:         DateTime.UtcNow.ToString("O"));
         }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            DiagnosticHelper.LogException(ex);
+            ConsoleOutput.WriteMarkup($"[red]  Benchmark model failed:[/] {ex.Message}");
+            return null;
+        }
         finally
         {
-            // Always unload the model after benchmarking to free device memory
-            await TryUnloadAsync(variant);
+            await UnloadModelAsync(cli, model.Id);
         }
     }
 
-    // ── Single inference run ──────────────────────────────────────────────
+    // ── Single inference run via REST API ──────────────────────────────────
 
     private static async Task<AiInferenceRun?> RunInferenceAsync(
-        OpenAIChatClient chatClient,
-        string prompt,
-        double modelLoadSec,
-        CancellationToken ct)
+        string serviceUrl, string modelId, string prompt,
+        double modelLoadSec, string deviceLabel = "unknown",
+        CancellationToken ct = default)
     {
-        var messages = new[] { ChatMessage.FromUser(prompt) };
+        string promptPreview = prompt.Length > 60 ? prompt[..60] + "…" : prompt;
+        TraceLog.AiInferenceStarted(promptPreview, deviceLabel);
+
+        var request = new ChatRequest(
+            Model: modelId,
+            Messages: [new ChatMsg("user", prompt)]);
+
         var sw = Stopwatch.StartNew();
-        Betalgo.Ranul.OpenAI.ObjectModels.ResponseModels.ChatCompletionCreateResponse? response;
+        ChatResponse? response;
 
         try
         {
-            response = await chatClient.CompleteChatAsync(messages, ct);
+            var httpResponse = await Http.PostAsJsonAsync(
+                $"{serviceUrl}/v1/chat/completions", request, JsonOpts, ct);
+            httpResponse.EnsureSuccessStatusCode();
+            response = await httpResponse.Content.ReadFromJsonAsync<ChatResponse>(JsonOpts, ct);
         }
         catch (Exception ex)
         {
+            sw.Stop();
+            var diag = DiagnosticHelper.LogException(ex);
+            TraceLog.AiInferenceFailed(ex.Message, "AiBenchmarkRunner.cs", 0);
             ConsoleOutput.WriteMarkup($"[red]  Inference error:[/] {ex.Message}");
+            ConsoleOutput.WriteMarkup($"[dim]  {diag}[/]");
             return null;
         }
 
         sw.Stop();
         double responseSec = sw.Elapsed.TotalSeconds;
 
-        if (response is null || !response.Successful)
+        if (response is null || response.Choices is null || response.Choices.Length == 0)
         {
-            ConsoleOutput.WriteMarkup(
-                $"[red]  Inference failed:[/] {response?.Error?.Message ?? "null response"}");
+            TraceLog.AiInferenceFailed("Empty response", "AiBenchmarkRunner.cs", 0);
+            ConsoleOutput.WriteMarkup("[red]  Inference failed:[/] Empty or null response");
             return null;
         }
 
-        string content = response.Choices?.FirstOrDefault()?.Message?.Content ?? "";
+        string content = response.Choices[0].Message?.Content ?? "";
         int completionTokens = response.Usage?.CompletionTokens ?? EstimateTokens(content);
         int promptTokens = response.Usage?.PromptTokens ?? 0;
         double tokensPerSec = responseSec > 0 ? completionTokens / responseSec : 0;
         string preview = content.Length > 200 ? content[..200] + "…" : content;
+
+        TraceLog.AiInferenceCompleted(sw.ElapsedMilliseconds, completionTokens);
 
         return new AiInferenceRun(
             ModelLoadSec:      modelLoadSec,
@@ -561,38 +848,32 @@ public static class AiBenchmarkRunner
             ResponsePreview:   preview);
     }
 
-    // ── Model discovery ───────────────────────────────────────────────────
+    // ── Model selection ───────────────────────────────────────────────────
 
-    /// <summary>
-    /// Finds the best model variant for the given device type.
-    /// Preference: user-specified alias → preferred alias order → any cached → smallest available.
-    /// </summary>
-    private static async Task<ModelVariant?> FindBestVariantAsync(
-        ICatalog catalog,
-        List<ModelVariant> allVariants,
+    private static FoundryModel? FindBestModel(
+        IReadOnlyList<FoundryModel> allModels,
         string deviceLabel,
         string? aliasHint,
-        bool strictAlias,
-        CancellationToken ct)
+        bool strictAlias)
     {
-        DeviceType targetType = DeviceLabelToEnum(deviceLabel);
-        var preferredAliases = GetPreferredAliases(deviceLabel);
-
-        // Filter to variants matching the target device
-        var candidates = allVariants
-            .Where(v => v.Info?.Runtime?.DeviceType == targetType
-                     && (v.Info?.Task?.Contains("chat", StringComparison.OrdinalIgnoreCase) ?? true))
+        var candidates = allModels
+            .Where(m => m.DeviceType.Equals(deviceLabel, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (candidates.Count == 0)
+        {
+            TraceLog.DiagnosticInfo(
+                $"No model candidates found for device={deviceLabel}");
             return null;
+        }
 
         // User-specified alias takes priority
         if (!string.IsNullOrWhiteSpace(aliasHint))
         {
-            var match = candidates.FirstOrDefault(v =>
-                v.Alias.Equals(aliasHint, StringComparison.OrdinalIgnoreCase)
-                || v.Id.Equals(aliasHint, StringComparison.OrdinalIgnoreCase));
+            var match = candidates.FirstOrDefault(m =>
+                m.Alias.Equals(aliasHint, StringComparison.OrdinalIgnoreCase)
+                || m.Id.Equals(aliasHint, StringComparison.OrdinalIgnoreCase)
+                || m.Id.Contains(aliasHint, StringComparison.OrdinalIgnoreCase));
             if (match is not null)
                 return match;
 
@@ -603,25 +884,23 @@ public static class AiBenchmarkRunner
                 return null;
         }
 
-        // Cache index for fallback heuristics
-        var cached = await TryCachedModelsAsync(catalog, ct);
-        var cachedIds = new HashSet<string>(
-            cached.Select(v => v.Id), StringComparer.OrdinalIgnoreCase);
+        var preferredAliases = GetPreferredAliases(deviceLabel);
 
         // 1. Preferred aliases that are already cached
         foreach (var alias in preferredAliases)
         {
             var cachedPreferred = candidates.FirstOrDefault(c =>
+                c.IsCached &&
                 (c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
-                    || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase))
-                && cachedIds.Contains(c.Id));
+                    || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
+                    || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase)));
             if (cachedPreferred is not null) return cachedPreferred;
         }
 
         // 2. Any cached model for this device (prefer smaller model)
         var anyCached = candidates
-            .Where(c => cachedIds.Contains(c.Id))
-            .OrderBy(c => c.Info?.FileSizeMb ?? double.MaxValue)
+            .Where(c => c.IsCached)
+            .OrderBy(c => c.FileSizeMb > 0 ? c.FileSizeMb : double.MaxValue)
             .FirstOrDefault();
         if (anyCached is not null) return anyCached;
 
@@ -630,13 +909,14 @@ public static class AiBenchmarkRunner
         {
             var v = candidates.FirstOrDefault(c =>
                 c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
-                    || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase));
+                    || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
+                    || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase));
             if (v is not null) return v;
         }
 
         // 4. Smallest available model
         return candidates
-            .OrderBy(c => c.Info?.FileSizeMb ?? double.MaxValue)
+            .OrderBy(c => c.FileSizeMb > 0 ? c.FileSizeMb : double.MaxValue)
             .FirstOrDefault();
     }
 
@@ -649,7 +929,7 @@ public static class AiBenchmarkRunner
         };
 
     private static List<string> SelectSharedAliasCandidates(
-        IReadOnlyList<ModelVariant> allVariants,
+        IReadOnlyList<FoundryModel> allModels,
         IReadOnlyList<string> targetDevices)
     {
         if (targetDevices.Count == 0)
@@ -657,19 +937,14 @@ public static class AiBenchmarkRunner
 
         var targetSet = new HashSet<string>(targetDevices.Select(d => d.ToUpperInvariant()));
 
-        var byAlias = allVariants
-            .Where(v => !string.IsNullOrWhiteSpace(v.Alias)
-                     && (v.Info?.Task?.Contains("chat", StringComparison.OrdinalIgnoreCase) ?? true))
-            .GroupBy(v => v.Alias, StringComparer.OrdinalIgnoreCase)
+        var byAlias = allModels
+            .Where(m => !string.IsNullOrWhiteSpace(m.Alias))
+            .GroupBy(m => m.Alias, StringComparer.OrdinalIgnoreCase)
             .Select(g =>
             {
                 var deviceSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var v in g)
-                {
-                    string? device = v.Info?.Runtime?.DeviceType.ToString();
-                    if (!string.IsNullOrWhiteSpace(device))
-                        deviceSet.Add(device.ToUpperInvariant());
-                }
+                foreach (var m in g)
+                    deviceSet.Add(m.DeviceType.ToUpperInvariant());
 
                 int coverage = deviceSet.Count(d => targetSet.Contains(d));
                 return new { Alias = g.Key, Coverage = coverage, Devices = deviceSet };
@@ -696,34 +971,6 @@ public static class AiBenchmarkRunner
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Returns a flat list of all ModelVariant objects from the catalog.
-    /// Falls back to GetCachedModelsAsync if ListModelsAsync is unavailable.
-    /// </summary>
-    private static async Task<List<ModelVariant>> TryListModelsAsync(
-        ICatalog catalog, CancellationToken ct)
-    {
-        try
-        {
-            var models = await catalog.ListModelsAsync(ct);
-            return models
-                ?.SelectMany(m => m.Variants ?? [])
-                .ToList() ?? [];
-        }
-        catch
-        {
-            // Service offline or catalog unavailable — use locally cached models
-            return await TryCachedModelsAsync(catalog, ct);
-        }
-    }
-
-    private static async Task<List<ModelVariant>> TryCachedModelsAsync(
-        ICatalog catalog, CancellationToken ct)
-    {
-        try   { return await catalog.GetCachedModelsAsync(ct) ?? []; }
-        catch { return []; }
-    }
 
     private sealed record MemorySample(
         string DeviceType,
@@ -757,20 +1004,27 @@ public static class AiBenchmarkRunner
         if (!Directory.Exists(directoryPath))
             return new LocalRelationDataset(memoryFileCount, aiFileCount, memorySamples, aiSamples);
 
-        foreach (var filePath in Directory.EnumerateFiles(directoryPath, "*.json", SearchOption.TopDirectoryOnly))
+        try
         {
-            string fileName = Path.GetFileName(filePath);
-            if (fileName.StartsWith("stream_", StringComparison.OrdinalIgnoreCase)
-                && fileName.Contains("_results_", StringComparison.OrdinalIgnoreCase))
+            foreach (var filePath in Directory.EnumerateFiles(directoryPath, "*.json", SearchOption.TopDirectoryOnly))
             {
-                memoryFileCount++;
-                TryReadMemorySample(filePath, fileName, memorySamples);
+                string fileName = Path.GetFileName(filePath);
+                if (fileName.StartsWith("stream_", StringComparison.OrdinalIgnoreCase)
+                    && fileName.Contains("_results_", StringComparison.OrdinalIgnoreCase))
+                {
+                    memoryFileCount++;
+                    TryReadMemorySample(filePath, fileName, memorySamples);
+                }
+                else if (fileName.StartsWith("ai_inference_benchmark_", StringComparison.OrdinalIgnoreCase))
+                {
+                    aiFileCount++;
+                    TryReadAiSamples(filePath, aiSamples);
+                }
             }
-            else if (fileName.StartsWith("ai_inference_benchmark_", StringComparison.OrdinalIgnoreCase))
-            {
-                aiFileCount++;
-                TryReadAiSamples(filePath, aiSamples);
-            }
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogWarning($"Error enumerating JSON files in {directoryPath}: {ex.Message}");
         }
 
         return new LocalRelationDataset(memoryFileCount, aiFileCount, memorySamples, aiSamples);
@@ -1120,20 +1374,6 @@ public static class AiBenchmarkRunner
             .ToList();
 
         return list.Count > 0 ? list : [..all];
-    }
-
-    private static DeviceType DeviceLabelToEnum(string label) =>
-        label.ToUpperInvariant() switch
-        {
-            "CPU" => DeviceType.CPU,
-            "GPU" => DeviceType.GPU,
-            "NPU" => DeviceType.NPU,
-            _     => DeviceType.CPU,
-        };
-
-    private static async Task TryUnloadAsync(ModelVariant variant)
-    {
-        try { await variant.UnloadAsync(CancellationToken.None); } catch { }
     }
 
     /// <summary>Rough token count estimate: ~4 chars per token on average.</summary>

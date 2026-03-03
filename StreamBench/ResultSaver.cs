@@ -30,11 +30,15 @@ public static class ResultSaver
         {
             string json = JsonSerializer.Serialize(result, PrettyJson);
             File.WriteAllText(filename, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            TraceLog.FileSaved(filename);
             return filename;
         }
         catch (Exception ex)
         {
+            TraceLog.FileSaveFailed(filename, ex.Message);
+            DiagnosticHelper.LogException(ex);
             Console.Error.WriteLine($"Warning: Could not save JSON: {ex.Message}");
+            Console.Error.WriteLine($"  Path: {filename}");
             return null;
         }
     }
@@ -53,11 +57,15 @@ public static class ResultSaver
             using var sw = new StreamWriter(filename, append: false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             WriteCsvHeader(sw);
             WriteCsvRows(sw, result);
+            TraceLog.FileSaved(filename);
             return filename;
         }
         catch (Exception ex)
         {
+            TraceLog.FileSaveFailed(filename, ex.Message);
+            DiagnosticHelper.LogException(ex);
             Console.Error.WriteLine($"Warning: Could not save CSV: {ex.Message}");
+            Console.Error.WriteLine($"  Path: {filename}");
             return null;
         }
     }
@@ -79,7 +87,10 @@ public static class ResultSaver
         }
         catch (Exception ex)
         {
+            TraceLog.FileSaveFailed(filePath, ex.Message);
+            DiagnosticHelper.LogException(ex);
             Console.Error.WriteLine($"Warning: Could not create range CSV: {ex.Message}");
+            Console.Error.WriteLine($"  Path: {filePath}");
             return null;
         }
     }
@@ -112,11 +123,15 @@ public static class ResultSaver
             string json = JsonSerializer.Serialize(results, PrettyJson);
             File.WriteAllText(filename, json,
                 new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            TraceLog.FileSaved(filename);
             return filename;
         }
         catch (Exception ex)
         {
+            TraceLog.FileSaveFailed(filename, ex.Message);
+            DiagnosticHelper.LogException(ex);
             Console.Error.WriteLine($"Warning: Could not save AI benchmark JSON: {ex.Message}");
+            Console.Error.WriteLine($"  Path: {filename}");
             return null;
         }
     }
@@ -139,11 +154,15 @@ public static class ResultSaver
             string json = JsonSerializer.Serialize(summary, PrettyJson);
             File.WriteAllText(filename, json,
                 new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            TraceLog.FileSaved(filename);
             return filename;
         }
         catch (Exception ex)
         {
+            TraceLog.FileSaveFailed(filename, ex.Message);
+            DiagnosticHelper.LogException(ex);
             Console.Error.WriteLine($"Warning: Could not save AI relation summary JSON: {ex.Message}");
+            Console.Error.WriteLine($"  Path: {filename}");
             return null;
         }
     }
@@ -199,6 +218,7 @@ public static class ResultSaver
     private static string BuildFilename(BenchmarkResult result, string ext, string? outputDir)
     {
         string type = result.Type.ToLowerInvariant();
+        string deviceTag = "";
         if (type == "gpu" && result.Device is not null)
         {
             string? npuName = GpuDeviceInfo.InferNpuDisplayName(
@@ -207,10 +227,16 @@ public static class ResultSaver
                 result.System?.CpuModel);
             if (!string.IsNullOrWhiteSpace(npuName))
                 type = "npu";
+
+            // Include a sanitized device name tag so multi-GPU results don't overwrite each other
+            string rawName = npuName
+                ?? GpuDeviceInfo.InferGpuDisplayName(result.Device.Name, result.Device.Vendor)
+                ?? result.Device.Name;
+            deviceTag = "_" + SanitizeFilenamePart(rawName);
         }
 
         long   sizeMels = result.Config.ArraySizeElements / 1_000_000;
-        string name     = $"stream_{type}_results_{sizeMels}M.{ext}";
+        string name     = $"stream_{type}{deviceTag}_results_{sizeMels}M.{ext}";
         return outputDir is not null ? Path.Combine(outputDir, name) : name;
     }
 }

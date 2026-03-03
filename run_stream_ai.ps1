@@ -12,14 +12,32 @@
 # Usage:
 #   pwsh ./run_stream_ai.ps1
 #   .\run_stream_ai.ps1   (Windows)
+#   powershell -ExecutionPolicy Bypass -File .\run_stream_ai.ps1
 # ============================================================
 
 $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
+# ------------------------------------------------------------------
+#  PowerShell 5.1 compatibility: define $IsWindows if not present
+# ------------------------------------------------------------------
+if ($null -eq (Get-Variable -Name 'IsWindows' -ErrorAction SilentlyContinue)) {
+    # PowerShell 5.1 only runs on Windows
+    $IsWindows = $true
+    $IsMacOS   = $false
+    $IsLinux   = $false
+}
+
+# ------------------------------------------------------------------
+#  Detect OS and architecture
+# ------------------------------------------------------------------
 if ($IsWindows) {
     $osTag   = 'win'
-    $archTag = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    # Use .NET RuntimeInformation for reliable ARM64 detection
+    # ($env:PROCESSOR_ARCHITECTURE reports "AMD64" on ARM64 Windows
+    #  when running under x64 emulation in PowerShell 5.1)
+    $osArch  = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    $archTag = if ($osArch -eq 'Arm64') { 'arm64' } else { 'x64' }
     $ext     = '.exe'
 } elseif ($IsMacOS) {
     $osTag   = 'macos'
@@ -123,6 +141,26 @@ if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj))
 
 if ($benchExe) {
     Write-Host "  [OK] Found $benchName" -ForegroundColor Green
+
+    # Pre-flight: check Foundry Local is available (CLI alias is 'foundry', not 'foundrylocal')
+    # Refresh PATH in case setup.ps1 just installed it in a prior session
+    if ($IsWindows) {
+        $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                    [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+    }
+    $foundryAvailable = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
+                        [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
+    if (-not $foundryAvailable) {
+        Write-Host ''
+        Write-Host '  [!] Microsoft Foundry Local is not installed.' -ForegroundColor Yellow
+        Write-Host '      The AI benchmark requires Foundry Local.' -ForegroundColor Yellow
+        Write-Host '      Install it with: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+        Write-Host '      After install, restart your terminal and re-run this script.' -ForegroundColor Yellow
+        Write-Host ''
+        Write-Host '      Continuing with memory benchmark only...' -ForegroundColor Yellow
+        Write-Host ''
+    }
+
     $exeArgs = @('--cpu','--gpu','--ai','--ai-device',"$aiDevices",'--ai-model',"$aiModel",'--array-size','200000000')
     if ($aiLocalSummary) {
         $exeArgs += '--ai-local-summary'

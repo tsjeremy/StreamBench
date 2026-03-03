@@ -9,21 +9,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
-    <Version>5.10.08</Version>
+    <Version>5.10.11</Version>
     <Description>STREAM Benchmark .NET 10 frontend — colored output, JSON/CSV saving, AI-extensible</Description>
   </PropertyGroup>
 
   <!-- AI support is opt-in: pass -p:EnableAI=true to include AI packages and code paths -->
   <PropertyGroup Condition="'$(EnableAI)' == 'true'">
     <DefineConstants>$(DefineConstants);ENABLE_AI</DefineConstants>
-    <!-- NU1603: transitive OnnxRuntime.Foundry patch-version mismatch (harmless) -->
-    <NoWarn>$(NoWarn);NU1603</NoWarn>
-  </PropertyGroup>
-
-  <!-- Always target win-x64 on Windows: native on x64, Prism emulation on ARM64.
-       Required so that OnnxRuntime native packages (AI path) resolve during restore. -->
-  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
   <!--
@@ -35,10 +27,6 @@
   <ItemGroup>
     <EmbeddedResource Include="backends\*" Condition="Exists('backends')" />
   </ItemGroup>
-  <ItemGroup Condition="'$(EnableAI)' == 'true'">
-    <PackageReference Include="Microsoft.AI.Foundry.Local" Version="0.8.2.1" />
-    <!-- Work around broken native refs in OnnxRuntime GPU Linux transitive package (MSB3030) -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu.Linux" Version="*" ExcludeAssets="native" PrivateAssets="all" />
-  </ItemGroup>
+  <!-- AI mode uses foundry CLI + REST API (no NuGet packages needed) -->
 
 </Project>

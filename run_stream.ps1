@@ -16,6 +16,7 @@
 #
 # Usage:
 #   pwsh ./run_stream.ps1          (or .\run_stream.ps1 on Windows)
+#   powershell -ExecutionPolicy Bypass -File .\run_stream.ps1
 #
 # Windows note: If you downloaded this file from the internet,
 # Windows may block it. Fix with ONE of these:
@@ -32,11 +33,25 @@ $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
 # ------------------------------------------------------------------
+#  PowerShell 5.1 compatibility: define $IsWindows if not present
+# ------------------------------------------------------------------
+if ($null -eq (Get-Variable -Name 'IsWindows' -ErrorAction SilentlyContinue)) {
+    # PowerShell 5.1 only runs on Windows
+    $IsWindows = $true
+    $IsMacOS   = $false
+    $IsLinux   = $false
+}
+
+# ------------------------------------------------------------------
 #  Detect OS and architecture
 # ------------------------------------------------------------------
 if ($IsWindows) {
     $osTag   = 'win'
-    $archTag = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    # Use .NET RuntimeInformation for reliable ARM64 detection
+    # ($env:PROCESSOR_ARCHITECTURE reports "AMD64" on ARM64 Windows
+    #  when running under x64 emulation in PowerShell 5.1)
+    $osArch  = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    $archTag = if ($osArch -eq 'Arm64') { 'arm64' } else { 'x64' }
     $ext     = '.exe'
 } elseif ($IsMacOS) {
     $osTag   = 'macos'
@@ -128,7 +143,7 @@ if ($hasBench) {
     Write-Host "          Expected in: $ScriptDir" -ForegroundColor Red
     Write-Host ''
     Write-Host '  Download it from:' -ForegroundColor Yellow
-    Write-Host '    https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.08'
+    Write-Host '    https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.10'
     Write-Host ''
     Write-Host "  Place $($benchNames[0]) in the same folder as this script and re-run."
     exit 1

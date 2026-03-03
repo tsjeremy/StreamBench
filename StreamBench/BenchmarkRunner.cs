@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Linq;
 using StreamBench.Models;
 
@@ -55,8 +56,14 @@ public static class BenchmarkRunner
             {
                 string path = Path.Combine(dir, name);
                 if (File.Exists(path))
+                {
+                    TraceLog.DiagnosticInfo($"Found backend: {path}");
                     return path;
+                }
             }
+
+        TraceLog.DiagnosticInfo(
+            $"No external backend found for {prefix}_{os}_{arch}; trying embedded extraction");
 
         // No external binary found — try extracting from embedded resources
         return EmbeddedBackends.ExtractBackend(isGpu);
@@ -79,6 +86,10 @@ public static class BenchmarkRunner
         if (gpuDeviceIndex.HasValue)
             args.AddRange(["--gpu-device", gpuDeviceIndex.Value.ToString()]);
 
+        string benchType = executablePath.Contains("gpu", StringComparison.OrdinalIgnoreCase) ? "GPU" : "CPU";
+        TraceLog.BenchmarkStarted(benchType, executablePath, arraySize ?? 0);
+        var benchSw = Stopwatch.StartNew();
+
         var psi = new ProcessStartInfo
         {
             FileName = executablePath,
@@ -90,58 +101,107 @@ public static class BenchmarkRunner
             StandardErrorEncoding  = Encoding.UTF8,
         };
 
-        using var process = new Process { StartInfo = psi };
-
-        // Forward only error/warning messages from stderr; suppress informational noise
-        process.ErrorDataReceived += (_, e) =>
-        {
-            if (e.Data is null) return;
-            // Only show lines that indicate errors, warnings, or important notes
-            var line = e.Data.Trim();
-            if (line.Contains("Error", StringComparison.OrdinalIgnoreCase)
-                || line.Contains("Failed", StringComparison.OrdinalIgnoreCase)
-                || line.Contains("Warning", StringComparison.OrdinalIgnoreCase)
-                || line.Contains("NOTE:", StringComparison.OrdinalIgnoreCase)
-                || line.Contains("FAIL", StringComparison.OrdinalIgnoreCase))
-            {
-                // Spinner redraws on the same console row; clear that row so backend
-                // notes/warnings appear as clean standalone lines.
-                Console.Error.Write("\r" + new string(' ', 180) + "\r");
-                Console.Error.WriteLine(line);
-            }
-        };
-
-        process.Start();
-        process.BeginErrorReadLine();
-
-        // Run C backend and detect hardware info in parallel
-        var jsonTask   = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var detectTask = SystemInfoDetector.DetectAsync();
-
-        await Task.WhenAll(jsonTask, detectTask);
-        await process.WaitForExitAsync(cancellationToken);
-
-        var jsonText = await jsonTask;
-        if (string.IsNullOrWhiteSpace(jsonText))
-            return null;
-
-        BenchmarkResult? cResult;
+        Process process;
         try
         {
-            cResult = JsonSerializer.Deserialize<BenchmarkResult>(jsonText, JsonOptions);
+            process = new Process { StartInfo = psi };
+
+            // Forward only error/warning messages from stderr; suppress informational noise
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data is null) return;
+                // Only show lines that indicate errors, warnings, or important notes
+                var line = e.Data.Trim();
+                // "Solution Validates: avg error less than..." is a success message
+                // that contains "error" as a substring — exclude it from forwarding.
+                if (line.StartsWith("Solution Validates", StringComparison.OrdinalIgnoreCase))
+                    return;
+                if (line.Contains("Error", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("Failed", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("Warning", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("NOTE:", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("FAIL", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Spinner redraws on the same console row; clear that row so backend
+                    // notes/warnings appear as clean standalone lines.
+                    Console.Error.Write("\r" + new string(' ', 180) + "\r");
+                    Console.Error.WriteLine(line);
+                }
+            };
+
+            process.Start();
+            TraceLog.BackendProcessStarted(executablePath, process.Id);
+            process.BeginErrorReadLine();
         }
-        catch (JsonException ex)
+        catch (Exception ex)
         {
-            Console.Error.WriteLine($"Failed to parse benchmark JSON: {ex.Message}");
-            Console.Error.WriteLine(jsonText[..Math.Min(500, jsonText.Length)]);
+            benchSw.Stop();
+            var diag = DiagnosticHelper.LogException(ex);
+            TraceLog.BenchmarkError(benchType, ex.Message, "BenchmarkRunner.cs", 0);
+            Console.Error.WriteLine($"Failed to start backend process: {executablePath}");
+            Console.Error.WriteLine($"  {diag}");
             return null;
         }
 
-        if (cResult is null) return null;
+        try
+        {
+            // Run C backend and detect hardware info in parallel
+            var jsonTask   = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var detectTask = SystemInfoDetector.DetectAsync();
 
-        // Merge .NET-detected hardware info into the C benchmark result
-        var (sys, mem, cache) = await detectTask;
-        return cResult with { System = sys, Memory = mem, Cache = cache };
+            await Task.WhenAll(jsonTask, detectTask);
+            await process.WaitForExitAsync(cancellationToken);
+
+            benchSw.Stop();
+
+            if (process.ExitCode != 0)
+            {
+                TraceLog.BackendProcessExitedWithError(process.ExitCode, executablePath);
+            }
+
+            var jsonText = await jsonTask;
+            if (string.IsNullOrWhiteSpace(jsonText))
+            {
+                DiagnosticHelper.LogError($"Backend produced no output (exit code: {process.ExitCode})");
+                return null;
+            }
+
+            BenchmarkResult? cResult;
+            try
+            {
+                cResult = JsonSerializer.Deserialize<BenchmarkResult>(jsonText, JsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                string preview = jsonText[..Math.Min(500, jsonText.Length)];
+                TraceLog.JsonParseFailed(ex.Message, preview);
+                DiagnosticHelper.LogException(ex);
+                Console.Error.WriteLine($"Failed to parse benchmark JSON: {ex.Message}");
+                Console.Error.WriteLine(preview);
+                return null;
+            }
+
+            if (cResult is null)
+            {
+                DiagnosticHelper.LogError("JSON deserialized to null");
+                return null;
+            }
+
+            // Merge .NET-detected hardware info into the C benchmark result
+            var (sys, mem, cache) = await detectTask;
+            TraceLog.BenchmarkCompleted(benchType, benchSw.ElapsedMilliseconds);
+            return cResult with { System = sys, Memory = mem, Cache = cache };
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogException(ex);
+            TraceLog.BenchmarkError(benchType, ex.Message, "BenchmarkRunner.cs", 0);
+            return null;
+        }
+        finally
+        {
+            process.Dispose();
+        }
     }
 
     private static string GetOsTag() =>
@@ -190,8 +250,9 @@ public static class BenchmarkRunner
 
             return JsonSerializer.Deserialize<List<GpuDeviceInfo>>(json, JsonOptions) ?? [];
         }
-        catch
+        catch (Exception ex)
         {
+            DiagnosticHelper.LogWarning($"GPU discovery failed: {ex.Message}");
             return [];
         }
     }
@@ -202,11 +263,17 @@ public static class BenchmarkRunner
 /// </summary>
 public record GpuDeviceInfo
 {
+    [JsonPropertyName("index")]
     public int Index { get; init; }
+    [JsonPropertyName("name")]
     public string Name { get; init; } = "";
+    [JsonPropertyName("vendor")]
     public string Vendor { get; init; } = "";
+    [JsonPropertyName("compute_units")]
     public int ComputeUnits { get; init; }
+    [JsonPropertyName("max_frequency_mhz")]
     public int MaxFrequencyMhz { get; init; }
+    [JsonPropertyName("global_memory_bytes")]
     public long GlobalMemoryBytes { get; init; }
 
     /// <summary>
@@ -268,6 +335,104 @@ public record GpuDeviceInfo
 
         // No name-derived fallback: classification/display should be based on OS class-guid evidence only.
         return null;
+    }
+
+    /// <summary>
+    /// Returns a user-friendly GPU display name by querying the OS for driver-reported names.
+    /// On Windows, uses Win32_VideoController to find a matching GPU name by vendor keyword.
+    /// Returns null if the device name is already user-friendly or no match is found.
+    /// </summary>
+    public static string? InferGpuDisplayName(string? deviceName, string? vendor = null)
+    {
+        if (string.IsNullOrEmpty(deviceName)) return null;
+        // If the name already looks user-friendly (contains spaces, brand keywords), skip
+        if (deviceName.Contains("GeForce", StringComparison.OrdinalIgnoreCase)
+            || deviceName.Contains("Radeon", StringComparison.OrdinalIgnoreCase)
+            || deviceName.Contains("Intel", StringComparison.OrdinalIgnoreCase)
+            || deviceName.Contains("Arc ", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        // Only attempt OS lookup for codename-style names (e.g. "gfx1150", "GA106")
+        var osNames = DetectGpuNamesFromOs();
+        if (osNames is null || osNames.Count == 0) return null;
+
+        // Match by vendor substring (e.g. "AMD" in vendor matches "AMD Radeon..." in OS name)
+        if (!string.IsNullOrEmpty(vendor))
+        {
+            // Try vendor keyword matching
+            string vendorUpper = vendor.ToUpperInvariant();
+            foreach (var osName in osNames)
+            {
+                string osUpper = osName.ToUpperInvariant();
+                if ((vendorUpper.Contains("AMD") || vendorUpper.Contains("ADVANCED MICRO"))
+                    && (osUpper.Contains("RADEON") || osUpper.Contains("AMD")))
+                    return osName;
+                if (vendorUpper.Contains("NVIDIA") && osUpper.Contains("NVIDIA"))
+                    return osName;
+                if (vendorUpper.Contains("INTEL") && (osUpper.Contains("INTEL") || osUpper.Contains("ARC")))
+                    return osName;
+            }
+        }
+
+        return null;
+    }
+
+    // Cache the OS-detected GPU names
+    private static List<string>? _cachedOsGpuNames;
+    private static bool _osGpuQueried;
+    private static readonly object _osGpuLock = new();
+
+    /// <summary>
+    /// Queries Win32_VideoController for all GPU display adapter names reported by the OS.
+    /// </summary>
+    private static List<string>? DetectGpuNamesFromOs()
+    {
+        lock (_osGpuLock)
+        {
+            if (_osGpuQueried)
+                return _cachedOsGpuNames;
+            _osGpuQueried = true;
+        }
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return null;
+
+        try
+        {
+            byte[] bytes = System.Text.Encoding.Unicode.GetBytes(
+                "(Get-WmiObject Win32_VideoController).Name");
+            string encoded = Convert.ToBase64String(bytes);
+            var psi = new ProcessStartInfo("powershell",
+                $"-NoProfile -NonInteractive -EncodedCommand {encoded}")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+            };
+            using var p = Process.Start(psi);
+            if (p is null) return null;
+            string output = p.StandardOutput.ReadToEnd();
+            _ = p.StandardError.ReadToEnd();
+            p.WaitForExit(8000);
+
+            var names = output
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                .Select(n => n.Trim())
+                .Where(n => !string.IsNullOrEmpty(n)
+                    && !n.Contains("Basic Render", StringComparison.OrdinalIgnoreCase)
+                    && !n.Contains("Microsoft", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            lock (_osGpuLock) { _cachedOsGpuNames = names; }
+            return names;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogWarning($"GPU name detection via WMI failed: {ex.Message}");
+            return null;
+        }
     }
 
     // Cache the OS-detected NPU name (null = not queried, "" = queried but not found)
@@ -363,7 +528,10 @@ public record GpuDeviceInfo
                     }
                 }
             }
-            catch { /* pnputil not available or failed — try next GUID */ }
+            catch (Exception ex)
+            {
+                DiagnosticHelper.LogWarning($"NPU detection via pnputil GUID {guid} failed: {ex.Message}");
+            }
         }
 
         return null;
