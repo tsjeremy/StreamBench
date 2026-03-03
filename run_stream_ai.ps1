@@ -36,7 +36,18 @@ if ($IsWindows) {
     # Use .NET RuntimeInformation for reliable ARM64 detection
     # ($env:PROCESSOR_ARCHITECTURE reports "AMD64" on ARM64 Windows
     #  when running under x64 emulation in PowerShell 5.1)
-    $osArch  = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    try {
+        $osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    } catch {
+        # Fallback for PowerShell 5.1 where RuntimeInformation is unavailable
+        $nativeArch = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name PROCESSOR_ARCHITECTURE -ErrorAction SilentlyContinue).PROCESSOR_ARCHITECTURE
+        if (-not $nativeArch) { $nativeArch = $env:PROCESSOR_ARCHITECTURE }
+        $osArch = switch ($nativeArch) {
+            'ARM64' { 'Arm64' }
+            'AMD64' { 'X64' }
+            default { $nativeArch }
+        }
+    }
     $archTag = if ($osArch -eq 'Arm64') { 'arm64' } else { 'x64' }
     $ext     = '.exe'
 } elseif ($IsMacOS) {

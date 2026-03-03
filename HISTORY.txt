@@ -1,5 +1,29 @@
 -------------------------------------------------------------------------
 
+Revisions as of Wed, Mar 04, 2026 (Jeremy Tsai)
+
+Version 5.10.11 of stream.c, stream_gpu.c, and StreamBench released.
+
+StreamBench (.NET 10 frontend):
+* Replaced AI NuGet SDK with Foundry Local CLI + REST API
+  (eliminates OnnxRuntime native DLL conflicts on ARM64)
+* Replaced ETW diagnostics with simple TraceLog file-based logger
+* Removed WMI-based InferGpuDisplayName — uses raw OpenCL device names
+* Simplified GPU result filenames (removed device name tag)
+
+Launcher scripts (setup.ps1, run_stream.ps1, run_stream_ai.ps1):
+* PowerShell 5.1 compatibility — RuntimeInformation.OSArchitecture
+  wrapped in try/catch with registry fallback for systems where the
+  API is unavailable (default Windows PowerShell 5.1)
+* setup.ps1: Refresh PATH before dotnet SDK check to pick up installs
+  from other sessions
+* setup.ps1: After winget install, verify dotnet 10 is on PATH instead
+  of relying solely on winget exit code (non-zero for 'already installed')
+* Foundry CLI detection checks both 'foundry' and 'foundrylocal' names
+* PATH refresh after Foundry Local install
+
+-------------------------------------------------------------------------
+
 Revisions as of Sun, Mar 01, 2026 (Jeremy Tsai)
 
 Version 5.10.08 of stream.c, stream_gpu.c, and StreamBench released.

@@ -42,7 +42,19 @@ if ($null -eq (Get-Variable -Name 'IsWindows' -ErrorAction SilentlyContinue)) {
 # [RuntimeInformation]::OSArchitecture returns the true OS architecture
 # regardless of the process emulation layer.
 # ------------------------------------------------------------------
-$osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+try {
+    $osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+} catch {
+    # Fallback for PowerShell 5.1 where RuntimeInformation is unavailable.
+    # Check native OS arch via registry to detect ARM64 even under x64 emulation.
+    $nativeArch = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name PROCESSOR_ARCHITECTURE -ErrorAction SilentlyContinue).PROCESSOR_ARCHITECTURE
+    if (-not $nativeArch) { $nativeArch = $env:PROCESSOR_ARCHITECTURE }
+    $osArch = switch ($nativeArch) {
+        'ARM64' { 'Arm64' }
+        'AMD64' { 'X64' }
+        default { $nativeArch }
+    }
+}
 $archTag = if ($osArch -eq 'Arm64') { 'arm64' } else { 'x64' }
 
 Write-Host ''
@@ -113,6 +125,10 @@ Write-Host ''
 if ($hasSource) {
     Write-Host '  [2/4] Checking .NET 10 SDK...' -ForegroundColor Cyan
 
+    # Refresh PATH so we pick up dotnet even if it was installed in another session
+    $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+
     $dotnetOk = $false
     if (Get-Command dotnet -ErrorAction SilentlyContinue) {
         $sdks = & dotnet --list-sdks 2>$null
@@ -127,10 +143,20 @@ if ($hasSource) {
         if ($hasWinget) {
             Write-Host '  Installing .NET 10 SDK via winget...' -ForegroundColor Yellow
             winget install Microsoft.DotNet.SDK.10 --accept-package-agreements --accept-source-agreements
-            if ($LASTEXITCODE -eq 0) {
+            $wingetExit = $LASTEXITCODE
+            # Refresh PATH after install
+            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                        [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+            # Verify dotnet 10 is now on PATH (winget returns non-zero for "already installed")
+            $sdks = $null
+            if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+                $sdks = & dotnet --list-sdks 2>$null
+            }
+            if ($sdks -match '^10\.') {
                 Write-Host '  [OK] .NET 10 SDK installed.' -ForegroundColor Green
-                $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
-                            [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+                $dotnetOk = $true
+            } elseif ($wingetExit -eq 0) {
+                Write-Host '  [OK] .NET 10 SDK installed.' -ForegroundColor Green
                 $dotnetOk = $true
             } else {
                 Write-Host '  [FAIL] .NET 10 SDK installation failed.' -ForegroundColor Red
