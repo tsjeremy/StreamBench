@@ -165,8 +165,18 @@ jobs:
             -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true --nologo -v quiet `
             -o _pub/win-x64
-          Copy-Item _pub/win-x64/StreamBench.exe StreamBench_win-x64.exe
-          # Clean up backends and build cache so ARM64 publish embeds fresh resources
+          Copy-Item _pub/win-x64/StreamBench.exe StreamBench_win_x64.exe
+          # Clean up backends and build cache for AI-enabled publish
+          Remove-Item StreamBench/obj -Recurse -Force
+
+      - name: Publish StreamBench (win-x64 AI-enabled)
+        shell: pwsh
+        run: |
+          dotnet publish StreamBench/StreamBench.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:EnableAI=true --nologo -v quiet `
+            -o _pub/win-x64-ai
+          Copy-Item _pub/win-x64-ai/StreamBench.exe StreamBench_win_x64_ai.exe
           Remove-Item StreamBench/backends -Recurse -Force
           Remove-Item StreamBench/obj -Recurse -Force
 
@@ -191,7 +201,17 @@ jobs:
             -c Release -r win-arm64 --self-contained true `
             -p:PublishSingleFile=true --nologo -v quiet `
             -o _pub/win-arm64
-          Copy-Item _pub/win-arm64/StreamBench.exe StreamBench_win-arm64.exe
+          Copy-Item _pub/win-arm64/StreamBench.exe StreamBench_win_arm64.exe
+          Remove-Item StreamBench/obj -Recurse -Force
+
+      - name: Publish StreamBench (win-arm64 AI-enabled)
+        shell: pwsh
+        run: |
+          dotnet publish StreamBench/StreamBench.csproj `
+            -c Release -r win-arm64 --self-contained true `
+            -p:PublishSingleFile=true -p:EnableAI=true --nologo -v quiet `
+            -o _pub/win-arm64-ai
+          Copy-Item _pub/win-arm64-ai/StreamBench.exe StreamBench_win_arm64_ai.exe
           Remove-Item StreamBench/backends -Recurse -Force
 
       - name: Upload Windows artifacts
@@ -199,8 +219,10 @@ jobs:
         with:
           name: windows-binaries
           path: |
-            StreamBench_win-x64.exe
-            StreamBench_win-arm64.exe
+            StreamBench_win_x64.exe
+            StreamBench_win_arm64.exe
+            StreamBench_win_x64_ai.exe
+            StreamBench_win_arm64_ai.exe
 
   # ── Attach all binaries to the GitHub Release ────────────────────────────
   release:
@@ -226,8 +248,22 @@ jobs:
 
       - name: Copy launcher scripts to release assets
         run: |
+          cp setup.ps1 release-assets/
           cp run_stream.ps1 release-assets/
           cp run_stream_ai.ps1 release-assets/
+
+      - name: Create Windows standalone ZIP
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          mkdir -p _zip
+          cp release-assets/StreamBench_win_x64.exe _zip/
+          cp release-assets/StreamBench_win_arm64.exe _zip/
+          cp release-assets/StreamBench_win_x64_ai.exe _zip/
+          cp release-assets/StreamBench_win_arm64_ai.exe _zip/
+          cp release-assets/setup.ps1 _zip/
+          cp release-assets/run_stream.ps1 _zip/
+          cp release-assets/run_stream_ai.ps1 _zip/
+          cd _zip && zip -9 "../release-assets/StreamBench_${TAG}_win_standalone.zip" * && cd ..
 
       - name: Attach assets to GitHub Release
         uses: softprops/action-gh-release@v2
