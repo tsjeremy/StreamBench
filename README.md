@@ -698,25 +698,6 @@ StreamBench/ (.NET 10 frontend)
     └── AiInferenceBenchmarkResult.cs  # AI benchmark result model
 ```
 
-## Release Process
-
-Every tagged release **must** pass these verification steps before it is considered final:
-
-1. **CI gates pass** — The GitHub Actions `Build and Release` workflow must succeed on all platforms (Windows x64, Windows ARM64, macOS arm64, macOS x64), including:
-   - C binary smoke-tests
-   - Memory benchmark accuracy validation (`[PASS]` on all four kernels: Copy, Scale, Add, Triad)
-   - StreamBench frontend launch test
-   - AI-enabled binary launch test (`--help`)
-
-2. **Local verification from release ZIP** — After CI publishes the release, download the standalone ZIP (`StreamBench_v*_win_standalone.zip`) from the GitHub Release page and run it locally on a real device:
-   - `.\StreamBench_win_x64.exe` (or arm64) — memory benchmark must show `[PASS]` with reasonable bandwidth numbers
-   - `.\StreamBench_win_x64_ai.exe` (or arm64) — AI benchmark must auto-enable, find/download a model, and produce Q1+Q2 inference results with positive tokens/second
-   - Version string must match the tag (e.g. `v5.10.12`)
-
-3. **No regression** — Compare memory bandwidth results against prior releases on the same hardware. Copy/Scale/Add/Triad rates should be within ±5% of previous results. Any larger deviation must be investigated before the release is published.
-
-> **Rule**: Do not announce or distribute a release until steps 1–3 are verified. If local verification fails, delete the tag, fix the issue, re-tag, and repeat.
-
 ## Original Project
 
 STREAM is the de facto industry standard benchmark for measuring sustained memory bandwidth.
