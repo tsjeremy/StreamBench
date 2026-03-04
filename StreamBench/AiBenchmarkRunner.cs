@@ -68,26 +68,29 @@ public static class AiBenchmarkRunner
 
     private static readonly string[] PreferredAliasesNpu =
     [
-        "qwen2.5-1.5b",
-        "phi-3.5-mini",
-        "qwen2.5-7b",
+        "phi-4-mini",
         "qwen2.5-0.5b",
+        "qwen2.5-7b",
         "phi-3-mini-128k",
         "phi-3-mini-4k",
+        "phi-4-mini-reasoning",
         "deepseek-r1-7b",
-        "deepseek-r1-14b",
     ];
 
     // Shared-model priorities used when benchmarking multiple devices side-by-side.
+    // Models with broad device coverage (CPU+GPU+NPU) are listed first to minimise
+    // unnecessary downloads when running multi-device comparisons.
     private static readonly string[] SharedAliasPriority =
     [
-        "qwen2.5-1.5b",
-        "phi-3.5-mini",
+        "phi-4-mini",
         "qwen2.5-0.5b",
         "qwen2.5-7b",
         "phi-3-mini-128k",
         "phi-3-mini-4k",
         "deepseek-r1-7b",
+        "phi-4-mini-reasoning",
+        "qwen2.5-1.5b",
+        "phi-3.5-mini",
         "deepseek-r1-14b",
     ];
 
@@ -1040,8 +1043,8 @@ public static class AiBenchmarkRunner
         }
 
         return byAlias
-            .OrderBy(x => PriorityIndex(x.Alias))
-            .ThenByDescending(x => x.Coverage)
+            .OrderByDescending(x => x.Coverage)
+            .ThenBy(x => PriorityIndex(x.Alias))
             .ThenBy(x => x.Alias, StringComparer.OrdinalIgnoreCase)
             .Select(x => x.Alias)
             .ToList();

@@ -92,7 +92,7 @@ foreach ($name in $benchNames) {
     }
 }
 $csproj = Join-Path $ScriptDir 'StreamBench/StreamBench.csproj'
-$aiModel = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_MODEL)) { 'phi-3.5-mini' } else { $env:STREAMBENCH_AI_MODEL }
+$aiModel = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_MODEL)) { '' } else { $env:STREAMBENCH_AI_MODEL }
 $aiDevices = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_DEVICES)) { 'cpu' } else { $env:STREAMBENCH_AI_DEVICES }
 $aiLocalSummary = if ($env:STREAMBENCH_AI_LOCAL_SUMMARY -eq '0') { $false } else { $true }
 
@@ -102,7 +102,7 @@ Write-Host '   STREAM + AI Benchmark Launcher' -ForegroundColor Cyan
 Write-Host '  ========================================' -ForegroundColor DarkGray
 Write-Host ''
 
-Write-Host "  [OK] AI model: $aiModel" -ForegroundColor Green
+Write-Host "  [OK] AI model: $(if ($aiModel) { $aiModel } else { '(auto-select)' })" -ForegroundColor Green
 Write-Host "  [OK] AI device(s): $aiDevices" -ForegroundColor Green
 Write-Host "  [OK] AI local summary: $aiLocalSummary" -ForegroundColor Green
 
@@ -119,9 +119,11 @@ if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj))
         '--gpu',
         '--ai',
         '--ai-device', "$aiDevices",
-        '--ai-model', "$aiModel",
         '--array-size', '200000000'
     )
+    if (-not [string]::IsNullOrWhiteSpace($aiModel)) {
+        $appArgs += @('--ai-model', "$aiModel")
+    }
     if ($aiLocalSummary) {
         $appArgs += '--ai-local-summary'
     }
@@ -172,7 +174,10 @@ if ($benchExe) {
         Write-Host ''
     }
 
-    $exeArgs = @('--cpu','--gpu','--ai','--ai-device',"$aiDevices",'--ai-model',"$aiModel",'--array-size','200000000')
+    $exeArgs = @('--cpu','--gpu','--ai','--ai-device',"$aiDevices",'--array-size','200000000')
+    if (-not [string]::IsNullOrWhiteSpace($aiModel)) {
+        $exeArgs += @('--ai-model', "$aiModel")
+    }
     if ($aiLocalSummary) {
         $exeArgs += '--ai-local-summary'
     }

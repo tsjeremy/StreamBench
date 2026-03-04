@@ -2,6 +2,32 @@
 
 Revisions as of Tue, Mar 04, 2026 (Jeremy Tsai)
 
+Version 5.10.13 of stream.c, stream_gpu.c, and StreamBench released.
+
+  Hotfix: AI benchmark NPU model selection and launcher script fixes.
+
+  - Fix: SelectSharedAliasCandidates now sorts by device coverage first
+    (descending), then by priority index. Previously priority was the
+    primary sort key, causing CPU-only models to be tried before models
+    with NPU support, leading to multi-minute wasted downloads.
+
+  - Fix: PreferredAliasesNpu reordered to list models with actual NPU
+    variants first (phi-4-mini, qwen2.5-0.5b, phi-3-mini-128k, etc.).
+    Removed models without NPU support (qwen2.5-1.5b, phi-3.5-mini,
+    deepseek-r1-14b) from the NPU preference list.
+
+  - Fix: SharedAliasPriority reordered to put NPU-capable models first,
+    pushing CPU/GPU-only models (qwen2.5-1.5b, phi-3.5-mini) to end.
+
+  - Fix: run_stream_ai.ps1 no longer hardcodes --ai-model phi-3.5-mini.
+    Default is now auto-select (empty), letting the C# logic pick the
+    best model per device. The --ai-model flag is only passed when the
+    user explicitly sets STREAMBENCH_AI_MODEL environment variable.
+
+-------------------------------------------------------------------------
+
+Revisions as of Tue, Mar 04, 2026 (Jeremy Tsai)
+
 Version 5.10.12 of stream.c, stream_gpu.c, and StreamBench released.
 
 StreamBench (.NET 10 frontend):
