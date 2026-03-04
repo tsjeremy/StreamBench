@@ -1222,6 +1222,7 @@ public static class AiBenchmarkRunner
             using var doc = JsonDocument.Parse(stream);
             var root = doc.RootElement;
 
+            // Old format: root is a flat array of device results
             if (root.ValueKind == JsonValueKind.Array)
             {
                 using var entries = root.EnumerateArray();
@@ -1230,18 +1231,53 @@ public static class AiBenchmarkRunner
                 return;
             }
 
-            if (root.ValueKind == JsonValueKind.Object
-                && root.TryGetProperty("results", out var results)
-                && results.ValueKind == JsonValueKind.Array)
-            {
-                using var entries = results.EnumerateArray();
-                while (entries.MoveNext())
-                    TryReadAiSampleEntry(entries.Current, aiSamples);
-                return;
-            }
-
             if (root.ValueKind == JsonValueKind.Object)
+            {
+                // New two-pass format: shared_results / best_per_device_results arrays
+                // Prefer best_per_device when available; fall back to shared for
+                // devices not covered, avoiding duplicate samples.
+                bool foundTwoPass = false;
+                var coveredDevices = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                if (root.TryGetProperty("best_per_device_results", out var bpd) && bpd.ValueKind == JsonValueKind.Array)
+                {
+                    foundTwoPass = true;
+                    using var entries = bpd.EnumerateArray();
+                    while (entries.MoveNext())
+                    {
+                        var dt = TryGetString(entries.Current, "device_type");
+                        if (dt is not null) coveredDevices.Add(dt);
+                        TryReadAiSampleEntry(entries.Current, aiSamples);
+                    }
+                }
+
+                if (root.TryGetProperty("shared_results", out var shared) && shared.ValueKind == JsonValueKind.Array)
+                {
+                    foundTwoPass = true;
+                    using var entries = shared.EnumerateArray();
+                    while (entries.MoveNext())
+                    {
+                        // Only add shared entries for devices not already covered by best-per-device
+                        var dt = TryGetString(entries.Current, "device_type");
+                        if (dt is not null && coveredDevices.Contains(dt)) continue;
+                        TryReadAiSampleEntry(entries.Current, aiSamples);
+                    }
+                }
+                if (foundTwoPass) return;
+
+                // Legacy wrapper: { "results": [...] }
+                if (root.TryGetProperty("results", out var results)
+                    && results.ValueKind == JsonValueKind.Array)
+                {
+                    using var entries = results.EnumerateArray();
+                    while (entries.MoveNext())
+                        TryReadAiSampleEntry(entries.Current, aiSamples);
+                    return;
+                }
+
+                // Single object entry
                 TryReadAiSampleEntry(root, aiSamples);
+            }
         }
         catch (Exception ex)
         {
