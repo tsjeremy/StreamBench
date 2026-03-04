@@ -93,8 +93,15 @@ foreach ($name in $benchNames) {
 }
 $csproj = Join-Path $ScriptDir 'StreamBench/StreamBench.csproj'
 $aiModel = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_MODEL)) { '' } else { $env:STREAMBENCH_AI_MODEL }
-$aiDevices = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_DEVICES)) { 'cpu' } else { $env:STREAMBENCH_AI_DEVICES }
-$aiLocalSummary = if ($env:STREAMBENCH_AI_LOCAL_SUMMARY -eq '0') { $false } else { $true }
+$aiDevices = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_DEVICES)) { '' } else { $env:STREAMBENCH_AI_DEVICES }
+$aiNoSummary = $env:STREAMBENCH_AI_LOCAL_SUMMARY -eq '0'
+$aiLocalSummary = -not $aiNoSummary
+$aiNoDownload = $env:STREAMBENCH_AI_NO_DOWNLOAD -eq '1'
+$arraySize = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_ARRAY_SIZE)) { '200000000' } else { $env:STREAMBENCH_ARRAY_SIZE.Trim() }
+if ($arraySize -notmatch '^\d+$') {
+    Write-Host "  [ERROR] STREAMBENCH_ARRAY_SIZE must be a positive integer, got: $arraySize" -ForegroundColor Red
+    exit 1
+}
 
 Write-Host ''
 Write-Host '  ========================================' -ForegroundColor DarkGray
@@ -103,8 +110,9 @@ Write-Host '  ========================================' -ForegroundColor DarkGra
 Write-Host ''
 
 Write-Host "  [OK] AI model: $(if ($aiModel) { $aiModel } else { '(auto-select)' })" -ForegroundColor Green
-Write-Host "  [OK] AI device(s): $aiDevices" -ForegroundColor Green
+Write-Host "  [OK] AI device(s): $(if ($aiDevices) { $aiDevices } else { '(all detected)' })" -ForegroundColor Green
 Write-Host "  [OK] AI local summary: $aiLocalSummary" -ForegroundColor Green
+Write-Host "  [OK] Array size: $arraySize" -ForegroundColor Green
 
 if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj)) {
     Write-Host '  [OK] Using dotnet build + app run (source mode)' -ForegroundColor Green
@@ -118,14 +126,21 @@ if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj))
         '--cpu',
         '--gpu',
         '--ai',
-        '--ai-device', "$aiDevices",
-        '--array-size', '200000000'
+        '--array-size', "$arraySize"
     )
+    if (-not [string]::IsNullOrWhiteSpace($aiDevices)) {
+        $appArgs += @('--ai-device', "$aiDevices")
+    }
     if (-not [string]::IsNullOrWhiteSpace($aiModel)) {
         $appArgs += @('--ai-model', "$aiModel")
     }
     if ($aiLocalSummary) {
         $appArgs += '--ai-local-summary'
+    } else {
+        $appArgs += '--ai-no-summary'
+    }
+    if ($aiNoDownload) {
+        $appArgs += '--ai-no-download'
     }
 
     if ($IsWindows) {
@@ -174,12 +189,20 @@ if ($benchExe) {
         Write-Host ''
     }
 
-    $exeArgs = @('--cpu','--gpu','--ai','--ai-device',"$aiDevices",'--array-size','200000000')
+    $exeArgs = @('--cpu','--gpu','--ai','--array-size',"$arraySize")
+    if (-not [string]::IsNullOrWhiteSpace($aiDevices)) {
+        $exeArgs += @('--ai-device', "$aiDevices")
+    }
     if (-not [string]::IsNullOrWhiteSpace($aiModel)) {
         $exeArgs += @('--ai-model', "$aiModel")
     }
     if ($aiLocalSummary) {
         $exeArgs += '--ai-local-summary'
+    } else {
+        $exeArgs += '--ai-no-summary'
+    }
+    if ($aiNoDownload) {
+        $exeArgs += '--ai-no-download'
     }
     & $benchExe @exeArgs
     exit $LASTEXITCODE

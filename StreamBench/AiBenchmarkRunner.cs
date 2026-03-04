@@ -156,20 +156,43 @@ public static class AiBenchmarkRunner
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
 
-        using var cts = new CancellationTokenSource(timeoutMs);
-        try
-        {
-            await process.WaitForExitAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
+        var waitForExitTask = process.WaitForExitAsync();
+        var completedTask = await Task.WhenAny(waitForExitTask, Task.Delay(timeoutMs));
+        if (completedTask != waitForExitTask)
         {
             TraceLog.AiProcessTimeout($"{cli} {arguments}", timeoutMs);
             try { process.Kill(entireProcessTree: true); }
             catch (Exception ex) { TraceLog.DiagnosticInfo($"Process kill failed: {ex.Message}"); }
-            return (-1, "", "Timeout waiting for foundry CLI");
+            await Task.WhenAny(waitForExitTask, Task.Delay(2_000));
+
+            string command = $"{cli} {arguments}";
+            string timedOutStdout = await ReadTextWithTimeoutAsync(stdoutTask, 500, command, "stdout");
+            string timedOutStderr = await ReadTextWithTimeoutAsync(stderrTask, 500, command, "stderr");
+            if (string.IsNullOrWhiteSpace(timedOutStderr))
+                timedOutStderr = "Timeout waiting for foundry CLI";
+            return (-1, timedOutStdout, timedOutStderr);
         }
 
-        return (process.ExitCode, await stdoutTask, await stderrTask);
+        await waitForExitTask;
+        string fullCommand = $"{cli} {arguments}";
+        string stdout = await ReadTextWithTimeoutAsync(stdoutTask, 5_000, fullCommand, "stdout");
+        string stderr = await ReadTextWithTimeoutAsync(stderrTask, 5_000, fullCommand, "stderr");
+        return (process.ExitCode, stdout, stderr);
+    }
+
+    private static async Task<string> ReadTextWithTimeoutAsync(
+        Task<string> readTask,
+        int timeoutMs,
+        string command,
+        string streamName)
+    {
+        var completedTask = await Task.WhenAny(readTask, Task.Delay(timeoutMs));
+        if (completedTask == readTask)
+            return await readTask;
+
+        TraceLog.DiagnosticInfo(
+            $"Timed out reading foundry {streamName} for command: {command} (timeout={timeoutMs}ms)");
+        return "";
     }
 
     /// <summary>Starts the Foundry Local service and returns the base URL.</summary>
@@ -198,6 +221,19 @@ public static class AiBenchmarkRunner
         {
             TraceLog.AiServiceStarted();
             return serviceUrl;
+        }
+
+        // Some Foundry CLI versions return success without printing URL on start;
+        // query status again to capture the actual bound endpoint.
+        if (startExit == 0)
+        {
+            var (_, statusOutAfterStart, statusErrAfterStart) = await RunFoundryAsync(cli, "service status", 30_000);
+            serviceUrl = ExtractServiceUrl(statusOutAfterStart + "\n" + statusErrAfterStart);
+            if (serviceUrl is not null)
+            {
+                TraceLog.AiServiceStarted();
+                return serviceUrl;
+            }
         }
 
         // Fallback: try default port
@@ -591,10 +627,11 @@ public static class AiBenchmarkRunner
                 return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
             }
 
-            var targetDevices = ParseDeviceFilter(devices);
+            var targetDevices = ParseDeviceFilter(devices).ToList();
             TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, sharedOnly: {sharedOnly}");
             string? effectiveAlias = modelAlias;
             bool strictAlias = false;
+            bool allowNpuFailFast = string.IsNullOrWhiteSpace(modelAlias) && targetDevices.Count > 1;
 
             // ── Pass 1: Multi-device side-by-side comparison with shared model ──
             if (string.IsNullOrWhiteSpace(effectiveAlias) && targetDevices.Count > 1)
@@ -617,7 +654,7 @@ public static class AiBenchmarkRunner
                         var attemptResults = new List<AiDeviceBenchmarkResult>();
                         int successCount = 0;
 
-                        foreach (var deviceType in targetDevices)
+                        foreach (var deviceType in targetDevices.ToList())
                         {
                             var model = FindBestModel(allModels, deviceType, sharedAlias, strictAlias);
                             if (model is null)
@@ -642,6 +679,14 @@ public static class AiBenchmarkRunner
                                 attemptResults.Add(result with { BenchmarkPass = "shared" });
                                 successCount++;
                                 TraceLog.AiBenchmarkDeviceCompleted(deviceType, model.Id, devSw.ElapsedMilliseconds);
+                            }
+                            else if (allowNpuFailFast && deviceType.Equals("NPU", StringComparison.OrdinalIgnoreCase))
+                            {
+                                targetDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
+                                allowNpuFailFast = false;
+                                TraceLog.DiagnosticInfo("NPU removed from auto comparison after first model-load failure");
+                                ConsoleOutput.WriteMarkup(
+                                    "[yellow][WARN][/] NPU model load failed; continuing with CPU/GPU to avoid repeated retries.");
                             }
                         }
 
@@ -1079,12 +1124,25 @@ public static class AiBenchmarkRunner
         // User-specified alias takes priority
         if (!string.IsNullOrWhiteSpace(aliasHint))
         {
-            var match = candidates.FirstOrDefault(m =>
-                m.Alias.Equals(aliasHint, StringComparison.OrdinalIgnoreCase)
-                || m.Id.Equals(aliasHint, StringComparison.OrdinalIgnoreCase)
-                || m.Id.Contains(aliasHint, StringComparison.OrdinalIgnoreCase));
+            var aliasMatches = candidates
+                .Where(m =>
+                    m.Alias.Equals(aliasHint, StringComparison.OrdinalIgnoreCase)
+                    || m.Id.Equals(aliasHint, StringComparison.OrdinalIgnoreCase)
+                    || m.Id.Contains(aliasHint, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(m => m.IsCached)
+                .ThenBy(m => m.FileSizeMb > 0 ? m.FileSizeMb : double.MaxValue)
+                .ThenBy(m => m.Id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var match = aliasMatches.FirstOrDefault();
             if (match is not null)
+            {
+                TraceLog.AiModelSelected(
+                    match.Id,
+                    match.Alias,
+                    deviceLabel,
+                    match.IsCached ? "alias match cached" : "alias match");
                 return match;
+            }
 
             ConsoleOutput.WriteMarkup(
                 $"[yellow][WARN][/] Model '{aliasHint}' not found for {deviceLabel}; falling back to preferred list.");

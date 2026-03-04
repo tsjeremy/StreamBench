@@ -122,6 +122,12 @@ $gpuExe = Join-Path $ScriptDir "stream_gpu_${osTag}_${archTag}${ext}"
 $hasBench = $null -ne $benchExe
 $hasCpu   = Test-Path $cpuExe
 $hasGpu   = Test-Path $gpuExe
+$arraySize = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_ARRAY_SIZE)) { '200000000' } else { $env:STREAMBENCH_ARRAY_SIZE.Trim() }
+if ($arraySize -notmatch '^\d+$') {
+    Write-Host ''
+    Write-Host "  [ERROR] STREAMBENCH_ARRAY_SIZE must be a positive integer, got: $arraySize" -ForegroundColor Red
+    exit 1
+}
 
 # ------------------------------------------------------------------
 #  Find StreamBench runner
@@ -202,7 +208,7 @@ Write-Host ''
 if ($useSelfContained) {
     # Self-contained binary handles both CPU + GPU automatically
     Write-Host ''
-    & $benchCmd --array-size 200000000
+    & $benchCmd --array-size $arraySize
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  [FAIL] Benchmark exited with error code $LASTEXITCODE." -ForegroundColor Red
@@ -212,7 +218,7 @@ if ($useSelfContained) {
     function Invoke-Bench {
         param([string]$Mode, [string]$Exe)
         $csproj = Join-Path $ScriptDir 'StreamBench/StreamBench.csproj'
-        dotnet run --project "$csproj" -- "--$Mode" --exe "$Exe" --array-size 200000000
+        dotnet run --project "$csproj" -- "--$Mode" --exe "$Exe" --array-size "$arraySize"
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  [FAIL] $Mode benchmark exited with error." -ForegroundColor Red
         }

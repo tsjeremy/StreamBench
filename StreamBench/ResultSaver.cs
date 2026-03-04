@@ -5,6 +5,7 @@
 
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using StreamBench.Models;
 
 namespace StreamBench;
@@ -168,6 +169,69 @@ public static class ResultSaver
             Console.Error.WriteLine($"  Path: {filename}");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Embeds AI benchmark (Q1/Q2) and relation summary (Q3) into memory JSON files
+    /// such as stream_cpu_results_*.json / stream_gpu_results_*.json.
+    /// Returns the list of files updated.
+    /// </summary>
+    public static IReadOnlyList<string> MergeAiIntoMemoryJson(
+        IEnumerable<string>? memoryJsonPaths,
+        AiBenchmarkTwoPassResult twoPassResult,
+        AiLocalRelationSummaryResult? relationSummary,
+        string? outputDir = null)
+    {
+        var candidates = (memoryJsonPaths ?? Enumerable.Empty<string>())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(File.Exists)
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            string dir = Path.GetFullPath(outputDir ?? ".");
+            if (!Directory.Exists(dir))
+                return [];
+
+            candidates = Directory.EnumerateFiles(dir, "stream_*_results_*.json", SearchOption.TopDirectoryOnly)
+                .Select(Path.GetFullPath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        if (candidates.Count == 0)
+            return [];
+
+        var updated = new List<string>();
+        foreach (var path in candidates)
+        {
+            try
+            {
+                JsonObject? root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+                if (root is null)
+                    continue;
+
+                root["ai_inference_benchmark"] = JsonSerializer.SerializeToNode(twoPassResult, PrettyJson);
+                if (relationSummary is not null)
+                    root["ai_relation_summary"] = JsonSerializer.SerializeToNode(relationSummary, PrettyJson);
+                else
+                    root.Remove("ai_relation_summary");
+
+                File.WriteAllText(path, root.ToJsonString(PrettyJson),
+                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                TraceLog.FileSaved(path);
+                updated.Add(path);
+            }
+            catch (Exception ex)
+            {
+                TraceLog.FileSaveFailed(path, ex.Message);
+                DiagnosticHelper.LogException(ex);
+            }
+        }
+
+        return updated;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────

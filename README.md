@@ -142,6 +142,19 @@ Download the script(s) alongside the `StreamBench_*` binary and run:
   ```
 - **macOS/Linux**: `pwsh ./run_stream.ps1` or `pwsh ./run_stream_ai.ps1`
 
+Launcher environment overrides:
+
+```powershell
+# Override default 200M array size for both launchers
+$env:STREAMBENCH_ARRAY_SIZE = "100000000"
+
+# Optional AI launcher overrides (run_stream_ai.ps1)
+$env:STREAMBENCH_AI_MODEL = "phi-4-mini"
+$env:STREAMBENCH_AI_DEVICES = "cpu,npu"   # if unset, all detected devices are used
+$env:STREAMBENCH_AI_LOCAL_SUMMARY = "0"   # disable Q3 local relation summary
+$env:STREAMBENCH_AI_NO_DOWNLOAD = "1"     # cached models only
+```
+
 ### Standalone C backend binaries (advanced)
 
 The individual C backend binaries (`stream_cpu_*`, `stream_gpu_*`) are also available on the
@@ -295,23 +308,21 @@ brew install foundrylocal
 StreamBench prints the full Q1 and Q2 model answers in the command-line output,
 and also includes them in the saved JSON result file.
 
-By default, when benchmarking multiple devices together, StreamBench tries
-**`deepseek-r1-14b` first** as the shared model alias for side-by-side comparison.
+When benchmarking multiple devices together, StreamBench chooses shared model aliases
+by this order:
 
-If that alias does not cover all selected devices on your machine, StreamBench
-automatically tries the next best shared alias and uses the best working coverage.
+1. Highest selected-device coverage (CPU/GPU/NPU variants available)
+2. Most cached variants for the selected devices
+3. Internal shared-priority list
 
-When a shared alias fails on one or more selected devices, StreamBench
-automatically tries the next best shared alias before returning results.
+If no alias covers all selected devices, StreamBench automatically falls back to
+the best partial coverage and then runs best-per-device comparison pass.
 
-For single-device runs, StreamBench uses device-specific priorities:
+If NPU model load fails during automatic multi-device comparison, StreamBench
+continues with CPU/GPU to avoid long repeated retries in the same run.
 
-- **CPU**: `deepseek-r1-14b` → `phi-4-mini-reasoning` → `gpt-oss-20b` → `qwen2.5-14b` → `phi-4` → fallbacks
-- **GPU** (NVIDIA/AMD/Intel via available GPU provider): `deepseek-r1-14b` first, then GPU-capable fallbacks
-- **NPU** (Qualcomm/Intel/AMD NPUs): `deepseek-r1-14b` → `qwen2.5-7b` → `qwen2.5-1.5b` → Phi NPU fallbacks
-
-This is intentional because a single alias is not guaranteed to have CPU + GPU +
-NPU variants on every Windows machine/driver stack.
+For single-device runs, StreamBench uses device-specific priority lists and prefers
+cached models first to reduce download/startup time.
 
 ### Example output
 
@@ -346,6 +357,13 @@ When `--ai-local-summary` is enabled, StreamBench also saves
 `ai_relation_summary_<model-alias>_<timestamp>.json` containing Q1 (cold),
 Q2 (warm), and Q3 (local JSON summary) plus parsed cross-file relation
 aggregates for model comparison over time.
+
+In addition, after AI completes, StreamBench embeds these AI sections into each
+memory benchmark JSON (`stream_cpu_results_*.json`, `stream_gpu_results_*.json`,
+`stream_npu_results_*.json`) so Q1/Q2/Q3 are available in the same saved file:
+
+- `ai_inference_benchmark` (Q1/Q2 runs)
+- `ai_relation_summary` (Q3 summary answer and timing)
 
 ### Interpreting results
 
@@ -660,6 +678,14 @@ For accurate bandwidth measurement, the total memory used should be **at least 4
 | Laptop | 8–32 MB | 50,000,000 (50M) | ~1.2 GB |
 | Workstation (64+ MB L3) | 64 MB | 200,000,000 (200M) | ~4.5 GB |
 | Memory-limited system | — | 10,000,000 (10M) | ~240 MB |
+
+Additional guidance:
+
+- Keep array size consistent when comparing two runs or two devices.
+- Very small sizes (for example 5M–20M) can be skewed by cache effects and may not
+  represent sustained memory bandwidth.
+- If 200M causes memory pressure on your machine, use a smaller size via
+  `--array-size` (CLI) or `STREAMBENCH_ARRAY_SIZE` (launcher scripts).
 
 ---
 

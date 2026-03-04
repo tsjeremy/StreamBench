@@ -1,5 +1,42 @@
 -------------------------------------------------------------------------
 
+Revisions as of Wed, Mar 04, 2026 (Jeremy Tsai)
+
+Version 5.10.14 of stream.c, stream_gpu.c, and StreamBench re-released
+(same version number) with launcher and AI-selection reliability fixes.
+
+  - Fix: run_stream_ai.ps1 no longer forces `--ai-device cpu` when
+    STREAMBENCH_AI_DEVICES is unset. Default now matches app behavior
+    and uses all detected AI devices.
+
+  - Improve: run_stream.ps1 and run_stream_ai.ps1 support
+    STREAMBENCH_ARRAY_SIZE override while keeping 200M as default.
+
+  - Improve: run_stream_ai.ps1 supports STREAMBENCH_AI_NO_DOWNLOAD=1
+    (passes `--ai-no-download`) for cached-model-only AI runs.
+
+  - Fix: run_stream_ai.ps1 now maps STREAMBENCH_AI_LOCAL_SUMMARY=0 to
+    `--ai-no-summary`, so summary auto-run is explicitly disabled.
+
+  - Improve: user-specified model alias matching now prefers cached and
+    smaller variants first, reducing avoidable downloads for strict alias runs.
+
+  - Fix: after AI benchmark finishes, Q1/Q2/Q3 are now embedded into the
+    memory result JSON files (`stream_*_results_*.json`) under
+    `ai_inference_benchmark` and `ai_relation_summary` for unified save output.
+
+  - Fix: hardened Foundry CLI process timeout/output handling to prevent
+    intermittent stalls during AI startup/model operations in single-file builds.
+
+  - Fix: AI service startup now re-checks `foundry service status` to capture
+    the actual dynamic service URL before fallback, improving Q3 summary reliability.
+
+  - Improve: in automatic multi-device AI runs, when the first NPU model load
+    fails, StreamBench now continues with CPU/GPU comparison instead of retrying
+    many NPU aliases in the same pass.
+
+-------------------------------------------------------------------------
+
 Revisions as of Tue, Mar 04, 2026 (Jeremy Tsai)
 
 Version 5.10.13 of stream.c, stream_gpu.c, and StreamBench released.

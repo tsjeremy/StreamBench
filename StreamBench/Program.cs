@@ -183,6 +183,7 @@ async Task<int> RunMainAsync(string[] args)
     // ── Run benchmarks ─────────────────────────────────────────────────────────
     int exitCode = 0;
     bool systemInfoPrinted = false;
+    var savedMemoryJsonPaths = new List<string>();
 
     if (wantCpu)
     {
@@ -202,7 +203,10 @@ async Task<int> RunMainAsync(string[] args)
     {
 #if ENABLE_AI
         if (wantCpu || wantGpu) Console.WriteLine();
-        int aiCode = await RunAiBenchmarkAsync(aiDevices, aiModel, noSave, outputDir, aiLocalSummary, aiSharedOnly, aiNoDownload, aiNoSummary);
+        int aiCode = await RunAiBenchmarkAsync(
+            aiDevices, aiModel, noSave, outputDir,
+            aiLocalSummary, aiSharedOnly, aiNoDownload, aiNoSummary,
+            savedMemoryJsonPaths);
         if (aiCode != 0)
         {
             // AI failure is non-fatal when CPU/GPU benchmarks already ran successfully
@@ -409,7 +413,10 @@ async Task<int> RunMainAsync(string[] args)
                     ResultSaver.AppendRangeCsv(rangeCsv, result);
                 var jsonPath = ResultSaver.SaveJson(result, outputDir);
                 if (jsonPath is not null)
+                {
+                    savedMemoryJsonPaths.Add(jsonPath);
                     ConsoleOutput.PrintFileSaved(jsonPath);
+                }
             }
 
             success++;
@@ -442,7 +449,11 @@ async Task<int> RunMainAsync(string[] args)
             var csvPath  = ResultSaver.SaveCsv(result, outputDir);
             var jsonPath = ResultSaver.SaveJson(result, outputDir);
             if (csvPath  is not null) ConsoleOutput.PrintFileSaved(csvPath);
-            if (jsonPath is not null) ConsoleOutput.PrintFileSaved(jsonPath);
+            if (jsonPath is not null)
+            {
+                savedMemoryJsonPaths.Add(jsonPath);
+                ConsoleOutput.PrintFileSaved(jsonPath);
+            }
             Console.WriteLine();
         }
     }
@@ -454,7 +465,8 @@ async Task<int> RunMainAsync(string[] args)
 #if ENABLE_AI
 async Task<int> RunAiBenchmarkAsync(
     string? deviceArg, string? modelAlias, bool noSave, string? outputDir,
-    bool includeLocalSummary, bool sharedOnly, bool noDownload, bool noSummary)
+    bool includeLocalSummary, bool sharedOnly, bool noDownload, bool noSummary,
+    IReadOnlyCollection<string>? memoryJsonPaths = null)
 {
     // Parse comma-separated device list (e.g. "cpu,gpu,npu" or "npu")
     IEnumerable<string>? deviceFilter = null;
@@ -567,6 +579,19 @@ async Task<int> RunAiBenchmarkAsync(
             ConsoleOutput.WriteMarkup("[bold white]Saving AI relation summary...[/]");
             var summaryPath = ResultSaver.SaveAiRelationSummaryJson(relationSummary, outputDir);
             if (summaryPath is not null) ConsoleOutput.PrintFileSaved(summaryPath);
+            Console.WriteLine();
+        }
+    }
+
+    if (!noSave)
+    {
+        var mergedPaths = ResultSaver.MergeAiIntoMemoryJson(
+            memoryJsonPaths, twoPassResult, relationSummary, outputDir);
+        if (mergedPaths.Count > 0)
+        {
+            ConsoleOutput.WriteMarkup("[bold white]Embedding AI Q1/Q2/Q3 into memory benchmark JSON...[/]");
+            foreach (var path in mergedPaths)
+                ConsoleOutput.PrintFileSaved(path);
             Console.WriteLine();
         }
     }
