@@ -154,7 +154,7 @@ if ($hasBench) {
     Write-Host "          Expected in: $ScriptDir" -ForegroundColor Red
     Write-Host ''
     Write-Host '  Download it from:' -ForegroundColor Yellow
-    Write-Host '    https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.10'
+    Write-Host '    https://github.com/tsjeremy/StreamBench/releases/latest'
     Write-Host ''
     Write-Host "  Place $($benchNames[0]) in the same folder as this script and re-run."
     exit 1

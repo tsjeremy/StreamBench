@@ -169,7 +169,20 @@ if ($hasSource) {
         }
     }
 } else {
-    Write-Host '  [2/4] .NET 10 SDK — [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
+    Write-Host '  [2/4] .NET Runtime check...' -ForegroundColor Cyan
+    # In standalone mode, .NET SDK is not required, but inform the user if .NET Runtime is present
+    $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+    if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+        $runtimes = & dotnet --list-runtimes 2>$null
+        if ($runtimes) {
+            Write-Host '  [OK] .NET Runtime detected (not required for standalone exe).' -ForegroundColor DarkGray
+        } else {
+            Write-Host '  [--] .NET not detected (not required for standalone exe).' -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host '  [--] .NET not detected (not required for standalone exe).' -ForegroundColor DarkGray
+    }
 }
 Write-Host ''
 
@@ -218,10 +231,29 @@ Write-Host ''
 # ------------------------------------------------------------------
 Write-Host '  [4/4] Checking Microsoft Foundry Local (AI benchmark)...' -ForegroundColor Cyan
 
+# Refresh PATH before checking — catches installs done in other sessions
+$env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+            [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+
 $foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
              [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
 if ($foundryOk) {
-    Write-Host '  [OK] Microsoft Foundry Local is installed.' -ForegroundColor Green
+    Write-Host '  [OK] Microsoft Foundry Local CLI is installed.' -ForegroundColor Green
+    # Validate service actually works
+    $foundryCmd = if (Get-Command foundry -ErrorAction SilentlyContinue) { 'foundry' } else { 'foundrylocal' }
+    try {
+        $statusOutput = & $foundryCmd service status 2>&1
+        $statusStr = ($statusOutput | Out-String)
+        if ($statusStr -match 'running') {
+            Write-Host '  [OK] Foundry Local service is running.' -ForegroundColor Green
+        } else {
+            Write-Host '  [!] Foundry Local CLI found but service not running.' -ForegroundColor Yellow
+            Write-Host "      Start it with: $foundryCmd service start" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host '  [!] Foundry Local CLI found but service check failed.' -ForegroundColor Yellow
+        Write-Host "      Try: $foundryCmd service start" -ForegroundColor Yellow
+    }
 } else {
     Write-Host '  [!] Foundry Local not found (required for AI benchmark).' -ForegroundColor Yellow
     if ($hasWinget) {

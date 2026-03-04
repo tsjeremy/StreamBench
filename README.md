@@ -22,7 +22,7 @@ displays color-formatted results, saves files, and runs the AI inference benchma
                                         | JSON on stdout
                         <- display colored table, save .csv / .json
 
-  User -> StreamBench (.NET 10) --ai -> Microsoft.AI.Foundry.Local
+  User -> StreamBench (.NET 10) --ai -> Foundry Local CLI + REST API
                                         | runs SLM on CPU / GPU / NPU
                         <- display inference timing, tokens/sec, save .json
 ```
@@ -32,21 +32,21 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.11).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.12).
 No compiler, .NET SDK, or build tools needed — just download and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
 so you only need a single download. The benchmarks still run as native C code for
 maximum performance — StreamBench extracts them automatically on first run.
 
-> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.11_win_standalone.zip`)
+> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.12_win_standalone.zip`)
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
 ### Windows — Standalone ZIP (recommended)
 
-1. Go to the **[v5.10.11 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.11)**
-2. Download **`StreamBench_v5.10.11_win_standalone.zip`**
+1. Go to the **[v5.10.12 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.12)**
+2. Download **`StreamBench_v5.10.12_win_standalone.zip`**
 3. Extract to any folder and run:
 
 ```powershell
@@ -62,7 +62,7 @@ maximum performance — StreamBench extracts them automatically on first run.
 
 ### Windows — Individual exe download
 
-1. Go to the **[v5.10.11 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.11)**
+1. Go to the **[v5.10.12 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.12)**
 2. Download the exe for your architecture:
 
 | File | Description |
@@ -82,7 +82,11 @@ maximum performance — StreamBench extracts them automatically on first run.
 .\StreamBench_win_x64.exe --gpu
 
 # AI inference benchmark (requires AI-enabled exe + Foundry Local)
-.\StreamBench_win_x64_ai.exe --ai
+# The _ai binary auto-runs memory + AI on all devices (CPU/GPU/NPU) with no flags needed:
+.\StreamBench_win_x64_ai.exe
+
+# Or specify devices explicitly:
+.\StreamBench_win_x64_ai.exe --ai --ai-device cpu,gpu
 ```
 
 > **ARM64 Windows users** (Snapdragon/Qualcomm): Use `*_arm64*` variants instead.
@@ -90,12 +94,12 @@ maximum performance — StreamBench extracts them automatically on first run.
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.11/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.12/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.11 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.11)**
+1. Go to the **[v5.10.12 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.12)**
 2. Download **`StreamBench_osx-arm64`** (Apple Silicon) or **`StreamBench_osx-x64`** (Intel)
 3. Run it:
 
@@ -108,13 +112,13 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.11/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.12/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 ### Using the launcher scripts (alternative)
 
 The launcher scripts are available as separate downloads on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.11).
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.12).
 
 - **`setup.ps1`**: first-time setup — installs VC++ Redistributable, Foundry Local (standalone mode auto-detected)
 - **`run_stream.ps1`**: default memory benchmark launcher (CPU + GPU only)

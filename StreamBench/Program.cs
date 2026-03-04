@@ -141,6 +141,16 @@ async Task<int> RunMainAsync(string[] args)
     if (!wantAi && (!string.IsNullOrWhiteSpace(aiModel) || !string.IsNullOrWhiteSpace(aiDevices) || aiLocalSummary))
         wantAi = true;
 
+#if ENABLE_AI
+    // Auto-enable AI when the binary name contains "_ai" and user didn't explicitly set flags
+    if (!wantAi && !modeSet)
+    {
+        string exeName = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "") ?? "";
+        if (exeName.Contains("_ai", StringComparison.OrdinalIgnoreCase))
+            wantAi = true;
+    }
+#endif
+
     // Default: run both CPU and GPU when user didn't specify
     if (!modeSet)
     {

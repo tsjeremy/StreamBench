@@ -200,7 +200,9 @@ public static class AiBenchmarkRunner
 
     private static string? ExtractServiceUrl(string text)
     {
-        // Look for http://host:port pattern in the output
+        // Look for http://host:port pattern in the output and return only the base URL
+        // (scheme + host + port). Foundry CLI may append a path like /openai/status
+        // which must NOT be included — the caller appends /v1/chat/completions.
         foreach (var line in text.Split('\n'))
         {
             int idx = line.IndexOf("http://", StringComparison.OrdinalIgnoreCase);
@@ -212,8 +214,12 @@ public static class AiBenchmarkRunner
                 end++;
 
             string url = line[idx..end].TrimEnd('/');
-            if (Uri.TryCreate(url, UriKind.Absolute, out _))
-                return url;
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                // Strip path — keep only scheme://host:port
+                string baseUrl = $"{uri.Scheme}://{uri.Authority}";
+                return baseUrl;
+            }
         }
         return null;
     }
@@ -344,45 +350,116 @@ public static class AiBenchmarkRunner
 
     private static List<FoundryModel> ParseModelListText(string text)
     {
-        // Best-effort text parsing for foundry model list output
+        // Parse tabular output from `foundry model list` (v0.8.x format):
+        //   Alias          Device  Task       File Size  License  Model ID
+        //   ---------------------------------------------------------------
+        //   phi-3.5-mini   GPU     chat       2.16 GB    MIT      Phi-3.5-mini-instruct-generic-gpu:1
+        //                  CPU     chat       2.53 GB    MIT      Phi-3.5-mini-instruct-generic-cpu:1
+        //   ---------------------------------------------------------------
+        //   phi-4          GPU     chat       8.37 GB    MIT      Phi-4-generic-gpu:1
+        //                  CPU     chat       10.16 GB   MIT      Phi-4-generic-cpu:1
         var models = new List<FoundryModel>();
+        string lastAlias = "";
+
         foreach (var line in text.Split('\n'))
         {
             string trimmed = line.Trim();
-            if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith('#') || trimmed.StartsWith("─"))
+            if (string.IsNullOrEmpty(trimmed))
                 continue;
 
-            // Typical format: "alias  model-id  device  cached  size"
+            // Skip header line
+            if (trimmed.StartsWith("Alias", StringComparison.OrdinalIgnoreCase)
+                && trimmed.Contains("Device", StringComparison.OrdinalIgnoreCase)
+                && trimmed.Contains("Model ID", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Skip separator lines (dashes)
+            if (trimmed.StartsWith('-') || trimmed.StartsWith('─'))
+                continue;
+
             var parts = trimmed.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 2)
+            if (parts.Length < 3)
+                continue;
+
+            // Detect whether this is an alias line or a continuation line.
+            // Continuation lines start with whitespace (the raw line, not trimmed).
+            bool isContinuation = line.Length > 0 && char.IsWhiteSpace(line[0]);
+
+            string alias;
+            string[] fields;
+            if (isContinuation)
             {
-                string alias = parts[0];
-                string id = parts.Length >= 2 ? parts[1] : alias;
-                string device = "CPU";
-                foreach (var p in parts)
-                {
-                    if (p.Equals("GPU", StringComparison.OrdinalIgnoreCase)) device = "GPU";
-                    else if (p.Equals("NPU", StringComparison.OrdinalIgnoreCase)) device = "NPU";
-                    else if (p.Equals("CPU", StringComparison.OrdinalIgnoreCase)) device = "CPU";
-                }
-                bool cached = parts.Any(p => p.Equals("cached", StringComparison.OrdinalIgnoreCase)
-                    || p == "✓" || p == "Yes");
-                models.Add(new FoundryModel(id, alias, device, "", 0, cached));
+                alias = lastAlias;
+                fields = parts;
             }
+            else
+            {
+                alias = parts[0];
+                lastAlias = alias;
+                fields = parts[1..];
+            }
+
+            // Detect device type from the first field after alias
+            string device = "CPU";
+            if (fields.Length > 0)
+            {
+                string firstField = fields[0];
+                if (firstField.Equals("GPU", StringComparison.OrdinalIgnoreCase)) device = "GPU";
+                else if (firstField.Equals("NPU", StringComparison.OrdinalIgnoreCase)) device = "NPU";
+                else if (firstField.Equals("CPU", StringComparison.OrdinalIgnoreCase)) device = "CPU";
+            }
+
+            // Model ID is the last field (e.g. "Phi-3.5-mini-instruct-generic-gpu:1")
+            string id = fields[^1];
+            // Avoid using license or size tokens as ID
+            if (id.Length < 4 || id.All(c => c == '-' || char.IsDigit(c) || c == '.'))
+                continue;
+
+            models.Add(new FoundryModel(id, alias, device, "", 0, IsCached: false));
         }
         return models;
     }
 
-    /// <summary>Loads a model via foundry CLI.</summary>
+    /// <summary>Loads a model via foundry CLI. Downloads first if not cached.</summary>
     private static async Task<bool> LoadModelAsync(string cli, string modelId, int timeoutMs = 300_000)
     {
         TraceLog.AiModelLoading(modelId, "");
-        var (exitCode, _, stderr) = await RunFoundryAsync(cli, $"model load \"{modelId}\"", timeoutMs);
+
+        // Try loading directly first (succeeds if model is already cached)
+        var (exitCode, stdout, stderr) = await RunFoundryAsync(cli, $"model load \"{modelId}\"", timeoutMs);
         if (exitCode == 0)
         {
             TraceLog.AiModelLoaded(modelId, 0);
             return true;
         }
+
+        // If load failed because model isn't downloaded, download it first
+        string combined = (stdout + " " + stderr).ToLowerInvariant();
+        if (combined.Contains("not found locally") || combined.Contains("download")
+            || combined.Contains("bad request") || combined.Contains("not cached"))
+        {
+            ConsoleOutput.WriteMarkup($"[dim]  Model not cached — downloading {modelId}...[/]");
+            TraceLog.DiagnosticInfo($"Model not cached, downloading: {modelId}");
+
+            var (dlExit, _, dlErr) = await RunFoundryAsync(cli, $"model download \"{modelId}\"", 600_000);
+            if (dlExit != 0)
+            {
+                TraceLog.AiModelLoadFailed(modelId, $"Download failed: {dlErr}", "AiBenchmarkRunner.cs", 0);
+                ConsoleOutput.WriteMarkup($"[red]  Download failed for {modelId}[/]");
+                return false;
+            }
+
+            ConsoleOutput.WriteMarkup($"[dim]  Download complete — loading {modelId}...[/]");
+
+            // Retry load after download
+            (exitCode, _, stderr) = await RunFoundryAsync(cli, $"model load \"{modelId}\"", timeoutMs);
+            if (exitCode == 0)
+            {
+                TraceLog.AiModelLoaded(modelId, 0);
+                return true;
+            }
+        }
+
         TraceLog.AiModelLoadFailed(modelId, stderr, "AiBenchmarkRunner.cs", 0);
         return false;
     }

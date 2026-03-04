@@ -1,5 +1,46 @@
 -------------------------------------------------------------------------
 
+Revisions as of Tue, Mar 04, 2026 (Jeremy Tsai)
+
+Version 5.10.12 of stream.c, stream_gpu.c, and StreamBench released.
+
+StreamBench (.NET 10 frontend):
+* Fixed Foundry Local service URL extraction — strip path to keep only
+  scheme://host:port (was including /openai/status, causing inference
+  requests to hit wrong endpoint)
+* Rewrote Foundry CLI model list parser for v0.8.x tabular format —
+  correctly handles columnar output, continuation lines, header/separator
+  skip, and model ID as last field (was misidentifying device type as
+  model ID)
+* Auto-download models when not cached — LoadModelAsync now automatically
+  downloads via `foundry model download` before loading, fixing "model
+  not found locally" errors on fresh setups
+* AI-enabled binary (_ai.exe) now auto-enables --ai mode when run
+  without arguments — runs CPU + GPU memory benchmarks plus AI inference
+  on all available devices (CPU, GPU, NPU) by default
+* Fixed stream.c formatting: two statements on one line split back to
+  separate lines (cosmetic)
+
+Launcher scripts (setup.ps1, run_stream.ps1):
+* setup.ps1: Added Foundry Local service validation — runs
+  `foundry service status` after detecting CLI to verify service works
+* setup.ps1: Added .NET Runtime detection in standalone mode for
+  informational purposes
+* setup.ps1: PATH refresh before Foundry CLI detection
+* run_stream.ps1: Updated stale release URL to use /releases/latest
+
+Release workflow (.github/workflows/release.yml):
+* Added memory benchmark accuracy gate — validates JSON output has
+  "validation":"passed" and best_rate_mbps > 0 for all four kernels
+  (Copy, Scale, Add, Triad) before allowing release
+* Added StreamBench frontend smoke-test — runs --cpu with small array,
+  verifies exit code 0
+* Added AI binary launch gate — runs --help to verify binary starts
+  without crash (TypeInitializationException)
+* Gates block release artifact upload if any check fails
+
+-------------------------------------------------------------------------
+
 Revisions as of Wed, Mar 04, 2026 (Jeremy Tsai)
 
 Version 5.10.11 of stream.c, stream_gpu.c, and StreamBench released.

@@ -80,6 +80,27 @@ jobs:
           echo "=== GPU smoke-test ==="
           ./stream_gpu_test || echo "GPU smoke-test skipped (no OpenCL device in CI)"
 
+      - name: Validate memory benchmark accuracy (macOS)
+        timeout-minutes: 2
+        run: |
+          # Run CPU backend and validate JSON output has correct structure and positive rates
+          JSON=$(./stream_cpu_test 2>/dev/null)
+          VALIDATION=$(echo "$JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('validation',''))")
+          if [ "$VALIDATION" != "passed" ]; then
+            echo "FAIL: CPU benchmark validation did not pass: $VALIDATION"
+            exit 1
+          fi
+          for OP in copy scale add triad; do
+            RATE=$(echo "$JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results']['$OP']['best_rate_mbps'])")
+            if python3 -c "exit(0 if float('$RATE') > 0 else 1)" 2>/dev/null; then
+              echo "  [OK] $OP : $RATE MB/s"
+            else
+              echo "FAIL: $OP best_rate_mbps is invalid: $RATE"
+              exit 1
+            fi
+          done
+          echo "Memory benchmark accuracy validated - all kernels passed."
+
       - name: Publish StreamBench (osx-arm64, self-contained with embedded backends)
         run: |
           # Embed arm64 backends into the StreamBench binary
@@ -152,6 +173,28 @@ jobs:
           stream_gpu_test.exe || echo GPU smoke-test skipped - no OpenCL device in CI
           exit /b 0
 
+      - name: Validate memory benchmark accuracy (x64)
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          # Run CPU backend and validate JSON output has correct structure and positive rates
+          $json = & .\stream_cpu_test.exe 2>$null | Out-String
+          $result = $json | ConvertFrom-Json
+          if ($result.validation -ne 'passed') {
+            Write-Error "FAIL: CPU benchmark validation did not pass: $($result.validation)"
+            exit 1
+          }
+          $ops = @('copy','scale','add','triad')
+          foreach ($op in $ops) {
+            $rate = $result.results.$op.best_rate_mbps
+            if ($null -eq $rate -or $rate -le 0) {
+              Write-Error "FAIL: $op best_rate_mbps is invalid: $rate"
+              exit 1
+            }
+            Write-Host "  [OK] $op : $rate MB/s"
+          }
+          Write-Host "Memory benchmark accuracy validated - all kernels passed."
+
       # Publish win-x64 BEFORE switching to ARM64 MSVC environment,
       # otherwise the Platform=ARM64 env var from ilammy/msvc-dev-cmd
       # leaks into dotnet and conflicts with the win-x64 RID.
@@ -179,6 +222,28 @@ jobs:
           Copy-Item _pub/win-x64-ai/StreamBench.exe StreamBench_win_x64_ai.exe
           Remove-Item StreamBench/backends -Recurse -Force
           Remove-Item StreamBench/obj -Recurse -Force
+
+      - name: Validate StreamBench frontend (win-x64)
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          # Standard binary: run CPU benchmark with small array, verify success
+          Write-Host "=== StreamBench frontend smoke-test ==="
+          & .\StreamBench_win_x64.exe --cpu --array-size 1000 --no-save 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "FAIL: StreamBench_win_x64.exe --cpu exited with code $LASTEXITCODE"
+            exit 1
+          }
+          Write-Host "  [OK] StreamBench_win_x64.exe --cpu passed"
+
+          # AI binary: verify it launches without crash (--help)
+          Write-Host "=== AI binary launch test ==="
+          & .\StreamBench_win_x64_ai.exe --help 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "FAIL: StreamBench_win_x64_ai.exe --help exited with code $LASTEXITCODE"
+            exit 1
+          }
+          Write-Host "  [OK] StreamBench_win_x64_ai.exe --help passed"
 
       - name: Setup MSVC (x64 -> ARM64 cross-compile)
         uses: ilammy/msvc-dev-cmd@v1
