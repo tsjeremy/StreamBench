@@ -121,6 +121,18 @@ public static class TraceLog
     public static void AiServiceStartFailed(string error, string filePath, int lineNumber)
         => Error($"AI service start failed. Error: {error} at {filePath}:{lineNumber}");
 
+    public static void AiServiceStopping()
+        => Info("AI service stopping");
+
+    public static void AiServiceStopped()
+        => Info("AI service stopped");
+
+    public static void AiCliFound(string name)
+        => Info($"AI CLI found: {name}");
+
+    public static void AiCliNotFound(string triedNames)
+        => Warn($"AI CLI not found. Tried: {triedNames}");
+
     public static void AiModelLoading(string modelId, string device)
         => Info($"AI model loading. Model: {modelId}, Device: {device}");
 
@@ -129,6 +141,21 @@ public static class TraceLog
 
     public static void AiModelLoadFailed(string modelId, string error, string filePath, int lineNumber)
         => Error($"AI model load failed. Model: {modelId}, Error: {error} at {filePath}:{lineNumber}");
+
+    public static void AiModelSelected(string modelId, string alias, string device, string reason)
+        => Info($"AI model selected. Model: {modelId}, Alias: {alias}, Device: {device}, Reason: {reason}");
+
+    public static void AiModelDownloadStarted(string modelId, double sizeMb)
+        => Info($"AI model download started. Model: {modelId}, Size: {sizeMb:F0} MB");
+
+    public static void AiModelDownloadCompleted(string modelId, long durationMs)
+        => Info($"AI model download completed. Model: {modelId}, Duration: {durationMs}ms");
+
+    public static void AiModelDownloadFailed(string modelId, string error)
+        => Error($"AI model download failed. Model: {modelId}, Error: {error}");
+
+    public static void AiModelDownloadSkipped(string modelId, string device)
+        => Info($"AI model download skipped (no-download mode). Model: {modelId}, Device: {device}");
 
     public static void AiInferenceStarted(string question, string device)
         => Info($"AI inference started. Question: {question}, Device: {device}");
@@ -142,8 +169,38 @@ public static class TraceLog
     public static void AiCatalogUnavailable(string error)
         => Warn($"AI catalog unavailable. Error: {error}");
 
+    public static void AiCatalogLoaded(int modelCount, long durationMs)
+        => Info($"AI catalog loaded. Models: {modelCount}, Duration: {durationMs}ms");
+
     public static void AiModelUnloaded(string modelId)
         => Info($"AI model unloaded. Model: {modelId}");
+
+    public static void AiProcessTimeout(string command, int timeoutMs)
+        => Warn($"AI process timeout. Command: {command}, Timeout: {timeoutMs}ms");
+
+    public static void AiSharedModelAttempt(string alias, int devicesCovered, int devicesTotal)
+        => Info($"AI shared model attempt. Alias: {alias}, Coverage: {devicesCovered}/{devicesTotal}");
+
+    public static void AiPassStarted(string passName, int deviceCount)
+        => Info($"AI pass started. Pass: {passName}, Devices: {deviceCount}");
+
+    public static void AiPassCompleted(string passName, int successCount, int deviceCount)
+        => Info($"AI pass completed. Pass: {passName}, Success: {successCount}/{deviceCount}");
+
+    public static void AiBenchmarkDeviceStarted(string device, string modelId)
+        => Info($"AI benchmark device started. Device: {device}, Model: {modelId}");
+
+    public static void AiBenchmarkDeviceCompleted(string device, string modelId, long durationMs)
+        => Info($"AI benchmark device completed. Device: {device}, Model: {modelId}, Duration: {durationMs}ms");
+
+    public static void AiRelationDatasetLoaded(int memFiles, int aiFiles, int memSamples, int aiSamples)
+        => Info($"AI relation dataset loaded. MemFiles: {memFiles}, AiFiles: {aiFiles}, MemSamples: {memSamples}, AiSamples: {aiSamples}");
+
+    public static void AiRelationAutoEnabled(string reason)
+        => Info($"AI relation summary auto-enabled. Reason: {reason}");
+
+    public static void AiRelationSkipped(string reason)
+        => Info($"AI relation summary skipped. Reason: {reason}");
 
     // ── System info detection ─────────────────────────────────────────────
 

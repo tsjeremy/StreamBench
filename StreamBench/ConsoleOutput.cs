@@ -524,15 +524,15 @@ public static class ConsoleOutput
     /// <summary>
     /// Prints summary comparison tables for the two-pass AI benchmark.
     /// Pass 1: shared model comparison. Pass 2: best-per-device performance.
-    /// When a relation summary is provided, Q3 timing columns are included.
+    /// When a relation summary is provided, Q3 timing is shown as a separate line.
     /// </summary>
     public static void PrintAiSummary(
         AiBenchmarkTwoPassResult twoPassResult,
         AiLocalRelationSummaryResult? relationSummary = null)
     {
         // Find Q3 run from relation summary (index 3 = third question)
-        var q3Run = relationSummary?.Questions
-            .FirstOrDefault(q => q.Index == 3)?.Run;
+        var q3 = relationSummary?.Questions
+            .FirstOrDefault(q => q.Index == 3);
 
         // Pass 1: Shared model comparison
         if (twoPassResult.SharedResults.Count > 0)
@@ -543,7 +543,7 @@ public static class ConsoleOutput
             WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
             Console.WriteLine();
 
-            PrintAiComparisonTable(twoPassResult.SharedResults, q3Run);
+            PrintAiComparisonTable(twoPassResult.SharedResults);
         }
 
         // Pass 2: Best-per-device performance
@@ -566,14 +566,28 @@ public static class ConsoleOutput
                 WriteMarkup("[dim]  (All devices used the same model as Pass 1)[/]");
             Console.WriteLine();
 
-            PrintAiComparisonTable(twoPassResult.BestPerDeviceResults, q3Run: null);
+            PrintAiComparisonTable(twoPassResult.BestPerDeviceResults);
+        }
+
+        // Q3: Cross-device relation summary timing (shown as dedicated section)
+        if (q3?.Run is not null)
+        {
+            Console.WriteLine();
+            WriteMarkup("[bold cyan]── Q3 — Cross-Device Relation Analysis ──[/]");
+            WriteMarkup($"[dim]  Model: {relationSummary!.ModelAlias} (CPU)[/]");
+            WriteMarkup($"[bold green]  Response: {q3.Run.ResponseTimeSec:F3}s[/]  " +
+                $"[bold cyan]{q3.Run.TokensPerSecond:F1} tok/s[/]  " +
+                $"[white]{q3.Run.CompletionTokens} tokens[/]");
+            Console.WriteLine();
+            WriteMarkup($"[bold yellow]  Q3:[/] [white]{q3.Question}[/]");
+            WriteMultilineAnswer(q3.Answer);
+            Console.WriteLine();
         }
     }
 
-    /// <summary>Renders one AI device comparison table.</summary>
+    /// <summary>Renders one AI device comparison table (Q1/Q2 only).</summary>
     private static void PrintAiComparisonTable(
-        IReadOnlyList<AiDeviceBenchmarkResult> results,
-        AiInferenceRun? q3Run)
+        IReadOnlyList<AiDeviceBenchmarkResult> results)
     {
         if (results.Count == 0) return;
 
@@ -584,17 +598,10 @@ public static class ConsoleOutput
             .AddColumn("[white]Q1 Total (s)[/]",     14, rightAlign: true)
             .AddColumn("[bold cyan]Q1 Tok/s[/]",     10, rightAlign: true)
             .AddColumn("[white]Q2 Total (s)[/]",     14, rightAlign: true)
-            .AddColumn("[bold cyan]Q2 Tok/s[/]",     10, rightAlign: true)
-            .AddColumn("[white]Q3 Total (s)[/]",     14, rightAlign: true)
-            .AddColumn("[bold cyan]Q3 Tok/s[/]",     10, rightAlign: true);
+            .AddColumn("[bold cyan]Q2 Tok/s[/]",     10, rightAlign: true);
 
         foreach (var r in results)
         {
-            // Q3 is only available for CPU via the relation summary
-            bool isCpu = r.DeviceType.Equals("CPU", StringComparison.OrdinalIgnoreCase);
-            string q3Time = isCpu && q3Run is not null ? $"[bold green]{q3Run.ResponseTimeSec:F3}[/]" : "[dim]—[/]";
-            string q3Toks = isCpu && q3Run is not null ? $"[bold cyan]{q3Run.TokensPerSecond:F1}[/]" : "[dim]—[/]";
-
             table.AddRow(
                 $"[bold white]{r.DeviceType}[/]",
                 $"[dim]{r.ModelAlias}[/]",
@@ -602,9 +609,7 @@ public static class ConsoleOutput
                 $"[bold green]{r.Run1.TotalTimeSec:F3}[/]",
                 $"[bold cyan]{r.Run1.TokensPerSecond:F1}[/]",
                 $"[bold green]{r.Run2.ResponseTimeSec:F3}[/]",
-                $"[bold cyan]{r.Run2.TokensPerSecond:F1}[/]",
-                q3Time,
-                q3Toks);
+                $"[bold cyan]{r.Run2.TokensPerSecond:F1}[/]");
         }
 
         table.Render();

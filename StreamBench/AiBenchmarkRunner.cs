@@ -106,7 +106,8 @@ public static class AiBenchmarkRunner
     /// <summary>Finds the foundry CLI executable.</summary>
     private static string? FindFoundryCli()
     {
-        foreach (var name in new[] { "foundry", "foundrylocal" })
+        var triedNames = new[] { "foundry", "foundrylocal" };
+        foreach (var name in triedNames)
         {
             try
             {
@@ -120,10 +121,18 @@ public static class AiBenchmarkRunner
                 using var p = Process.Start(psi);
                 if (p is null) continue;
                 p.WaitForExit(5000);
-                if (p.ExitCode == 0) return name;
+                if (p.ExitCode == 0)
+                {
+                    TraceLog.AiCliFound(name);
+                    return name;
+                }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                TraceLog.DiagnosticInfo($"CLI probe failed for '{name}': {ex.Message}");
+            }
         }
+        TraceLog.AiCliNotFound(string.Join(", ", triedNames));
         return null;
     }
 
@@ -154,7 +163,9 @@ public static class AiBenchmarkRunner
         }
         catch (OperationCanceledException)
         {
-            try { process.Kill(entireProcessTree: true); } catch { }
+            TraceLog.AiProcessTimeout($"{cli} {arguments}", timeoutMs);
+            try { process.Kill(entireProcessTree: true); }
+            catch (Exception ex) { TraceLog.DiagnosticInfo($"Process kill failed: {ex.Message}"); }
             return (-1, "", "Timeout waiting for foundry CLI");
         }
 
@@ -231,7 +242,9 @@ public static class AiBenchmarkRunner
     {
         try
         {
+            TraceLog.AiServiceStopping();
             await RunFoundryAsync(cli, "service stop", 15_000);
+            TraceLog.AiServiceStopped();
         }
         catch (Exception ex)
         {
@@ -253,6 +266,7 @@ public static class AiBenchmarkRunner
     /// <summary>Lists all available models from the foundry catalog.</summary>
     private static async Task<List<FoundryModel>> ListModelsAsync(string cli)
     {
+        var sw = Stopwatch.StartNew();
         var models = new List<FoundryModel>();
 
         // Try JSON output first
@@ -261,16 +275,23 @@ public static class AiBenchmarkRunner
         {
             var jsonModels = TryParseModelListJson(stdout);
             if (jsonModels.Count > 0)
+            {
+                TraceLog.AiCatalogLoaded(jsonModels.Count, sw.ElapsedMilliseconds);
                 return jsonModels;
+            }
+            TraceLog.DiagnosticInfo("JSON model list parse returned 0 models; falling back to text format");
         }
 
         // Fallback: parse text output
         (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list", 180_000);
         if (exitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
         {
-            return ParseModelListText(stdout);
+            models = ParseModelListText(stdout);
+            TraceLog.AiCatalogLoaded(models.Count, sw.ElapsedMilliseconds);
+            return models;
         }
 
+        TraceLog.AiCatalogUnavailable($"model list failed (exit={exitCode})");
         return models;
     }
 
@@ -424,7 +445,8 @@ public static class AiBenchmarkRunner
     }
 
     /// <summary>Loads a model via foundry CLI. Downloads first if not cached.</summary>
-    private static async Task<bool> LoadModelAsync(string cli, string modelId, int timeoutMs = 300_000)
+    private static async Task<bool> LoadModelAsync(string cli, string modelId,
+        bool noDownload = false, int timeoutMs = 300_000)
     {
         TraceLog.AiModelLoading(modelId, "");
 
@@ -441,18 +463,29 @@ public static class AiBenchmarkRunner
         if (combined.Contains("not found locally") || combined.Contains("download")
             || combined.Contains("bad request") || combined.Contains("not cached"))
         {
-            ConsoleOutput.WriteMarkup($"[dim]  Model not cached — downloading {modelId}...[/]");
-            TraceLog.DiagnosticInfo($"Model not cached, downloading: {modelId}");
+            if (noDownload)
+            {
+                TraceLog.AiModelDownloadSkipped(modelId, "");
+                ConsoleOutput.WriteMarkup($"[yellow][SKIP][/] Model not cached and --ai-no-download is set: {modelId}");
+                return false;
+            }
 
+            ConsoleOutput.WriteMarkup($"[dim]  Model not cached — downloading {modelId}...[/]");
+            TraceLog.AiModelDownloadStarted(modelId, 0);
+
+            var dlSw = Stopwatch.StartNew();
             var (dlExit, _, dlErr) = await RunFoundryAsync(cli, $"model download \"{modelId}\"", 600_000);
+            dlSw.Stop();
+
             if (dlExit != 0)
             {
-                TraceLog.AiModelLoadFailed(modelId, $"Download failed: {dlErr}", "AiBenchmarkRunner.cs", 0);
+                TraceLog.AiModelDownloadFailed(modelId, dlErr);
                 ConsoleOutput.WriteMarkup($"[red]  Download failed for {modelId}[/]");
                 return false;
             }
 
-            ConsoleOutput.WriteMarkup($"[dim]  Download complete — loading {modelId}...[/]");
+            TraceLog.AiModelDownloadCompleted(modelId, dlSw.ElapsedMilliseconds);
+            ConsoleOutput.WriteMarkup($"[dim]  Download complete ({dlSw.Elapsed.TotalSeconds:F1}s) — loading {modelId}...[/]");
 
             // Retry load after download
             (exitCode, _, stderr) = await RunFoundryAsync(cli, $"model load \"{modelId}\"", timeoutMs);
@@ -514,11 +547,13 @@ public static class AiBenchmarkRunner
     /// Runs the AI inference benchmark on the requested device(s).
     /// Returns a two-pass result: shared model comparison + best-per-device performance.
     /// When sharedOnly is true, the best-per-device pass is skipped.
+    /// When noDownload is true, only already-cached models are used.
     /// </summary>
     public static async Task<AiBenchmarkTwoPassResult> RunAsync(
         IEnumerable<string>? devices = null,
         string? modelAlias = null,
         bool sharedOnly = false,
+        bool noDownload = false,
         CancellationToken cancellationToken = default)
     {
         var sharedResults = new List<AiDeviceBenchmarkResult>();
@@ -557,6 +592,7 @@ public static class AiBenchmarkRunner
             }
 
             var targetDevices = ParseDeviceFilter(devices);
+            TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, sharedOnly: {sharedOnly}");
             string? effectiveAlias = modelAlias;
             bool strictAlias = false;
 
@@ -564,9 +600,11 @@ public static class AiBenchmarkRunner
             if (string.IsNullOrWhiteSpace(effectiveAlias) && targetDevices.Count > 1)
             {
                 var sharedCandidates = SelectSharedAliasCandidates(allModels, targetDevices);
+                TraceLog.DiagnosticInfo($"Shared model candidates: {string.Join(", ", sharedCandidates)}");
                 if (sharedCandidates.Count > 0)
                 {
                     strictAlias = true;
+                    TraceLog.AiPassStarted("shared", targetDevices.Count);
 
                     int bestSuccessCount = -1;
                     List<AiDeviceBenchmarkResult> bestAttemptResults = [];
@@ -584,23 +622,30 @@ public static class AiBenchmarkRunner
                             var model = FindBestModel(allModels, deviceType, sharedAlias, strictAlias);
                             if (model is null)
                             {
+                                TraceLog.DiagnosticInfo($"Shared alias '{sharedAlias}' not available for {deviceType}");
                                 ConsoleOutput.WriteMarkup(
                                     $"[yellow][SKIP][/] Shared alias [white]{sharedAlias}[/] not available for [white]{deviceType}[/].");
                                 continue;
                             }
 
                             Console.WriteLine();
+                            TraceLog.AiBenchmarkDeviceStarted(deviceType, model.Id);
                             ConsoleOutput.WriteMarkup(
                                 $"[bold cyan]── Pass 1: AI Benchmark: {deviceType} ({model.Id}) ──[/]");
 
+                            var devSw = Stopwatch.StartNew();
                             var result = await BenchmarkModelAsync(
-                                cli, serviceUrl, model, deviceType, cancellationToken);
+                                cli, serviceUrl, model, deviceType, noDownload, cancellationToken);
+                            devSw.Stop();
                             if (result is not null)
                             {
                                 attemptResults.Add(result with { BenchmarkPass = "shared" });
                                 successCount++;
+                                TraceLog.AiBenchmarkDeviceCompleted(deviceType, model.Id, devSw.ElapsedMilliseconds);
                             }
                         }
+
+                        TraceLog.AiSharedModelAttempt(sharedAlias, successCount, targetDevices.Count);
 
                         if (successCount > bestSuccessCount)
                         {
@@ -611,6 +656,7 @@ public static class AiBenchmarkRunner
                         if (successCount == targetDevices.Count)
                         {
                             sharedResults = attemptResults;
+                            TraceLog.AiPassCompleted("shared", successCount, targetDevices.Count);
                             break;
                         }
 
@@ -620,13 +666,16 @@ public static class AiBenchmarkRunner
 
                     if (sharedResults.Count == 0 && bestAttemptResults.Count > 0)
                     {
+                        TraceLog.DiagnosticInfo($"No full coverage; using best partial: {bestAttemptResults.Count}/{targetDevices.Count}");
                         ConsoleOutput.WriteMarkup(
                             $"[yellow][WARN][/] No single shared model covered all selected devices; using best coverage [white]{bestAttemptResults.Count}/{targetDevices.Count}[/].");
                         sharedResults = bestAttemptResults;
+                        TraceLog.AiPassCompleted("shared", bestAttemptResults.Count, targetDevices.Count);
                     }
 
                     if (sharedResults.Count == 0)
                     {
+                        TraceLog.Warn("No shared alias produced results; falling back to per-device defaults");
                         ConsoleOutput.WriteMarkup(
                             "[yellow][WARN][/] No shared alias produced successful results; falling back to per-device defaults.");
                         strictAlias = false;
@@ -635,6 +684,7 @@ public static class AiBenchmarkRunner
                 }
                 else
                 {
+                    TraceLog.Warn("No shared alias candidates found; using per-device defaults");
                     ConsoleOutput.WriteMarkup(
                         "[yellow][WARN][/] No shared alias found across selected devices; using per-device defaults.");
                 }
@@ -648,25 +698,34 @@ public static class AiBenchmarkRunner
             // run per-device as the primary pass and tag as "shared" for compatibility
             if (sharedResults.Count == 0)
             {
+                TraceLog.AiPassStarted("per-device-fallback", targetDevices.Count);
                 foreach (var deviceType in targetDevices)
                 {
                     var model = FindBestModel(allModels, deviceType, effectiveAlias, strictAlias);
                     if (model is null)
                     {
+                        TraceLog.DiagnosticInfo($"No model available for {deviceType}");
                         ConsoleOutput.WriteMarkup(
                             $"[yellow][SKIP][/] No model available for [white]{deviceType}[/].");
                         continue;
                     }
 
                     Console.WriteLine();
+                    TraceLog.AiBenchmarkDeviceStarted(deviceType, model.Id);
                     ConsoleOutput.WriteMarkup(
                         $"[bold cyan]── AI Benchmark: {deviceType} ({model.Id}) ──[/]");
 
+                    var devSw = Stopwatch.StartNew();
                     var result = await BenchmarkModelAsync(
-                        cli, serviceUrl, model, deviceType, cancellationToken);
+                        cli, serviceUrl, model, deviceType, noDownload, cancellationToken);
+                    devSw.Stop();
                     if (result is not null)
+                    {
                         sharedResults.Add(result with { BenchmarkPass = "shared" });
+                        TraceLog.AiBenchmarkDeviceCompleted(deviceType, model.Id, devSw.ElapsedMilliseconds);
+                    }
                 }
+                TraceLog.AiPassCompleted("per-device-fallback", sharedResults.Count, targetDevices.Count);
             }
 
             // ── Pass 2: Best-per-device performance ──
@@ -676,6 +735,7 @@ public static class AiBenchmarkRunner
                 ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
                 ConsoleOutput.WriteMarkup("[bold cyan]  Pass 2 — Best-Per-Device Performance[/]");
                 ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+                TraceLog.AiPassStarted("best-per-device", targetDevices.Count);
 
                 // Build a set of model IDs used in shared pass per device
                 var sharedModelByDevice = sharedResults
@@ -687,6 +747,7 @@ public static class AiBenchmarkRunner
                     var bestModel = FindBestModel(allModels, deviceType, aliasHint: null, strictAlias: false);
                     if (bestModel is null)
                     {
+                        TraceLog.DiagnosticInfo($"No model for {deviceType} in best-per-device pass");
                         ConsoleOutput.WriteMarkup(
                             $"[yellow][SKIP][/] No model available for [white]{deviceType}[/] in best-per-device pass.");
                         continue;
@@ -699,20 +760,28 @@ public static class AiBenchmarkRunner
                         var sharedResult = sharedResults.First(
                             r => r.DeviceType.Equals(deviceType, StringComparison.OrdinalIgnoreCase));
                         bestPerDeviceResults.Add(sharedResult with { BenchmarkPass = "best_per_device" });
+                        TraceLog.DiagnosticInfo($"{deviceType}: best model same as shared ({bestModel.Alias}), reusing");
                         ConsoleOutput.WriteMarkup(
                             $"[dim]  {deviceType}: best model same as shared ({bestModel.Alias}) — reusing result[/]");
                         continue;
                     }
 
                     Console.WriteLine();
+                    TraceLog.AiBenchmarkDeviceStarted(deviceType, bestModel.Id);
                     ConsoleOutput.WriteMarkup(
                         $"[bold cyan]── Pass 2: AI Benchmark: {deviceType} ({bestModel.Id}) ──[/]");
 
+                    var devSw = Stopwatch.StartNew();
                     var result = await BenchmarkModelAsync(
-                        cli, serviceUrl, bestModel, deviceType, cancellationToken);
+                        cli, serviceUrl, bestModel, deviceType, noDownload, cancellationToken);
+                    devSw.Stop();
                     if (result is not null)
+                    {
                         bestPerDeviceResults.Add(result with { BenchmarkPass = "best_per_device" });
+                        TraceLog.AiBenchmarkDeviceCompleted(deviceType, bestModel.Id, devSw.ElapsedMilliseconds);
+                    }
                 }
+                TraceLog.AiPassCompleted("best-per-device", bestPerDeviceResults.Count, targetDevices.Count);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -864,12 +933,12 @@ public static class AiBenchmarkRunner
 
     private static async Task<AiDeviceBenchmarkResult?> BenchmarkModelAsync(
         string cli, string serviceUrl, FoundryModel model,
-        string deviceLabel, CancellationToken ct)
+        string deviceLabel, bool noDownload, CancellationToken ct)
     {
         // Load model
         ConsoleOutput.WriteMarkup("[dim]  Loading model...[/]");
         var loadSw = Stopwatch.StartNew();
-        if (!await LoadModelAsync(cli, model.Id))
+        if (!await LoadModelAsync(cli, model.Id, noDownload))
         {
             ConsoleOutput.WriteMarkup($"[red]  Failed to load {model.Id}[/]");
             return null;
@@ -1034,7 +1103,11 @@ public static class AiBenchmarkRunner
                 (c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
                     || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
                     || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase)));
-            if (cachedPreferred is not null) return cachedPreferred;
+            if (cachedPreferred is not null)
+            {
+                TraceLog.AiModelSelected(cachedPreferred.Id, cachedPreferred.Alias, deviceLabel, "cached preferred");
+                return cachedPreferred;
+            }
         }
 
         // 2. Any cached model for this device (prefer smaller model)
@@ -1042,7 +1115,11 @@ public static class AiBenchmarkRunner
             .Where(c => c.IsCached)
             .OrderBy(c => c.FileSizeMb > 0 ? c.FileSizeMb : double.MaxValue)
             .FirstOrDefault();
-        if (anyCached is not null) return anyCached;
+        if (anyCached is not null)
+        {
+            TraceLog.AiModelSelected(anyCached.Id, anyCached.Alias, deviceLabel, "cached smallest");
+            return anyCached;
+        }
 
         // 3. Preferred aliases in configured order (download if needed)
         foreach (var alias in preferredAliases)
@@ -1051,13 +1128,20 @@ public static class AiBenchmarkRunner
                 c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
                     || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
                     || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase));
-            if (v is not null) return v;
+            if (v is not null)
+            {
+                TraceLog.AiModelSelected(v.Id, v.Alias, deviceLabel, "preferred uncached");
+                return v;
+            }
         }
 
         // 4. Smallest available model
-        return candidates
+        var smallest = candidates
             .OrderBy(c => c.FileSizeMb > 0 ? c.FileSizeMb : double.MaxValue)
             .FirstOrDefault();
+        if (smallest is not null)
+            TraceLog.AiModelSelected(smallest.Id, smallest.Alias, deviceLabel, "smallest available");
+        return smallest;
     }
 
     private static IReadOnlyList<string> GetPreferredAliases(string deviceLabel) =>
@@ -1083,11 +1167,16 @@ public static class AiBenchmarkRunner
             .Select(g =>
             {
                 var deviceSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                int cachedForTarget = 0;
                 foreach (var m in g)
+                {
                     deviceSet.Add(m.DeviceType.ToUpperInvariant());
+                    if (m.IsCached && targetSet.Contains(m.DeviceType.ToUpperInvariant()))
+                        cachedForTarget++;
+                }
 
                 int coverage = deviceSet.Count(d => targetSet.Contains(d));
-                return new { Alias = g.Key, Coverage = coverage, Devices = deviceSet };
+                return new { Alias = g.Key, Coverage = coverage, CachedForTarget = cachedForTarget, Devices = deviceSet };
             })
             .Where(x => x.Coverage > 0)
             .ToList();
@@ -1102,8 +1191,10 @@ public static class AiBenchmarkRunner
             return idx < 0 ? int.MaxValue : idx;
         }
 
+        // Sort: highest coverage first, then most cached variants, then priority order
         return byAlias
             .OrderByDescending(x => x.Coverage)
+            .ThenByDescending(x => x.CachedForTarget)
             .ThenBy(x => PriorityIndex(x.Alias))
             .ThenBy(x => x.Alias, StringComparer.OrdinalIgnoreCase)
             .Select(x => x.Alias)
@@ -1142,7 +1233,10 @@ public static class AiBenchmarkRunner
         var aiSamples = new List<AiSample>();
 
         if (!Directory.Exists(directoryPath))
+        {
+            TraceLog.DiagnosticInfo($"Relation dataset directory does not exist: {directoryPath}");
             return new LocalRelationDataset(memoryFileCount, aiFileCount, memorySamples, aiSamples);
+        }
 
         try
         {
@@ -1167,6 +1261,7 @@ public static class AiBenchmarkRunner
             DiagnosticHelper.LogWarning($"Error enumerating JSON files in {directoryPath}: {ex.Message}");
         }
 
+        TraceLog.AiRelationDatasetLoaded(memoryFileCount, aiFileCount, memorySamples.Count, aiSamples.Count);
         return new LocalRelationDataset(memoryFileCount, aiFileCount, memorySamples, aiSamples);
     }
 
