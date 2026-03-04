@@ -522,24 +522,60 @@ public static class ConsoleOutput
     }
 
     /// <summary>
-    /// Prints a summary comparison table across all benchmarked devices.
+    /// Prints summary comparison tables for the two-pass AI benchmark.
+    /// Pass 1: shared model comparison. Pass 2: best-per-device performance.
     /// When a relation summary is provided, Q3 timing columns are included.
     /// </summary>
     public static void PrintAiSummary(
-        IReadOnlyList<StreamBench.Models.AiDeviceBenchmarkResult> results,
+        AiBenchmarkTwoPassResult twoPassResult,
         AiLocalRelationSummaryResult? relationSummary = null)
     {
-        if (results.Count == 0) return;
-
         // Find Q3 run from relation summary (index 3 = third question)
         var q3Run = relationSummary?.Questions
             .FirstOrDefault(q => q.Index == 3)?.Run;
 
-        Console.WriteLine();
-        WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-        WriteMarkup("[bold cyan]  AI Inference Benchmark Summary — Device Comparison[/]");
-        WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-        Console.WriteLine();
+        // Pass 1: Shared model comparison
+        if (twoPassResult.SharedResults.Count > 0)
+        {
+            Console.WriteLine();
+            WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+            WriteMarkup("[bold cyan]  Pass 1 — Shared Model Device Comparison[/]");
+            WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+            Console.WriteLine();
+
+            PrintAiComparisonTable(twoPassResult.SharedResults, q3Run);
+        }
+
+        // Pass 2: Best-per-device performance
+        if (twoPassResult.BestPerDeviceResults.Count > 0)
+        {
+            // Check if any model actually differs from the shared pass
+            bool hasDifferentModels = twoPassResult.SharedResults.Count > 0
+                && twoPassResult.BestPerDeviceResults.Any(bpd =>
+                {
+                    var shared = twoPassResult.SharedResults.FirstOrDefault(
+                        s => s.DeviceType.Equals(bpd.DeviceType, StringComparison.OrdinalIgnoreCase));
+                    return shared is null || !shared.ModelId.Equals(bpd.ModelId, StringComparison.OrdinalIgnoreCase);
+                });
+
+            Console.WriteLine();
+            WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+            WriteMarkup("[bold cyan]  Pass 2 — Best-Per-Device Performance[/]");
+            WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+            if (!hasDifferentModels)
+                WriteMarkup("[dim]  (All devices used the same model as Pass 1)[/]");
+            Console.WriteLine();
+
+            PrintAiComparisonTable(twoPassResult.BestPerDeviceResults, q3Run: null);
+        }
+    }
+
+    /// <summary>Renders one AI device comparison table.</summary>
+    private static void PrintAiComparisonTable(
+        IReadOnlyList<AiDeviceBenchmarkResult> results,
+        AiInferenceRun? q3Run)
+    {
+        if (results.Count == 0) return;
 
         var table = new SimpleTable("[bold white]Device Comparison[/]")
             .AddColumn("[bold white]Device[/]",     8)

@@ -109,10 +109,13 @@ public static class ResultSaver
     /// Returns the path written, or null on failure.
     /// </summary>
     public static string? SaveAiJson(
-        IReadOnlyList<StreamBench.Models.AiDeviceBenchmarkResult> results,
+        AiBenchmarkTwoPassResult twoPassResult,
         string? outputDir = null)
     {
-        if (results.Count == 0) return null;
+        var allResults = twoPassResult.SharedResults
+            .Concat(twoPassResult.BestPerDeviceResults)
+            .ToList();
+        if (allResults.Count == 0) return null;
 
         string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
         string name = $"ai_inference_benchmark_{timestamp}.json";
@@ -120,7 +123,7 @@ public static class ResultSaver
 
         try
         {
-            string json = JsonSerializer.Serialize(results, PrettyJson);
+            string json = JsonSerializer.Serialize(twoPassResult, PrettyJson);
             File.WriteAllText(filename, json,
                 new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             TraceLog.FileSaved(filename);

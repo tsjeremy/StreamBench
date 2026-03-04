@@ -4,7 +4,8 @@
 //   StreamBench [--cpu] [--gpu] [--gpu-device N] [--array-size N] [--ntimes N]
 //               [--range START:END:STEP] [--no-save] [--output-dir DIR]
 //               [--exe PATH]
-//               [--ai] [--ai-device cpu|gpu|npu] [--ai-model ALIAS] [--ai-local-summary]
+//               [--ai] [--ai-device cpu|gpu|npu] [--ai-model ALIAS]
+//               [--ai-local-summary] [--ai-shared-only]
 //
 // If neither --cpu nor --gpu is specified, both benchmarks run automatically
 // and all available GPUs are benchmarked.
@@ -70,6 +71,7 @@ async Task<int> RunMainAsync(string[] args)
     bool   modeSet    = false;   // true if user explicitly passed --cpu or --gpu
     bool   wantAi     = false;   // --ai flag
     bool   aiLocalSummary = false; // --ai-local-summary
+    bool   aiSharedOnly = false; // --ai-shared-only (skip best-per-device pass)
     string? aiModel   = null;    // --ai-model ALIAS
     string? aiDevices = null;    // --ai-device cpu,gpu,npu (comma-separated)
     long?  arraySize  = null;
@@ -89,6 +91,7 @@ async Task<int> RunMainAsync(string[] args)
                 case "--gpu":   wantGpu = true; modeSet = true; break;
                 case "--ai":    wantAi  = true; break;
                 case "--ai-local-summary": aiLocalSummary = true; break;
+                case "--ai-shared-only": aiSharedOnly = true; break;
                 case "--no-save": noSave = true; break;
 
                 case "--ai-model" when i + 1 < args.Length:
@@ -194,7 +197,7 @@ async Task<int> RunMainAsync(string[] args)
     {
 #if ENABLE_AI
         if (wantCpu || wantGpu) Console.WriteLine();
-        int aiCode = await RunAiBenchmarkAsync(aiDevices, aiModel, noSave, outputDir, aiLocalSummary);
+        int aiCode = await RunAiBenchmarkAsync(aiDevices, aiModel, noSave, outputDir, aiLocalSummary, aiSharedOnly);
         if (aiCode != 0)
         {
             // AI failure is non-fatal when CPU/GPU benchmarks already ran successfully
@@ -445,7 +448,8 @@ async Task<int> RunMainAsync(string[] args)
 // ── AI inference benchmark ─────────────────────────────────────────────
 #if ENABLE_AI
 async Task<int> RunAiBenchmarkAsync(
-    string? deviceArg, string? modelAlias, bool noSave, string? outputDir, bool includeLocalSummary)
+    string? deviceArg, string? modelAlias, bool noSave, string? outputDir,
+    bool includeLocalSummary, bool sharedOnly)
 {
     // Parse comma-separated device list (e.g. "cpu,gpu,npu" or "npu")
     IEnumerable<string>? deviceFilter = null;
@@ -462,10 +466,10 @@ async Task<int> RunAiBenchmarkAsync(
     ConsoleOutput.WriteMarkup($"[dim]  Q1 (cold): {AiBenchmarkRunner.Q1}[/]");
     ConsoleOutput.WriteMarkup($"[dim]  Q2 (warm): {AiBenchmarkRunner.Q2}[/]");
 
-    List<AiDeviceBenchmarkResult> results;
+    AiBenchmarkTwoPassResult twoPassResult;
     try
     {
-        results = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias);
+        twoPassResult = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias, sharedOnly);
     }
     catch (Exception ex)
     {
@@ -477,7 +481,11 @@ async Task<int> RunAiBenchmarkAsync(
         return 1;
     }
 
-    if (results.Count == 0)
+    var allResults = twoPassResult.SharedResults
+        .Concat(twoPassResult.BestPerDeviceResults)
+        .ToList();
+
+    if (allResults.Count == 0)
     {
         ConsoleOutput.WriteMarkup("[yellow][WARN][/] No AI benchmark results were produced.");
         ConsoleOutput.WriteMarkup("[dim]  Ensure Microsoft AI Foundry Local is installed:[/]");
@@ -486,13 +494,13 @@ async Task<int> RunAiBenchmarkAsync(
         return 1;
     }
 
-    foreach (var r in results)
+    foreach (var r in allResults.DistinctBy(r => (r.DeviceType, r.ModelId)))
         ConsoleOutput.PrintAiResult(r);
 
     if (!noSave)
     {
         ConsoleOutput.WriteMarkup("[bold white]Saving AI benchmark results...[/]");
-        var jsonPath = ResultSaver.SaveAiJson(results, outputDir);
+        var jsonPath = ResultSaver.SaveAiJson(twoPassResult, outputDir);
         if (jsonPath is not null) ConsoleOutput.PrintFileSaved(jsonPath);
         Console.WriteLine();
     }
@@ -519,7 +527,7 @@ async Task<int> RunAiBenchmarkAsync(
     }
 
     // Print Device Comparison after relation summary so Q3 data is available
-    ConsoleOutput.PrintAiSummary(results, relationSummary);
+    ConsoleOutput.PrintAiSummary(twoPassResult, relationSummary);
 
     if (relationSummary is not null)
     {
@@ -570,6 +578,7 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-local-summary[/]       Add Q3 local-JSON summary (Q1/Q2 remain benchmark prompts)");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-shared-only[/]        Skip best-per-device pass (shared model comparison only)");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Diagnostics:[/]");

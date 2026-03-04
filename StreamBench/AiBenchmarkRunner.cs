@@ -512,21 +512,24 @@ public static class AiBenchmarkRunner
 
     /// <summary>
     /// Runs the AI inference benchmark on the requested device(s).
-    /// Returns one result per successfully benchmarked device.
+    /// Returns a two-pass result: shared model comparison + best-per-device performance.
+    /// When sharedOnly is true, the best-per-device pass is skipped.
     /// </summary>
-    public static async Task<List<AiDeviceBenchmarkResult>> RunAsync(
+    public static async Task<AiBenchmarkTwoPassResult> RunAsync(
         IEnumerable<string>? devices = null,
         string? modelAlias = null,
+        bool sharedOnly = false,
         CancellationToken cancellationToken = default)
     {
-        var results = new List<AiDeviceBenchmarkResult>();
+        var sharedResults = new List<AiDeviceBenchmarkResult>();
+        var bestPerDeviceResults = new List<AiDeviceBenchmarkResult>();
 
         string? cli = FindFoundryCli();
         if (cli is null)
         {
             ConsoleOutput.WriteMarkup("[red][FAIL][/] Foundry Local CLI not found (foundry / foundrylocal).");
             ConsoleOutput.WriteMarkup("[dim]  Install: winget install Microsoft.FoundryLocal[/]");
-            return results;
+            return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
         }
 
         string? serviceUrl = await StartServiceAsync(cli);
@@ -534,7 +537,7 @@ public static class AiBenchmarkRunner
         {
             ConsoleOutput.WriteMarkup("[red][FAIL][/] Cannot start Foundry Local service.");
             ConsoleOutput.WriteMarkup("[dim]  Try: foundry service start[/]");
-            return results;
+            return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
         }
 
         TraceLog.DiagnosticInfo($"Foundry service URL: {serviceUrl}");
@@ -550,14 +553,14 @@ public static class AiBenchmarkRunner
                 TraceLog.AiCatalogUnavailable("No models found in catalog");
                 ConsoleOutput.WriteMarkup("[yellow][WARN][/] No models found in catalog. " +
                     "Ensure Foundry Local is installed and models are downloaded.");
-                return results;
+                return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
             }
 
             var targetDevices = ParseDeviceFilter(devices);
             string? effectiveAlias = modelAlias;
             bool strictAlias = false;
 
-            // Multi-device side-by-side comparison with shared model
+            // ── Pass 1: Multi-device side-by-side comparison with shared model ──
             if (string.IsNullOrWhiteSpace(effectiveAlias) && targetDevices.Count > 1)
             {
                 var sharedCandidates = SelectSharedAliasCandidates(allModels, targetDevices);
@@ -571,7 +574,7 @@ public static class AiBenchmarkRunner
                     foreach (var sharedAlias in sharedCandidates)
                     {
                         ConsoleOutput.WriteMarkup(
-                            $"[bold cyan]Trying shared model alias for side-by-side comparison:[/] [white]{sharedAlias}[/]");
+                            $"[bold cyan]Pass 1 — Trying shared model for side-by-side comparison:[/] [white]{sharedAlias}[/]");
 
                         var attemptResults = new List<AiDeviceBenchmarkResult>();
                         int successCount = 0;
@@ -588,13 +591,13 @@ public static class AiBenchmarkRunner
 
                             Console.WriteLine();
                             ConsoleOutput.WriteMarkup(
-                                $"[bold cyan]── AI Benchmark: {deviceType} ({model.Id}) ──[/]");
+                                $"[bold cyan]── Pass 1: AI Benchmark: {deviceType} ({model.Id}) ──[/]");
 
                             var result = await BenchmarkModelAsync(
                                 cli, serviceUrl, model, deviceType, cancellationToken);
                             if (result is not null)
                             {
-                                attemptResults.Add(result);
+                                attemptResults.Add(result with { BenchmarkPass = "shared" });
                                 successCount++;
                             }
                         }
@@ -606,23 +609,29 @@ public static class AiBenchmarkRunner
                         }
 
                         if (successCount == targetDevices.Count)
-                            return attemptResults;
+                        {
+                            sharedResults = attemptResults;
+                            break;
+                        }
 
                         ConsoleOutput.WriteMarkup(
-                            $"[yellow][WARN][/] Shared alias [white]{sharedAlias}[/] covered [white]{successCount}/{targetDevices.Count}[/] devices; trying next candidate.[/]");
+                            $"[yellow][WARN][/] Shared alias [white]{sharedAlias}[/] covered [white]{successCount}/{targetDevices.Count}[/] devices; trying next candidate.");
                     }
 
-                    if (bestAttemptResults.Count > 0)
+                    if (sharedResults.Count == 0 && bestAttemptResults.Count > 0)
                     {
                         ConsoleOutput.WriteMarkup(
-                            $"[yellow][WARN][/] No single shared model covered all selected devices; returning best coverage result [white]{bestAttemptResults.Count}/{targetDevices.Count}[/].");
-                        return bestAttemptResults;
+                            $"[yellow][WARN][/] No single shared model covered all selected devices; using best coverage [white]{bestAttemptResults.Count}/{targetDevices.Count}[/].");
+                        sharedResults = bestAttemptResults;
                     }
 
-                    ConsoleOutput.WriteMarkup(
-                        "[yellow][WARN][/] No shared alias produced successful results; falling back to per-device defaults.");
-                    strictAlias = false;
-                    effectiveAlias = null;
+                    if (sharedResults.Count == 0)
+                    {
+                        ConsoleOutput.WriteMarkup(
+                            "[yellow][WARN][/] No shared alias produced successful results; falling back to per-device defaults.");
+                        strictAlias = false;
+                        effectiveAlias = null;
+                    }
                 }
                 else
                 {
@@ -635,24 +644,75 @@ public static class AiBenchmarkRunner
                 strictAlias = true;
             }
 
-            foreach (var deviceType in targetDevices)
+            // If shared pass didn't produce results (single device or no shared model),
+            // run per-device as the primary pass and tag as "shared" for compatibility
+            if (sharedResults.Count == 0)
             {
-                var model = FindBestModel(allModels, deviceType, effectiveAlias, strictAlias);
-                if (model is null)
+                foreach (var deviceType in targetDevices)
                 {
+                    var model = FindBestModel(allModels, deviceType, effectiveAlias, strictAlias);
+                    if (model is null)
+                    {
+                        ConsoleOutput.WriteMarkup(
+                            $"[yellow][SKIP][/] No model available for [white]{deviceType}[/].");
+                        continue;
+                    }
+
+                    Console.WriteLine();
                     ConsoleOutput.WriteMarkup(
-                        $"[yellow][SKIP][/] No model available for [white]{deviceType}[/].");
-                    continue;
+                        $"[bold cyan]── AI Benchmark: {deviceType} ({model.Id}) ──[/]");
+
+                    var result = await BenchmarkModelAsync(
+                        cli, serviceUrl, model, deviceType, cancellationToken);
+                    if (result is not null)
+                        sharedResults.Add(result with { BenchmarkPass = "shared" });
                 }
+            }
 
+            // ── Pass 2: Best-per-device performance ──
+            if (!sharedOnly && targetDevices.Count > 1 && sharedResults.Count > 0)
+            {
                 Console.WriteLine();
-                ConsoleOutput.WriteMarkup(
-                    $"[bold cyan]── AI Benchmark: {deviceType} ({model.Id}) ──[/]");
+                ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+                ConsoleOutput.WriteMarkup("[bold cyan]  Pass 2 — Best-Per-Device Performance[/]");
+                ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
 
-                var result = await BenchmarkModelAsync(
-                    cli, serviceUrl, model, deviceType, cancellationToken);
-                if (result is not null)
-                    results.Add(result);
+                // Build a set of model IDs used in shared pass per device
+                var sharedModelByDevice = sharedResults
+                    .ToDictionary(r => r.DeviceType, r => r.ModelId, StringComparer.OrdinalIgnoreCase);
+
+                foreach (var deviceType in targetDevices)
+                {
+                    // Find this device's best model (no alias constraint)
+                    var bestModel = FindBestModel(allModels, deviceType, aliasHint: null, strictAlias: false);
+                    if (bestModel is null)
+                    {
+                        ConsoleOutput.WriteMarkup(
+                            $"[yellow][SKIP][/] No model available for [white]{deviceType}[/] in best-per-device pass.");
+                        continue;
+                    }
+
+                    // If the best model is the same as the shared model, reuse the result
+                    if (sharedModelByDevice.TryGetValue(deviceType, out var sharedModelId)
+                        && bestModel.Id.Equals(sharedModelId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var sharedResult = sharedResults.First(
+                            r => r.DeviceType.Equals(deviceType, StringComparison.OrdinalIgnoreCase));
+                        bestPerDeviceResults.Add(sharedResult with { BenchmarkPass = "best_per_device" });
+                        ConsoleOutput.WriteMarkup(
+                            $"[dim]  {deviceType}: best model same as shared ({bestModel.Alias}) — reusing result[/]");
+                        continue;
+                    }
+
+                    Console.WriteLine();
+                    ConsoleOutput.WriteMarkup(
+                        $"[bold cyan]── Pass 2: AI Benchmark: {deviceType} ({bestModel.Id}) ──[/]");
+
+                    var result = await BenchmarkModelAsync(
+                        cli, serviceUrl, bestModel, deviceType, cancellationToken);
+                    if (result is not null)
+                        bestPerDeviceResults.Add(result with { BenchmarkPass = "best_per_device" });
+                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -666,7 +726,7 @@ public static class AiBenchmarkRunner
             await StopServiceAsync(cli);
         }
 
-        return results;
+        return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
     }
 
     /// <summary>

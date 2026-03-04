@@ -31,7 +31,16 @@ public record AiDeviceBenchmarkResult(
     [property: JsonPropertyName("run1")]                AiInferenceRun Run1,
     [property: JsonPropertyName("question2")]           string Question2,
     [property: JsonPropertyName("run2")]                AiInferenceRun Run2,
-    [property: JsonPropertyName("timestamp")]           string Timestamp
+    [property: JsonPropertyName("timestamp")]           string Timestamp,
+    [property: JsonPropertyName("benchmark_pass")]      string BenchmarkPass = "shared"
+);
+
+/// <summary>
+/// Two-pass AI benchmark result: shared model + best-per-device.
+/// </summary>
+public record AiBenchmarkTwoPassResult(
+    [property: JsonPropertyName("shared_results")]          List<AiDeviceBenchmarkResult> SharedResults,
+    [property: JsonPropertyName("best_per_device_results")] List<AiDeviceBenchmarkResult> BestPerDeviceResults
 );
 
 /// <summary>
