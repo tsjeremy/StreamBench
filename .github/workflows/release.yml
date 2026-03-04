@@ -4,6 +4,16 @@
 # macOS (arm64, x64) and Windows (x64, arm64), then attaches all
 # binaries to the corresponding GitHub Release.
 #
+# ── RELEASE VERIFICATION RULE ──────────────────────────────────────────
+# Every release MUST be verified locally after CI publetes:
+#   1. Download the standalone ZIP from the GitHub Release page
+#   2. Run StreamBench_win_x64.exe — memory benchmark must show [PASS]
+#   3. Run StreamBench_win_x64_ai.exe — AI must auto-enable and produce
+#      inference results (Q1+Q2 with positive tok/s)
+#   4. Compare memory bandwidth vs prior release — no regression (±5%)
+# Do NOT announce a release until local verification passes.
+# ───────────────────────────────────────────────────────────────────────
+#
 # Triggers:
 #   - Push of a tag matching v*.*.*  (e.g. git push origin v5.10.04)
 #   - Push to main branch (build + smoke-test only, no release)
