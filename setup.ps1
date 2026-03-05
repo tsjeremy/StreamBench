@@ -73,6 +73,27 @@ Write-Host ''
 $errors = 0
 
 # ------------------------------------------------------------------
+#  Prevent system sleep during setup (Windows only).
+#  ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001)
+#  blocks unattended sleep; screen-off timeout is unaffected.
+# ------------------------------------------------------------------
+$sleepPrevented = $false
+if ($IsWindows) {
+    try {
+        Add-Type -Namespace Win32 -Name PowerMgmt -MemberDefinition @'
+            [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+            public static extern uint SetThreadExecutionState(uint esFlags);
+'@ -ErrorAction Stop
+        [Win32.PowerMgmt]::SetThreadExecutionState(0x80000001) | Out-Null
+        $sleepPrevented = $true
+        Write-Host '  [OK] System sleep prevention active (screen-off timeout unchanged).' -ForegroundColor DarkGray
+    } catch {
+        Write-Host '  [!] Could not prevent system sleep (non-fatal).' -ForegroundColor DarkGray
+    }
+    Write-Host ''
+}
+
+# ------------------------------------------------------------------
 #  Detect mode: standalone (exe only) vs source (has StreamBench.csproj)
 # ------------------------------------------------------------------
 $csproj = Join-Path $ScriptDir 'StreamBench\StreamBench.csproj'
@@ -417,17 +438,24 @@ if ($foundryOk) {
             Write-Host '  [!] No AI models cached yet.' -ForegroundColor Yellow
             Write-Host '      First-time setup: downloading execution providers for your hardware...' -ForegroundColor Cyan
             Write-Host '      (This is a one-time download and may take several minutes.)' -ForegroundColor Yellow
+            $epStart = Get-Date
+            Write-Host "      Started: $($epStart.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
             # Let stdout/stderr print so the EP download progress bar is visible
             & $foundryCmd model list 2>&1 | Out-Host
+            $epSec = [int]((Get-Date) - $epStart).TotalSeconds
+            Write-Host "      Execution providers ready in ${epSec}s." -ForegroundColor DarkGray
             Write-Host ''
             Write-Host '  Downloading default AI model (phi-3.5-mini)...' -ForegroundColor Cyan
             Write-Host '      Model download progress will appear below.' -ForegroundColor Yellow
+            $dlStart = Get-Date
+            Write-Host "      Started: $($dlStart.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
             # Show download progress (do NOT pipe to Out-Null)
             & $foundryCmd model download phi-3.5-mini 2>&1 | Out-Host
+            $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
             if ($LASTEXITCODE -eq 0) {
-                Write-Host '  [OK] Default model (phi-3.5-mini) downloaded.' -ForegroundColor Green
+                Write-Host "  [OK] Default model (phi-3.5-mini) downloaded in ${dlSec}s." -ForegroundColor Green
             } else {
-                Write-Host '  [!] Model download failed (non-fatal). Try manually: foundry model run phi-3.5-mini' -ForegroundColor Yellow
+                Write-Host "  [!] Model download failed after ${dlSec}s (non-fatal). Try manually: foundry model run phi-3.5-mini" -ForegroundColor Yellow
             }
         }
     } catch {
@@ -466,15 +494,22 @@ if ($foundryOk) {
                 $foundryCmd = if (Get-Command foundry -ErrorAction SilentlyContinue) { 'foundry' } else { 'foundrylocal' }
                 Write-Host '      First-time setup: downloading execution providers for your hardware...' -ForegroundColor Cyan
                 Write-Host '      (This is a one-time download and may take several minutes.)' -ForegroundColor Yellow
+                $epStart2 = Get-Date
+                Write-Host "      Started: $($epStart2.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
                 & $foundryCmd model list 2>&1 | Out-Host
+                $epSec2 = [int]((Get-Date) - $epStart2).TotalSeconds
+                Write-Host "      Execution providers ready in ${epSec2}s." -ForegroundColor DarkGray
                 Write-Host ''
                 Write-Host '  Downloading default AI model (phi-3.5-mini)...' -ForegroundColor Cyan
                 Write-Host '      Model download progress will appear below.' -ForegroundColor Yellow
+                $dlStart2 = Get-Date
+                Write-Host "      Started: $($dlStart2.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
                 & $foundryCmd model download phi-3.5-mini 2>&1 | Out-Host
+                $dlSec2 = [int]((Get-Date) - $dlStart2).TotalSeconds
                 if ($LASTEXITCODE -eq 0) {
-                    Write-Host '  [OK] Default model (phi-3.5-mini) downloaded.' -ForegroundColor Green
+                    Write-Host "  [OK] Default model (phi-3.5-mini) downloaded in ${dlSec2}s." -ForegroundColor Green
                 } else {
-                    Write-Host '  [!] Model download failed (non-fatal). Try: foundry model run phi-3.5-mini' -ForegroundColor Yellow
+                    Write-Host "  [!] Model download failed after ${dlSec2}s (non-fatal). Try: foundry model run phi-3.5-mini" -ForegroundColor Yellow
                 }
             }
         } else {
@@ -504,5 +539,12 @@ if ($errors -eq 0) {
 }
 Write-Host '  ========================================' -ForegroundColor DarkGray
 Write-Host ''
+
+# ------------------------------------------------------------------
+#  Restore sleep settings (always, even if errors occurred above)
+# ------------------------------------------------------------------
+if ($sleepPrevented) {
+    try { [Win32.PowerMgmt]::SetThreadExecutionState(0x80000000) | Out-Null } catch {}
+}
 
 if ($errors -gt 0) { exit 1 }

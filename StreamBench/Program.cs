@@ -66,6 +66,10 @@ return finalExitCode;
 // ── Main logic wrapped in a function for top-level error handling ──────
 async Task<int> RunMainAsync(string[] args)
 {
+    // Prevent system sleep for the duration of the benchmark run.
+    // Screen-off timeout is unaffected — only unattended sleep is blocked.
+    using var _sleep = SleepPreventer.Acquire();
+
     // ── Parse arguments ────────────────────────────────────────────────────────
     bool   wantCpu    = false;
     bool   wantGpu    = false;

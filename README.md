@@ -43,6 +43,39 @@ maximum performance — StreamBench extracts them automatically on first run.
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
+### Setup & run flow
+
+```mermaid
+flowchart TD
+    A(["🆕 New Windows PC"]) --> B
+
+    B["📦 1 — Download\nStreamBench_v5.10.18_win_standalone.zip\ngithub.com/tsjeremy/StreamBench/releases"] --> C
+
+    C[".\\setup.ps1  ← run once on first use\n───────────────────────────────────────\n✔ Installs VC++ Redistributable 2015+\n✔ Installs .NET 10 Runtime\n✔ Installs PowerShell 7\n✔ Installs Microsoft Foundry Local\n✔ Downloads default AI model  phi-3.5-mini"] --> D
+
+    D[".\\run_stream_ai.ps1\nor  StreamBench_win_x64_ai.exe\n───────────────────────────────────────\nauto-calls setup.ps1 if not yet done"] --> E
+
+    subgraph mem ["Memory Benchmark  stream.c / stream_gpu.c"]
+        direction LR
+        E["🔵 CPU Benchmark\nstream.c + OpenMP\nall logical cores"] --> F["🔵 GPU Benchmark\nstream_gpu.c + OpenCL\nall detected GPUs"]
+    end
+
+    F --> G
+
+    subgraph ai ["AI Benchmark  Foundry Local"]
+        direction TB
+        G["🟢 Start Foundry Local service\nload model catalog, select model per device"]
+        G --> H["Q1  cold inference  'Hello World!'\nmodel load time  +  first response latency"]
+        H --> I["Q2  warm inference\n'How to calculate memory bandwidth?'\ntokens per second  ←  key throughput metric"]
+        I --> J["Q3  relation summary\nreads saved JSON files from memory + AI runs\nAI explains: bandwidth vs inference speed tradeoff\nper CPU / GPU / NPU"]
+        J --> K["Stop Foundry Local service"]
+    end
+
+    K --> L
+
+    L["📊 CLI Summary\n───────────────────────────────────────\nMemory:  Triad MB/s  ←  peak sustained bandwidth\n         % of theoretical max  ←  efficiency score\nAI:      Q1 total s = load + first response  cold start\n         Q2 tok/s = warm throughput per device\n         CPU vs GPU vs NPU side-by-side table\nQ3:      AI-written interpretation connecting both results\n───────────────────────────────────────\nSaved ▸  stream_cpu_results_*.json\n         stream_gpu_results_*.json\n         ai_inference_benchmark_*.json\n         ai_relation_summary_*.json"]
+```
+
 ### Windows — Standalone ZIP (recommended)
 
 1. Go to the **[v5.10.18 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.18)**
@@ -343,6 +376,21 @@ cached models first to reduce download/startup time.
 │ Q1 (cold, incl. load) │    1.243 │        3.517 │     4.760 │  42.3  │
 │ Q2 (warm)             │       —  │        2.891 │     2.891 │  51.6  │
 ╰───────────────────────┴──────────┴──────────────┴───────────┴────────╯
+```
+
+### Key metrics
+
+```mermaid
+flowchart LR
+    A(["CLI output"]) --> B & C & D
+
+    B["🔵 Memory Bandwidth\n━━━━━━━━━━━━━━━━━━━━\nTriad MB/s\n  → peak sustained bandwidth\n  → compare vs theoretical max\n\n% of theoretical\n  → efficiency score\n  higher = better memory config"]
+
+    C["🟢 AI Inference\n━━━━━━━━━━━━━━━━━━━━\nQ1 total time s\n  → cold-start user experience\n  = model load + first response\n\nQ2 tok/s  warm\n  → sustained throughput\n  higher = faster inference\n\nNPU > GPU > CPU  typical order"]
+
+    D["📝 Q3 Relation Summary\n━━━━━━━━━━━━━━━━━━━━\nAI-written analysis\n  • memory bandwidth vs tok/s link\n  • best combined device profile\n  • % gap vs theoretical bandwidth\n  • explanation across CPU/GPU/NPU"]
+
+    B & C & D --> E(["Use results to compare\ndevices, configs, memory upgrades"])
 ```
 
 ### Saved output

@@ -542,7 +542,7 @@ public static class AiBenchmarkRunner
             TraceLog.AiModelDownloadStarted(modelId, 0);
 
             var dlSw = Stopwatch.StartNew();
-            var (dlExit, _, dlErr) = await RunFoundryAsync(cli, $"model download \"{modelId}\"", 600_000);
+            var (dlExit, dlErr) = await DownloadWithProgressAsync(cli, modelId, 600_000);
             dlSw.Stop();
 
             if (dlExit != 0)
@@ -582,7 +582,104 @@ public static class AiBenchmarkRunner
         }
     }
 
-    // ── REST API inference ────────────────────────────────────────────────
+    /// <summary>
+    /// Downloads a model via the foundry CLI, showing a live spinner and any output
+    /// the CLI emits, with a carriage-return overwrite style matching the Foundry SDK
+    /// <c>DownloadAsync(progress =&gt; Console.Write($"\rDownloading: {progress:F2}%"))</c> UX.
+    /// </summary>
+    private static async Task<(int ExitCode, string Stderr)> DownloadWithProgressAsync(
+        string cli, string modelId, int timeoutMs = 600_000)
+    {
+        // Spinner characters — rotate every tick for a live "working" indicator.
+        var spinChars = new[] { '|', '/', '-', '\\' };
+        int spinIdx = 0;
+
+        // lastInfo is written from event-handler threads and read from the spinner loop.
+        // string assignment is atomic for reference types in .NET, so no lock needed.
+        string lastInfo = $"Downloading {modelId}...";
+        var stderrSb = new StringBuilder();
+        var sw = Stopwatch.StartNew();
+
+        // \r overwrites only work in interactive terminals; skip in CI/piped output.
+        bool canOverwrite = !Console.IsOutputRedirected;
+        bool hasSpinnerLine = false;
+
+        var psi = new ProcessStartInfo(cli, $"model download \"{modelId}\"")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute        = false,
+            CreateNoWindow         = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding  = Encoding.UTF8,
+        };
+
+        using var process = new Process { StartInfo = psi };
+
+        // Update lastInfo with each non-empty output line from the CLI.
+        // The spinner loop owns all console writes — event handlers only update the string.
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data is { Length: > 0 } line)
+                lastInfo = line.Trim();
+        };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data is { Length: > 0 } line)
+            {
+                stderrSb.AppendLine(line);
+                lastInfo = line.Trim();
+            }
+        };
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        var processTask = process.WaitForExitAsync();
+
+        // Spinner loop: update the display every ~350 ms until the process exits.
+        while (!processTask.IsCompleted)
+        {
+            await Task.WhenAny(processTask, Task.Delay(350));
+
+            if (canOverwrite)
+            {
+                char spin = spinChars[spinIdx++ % spinChars.Length];
+                string info = lastInfo;   // snapshot — atomic read
+                string elapsed = $"{sw.Elapsed.TotalSeconds:F0}s";
+                string msg = $"  {spin} {info} ({elapsed})";
+                if (msg.Length > 119) msg = msg[..116] + "...";
+                Console.Write("\r" + msg.PadRight(120));
+                hasSpinnerLine = true;
+            }
+            else if (sw.ElapsedMilliseconds % 10_000 < 350)
+            {
+                // Non-interactive fallback: print a heartbeat every ~10 s.
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"  ... still downloading ({sw.Elapsed.TotalSeconds:F0}s)");
+                Console.ResetColor();
+            }
+
+            if (sw.ElapsedMilliseconds > timeoutMs)
+            {
+                TraceLog.AiProcessTimeout($"model download {modelId}", timeoutMs);
+                try { process.Kill(entireProcessTree: true); } catch { }
+                await Task.WhenAny(processTask, Task.Delay(2_000));
+                break;
+            }
+        }
+
+        // Ensure the process has fully exited so output buffers are flushed.
+        await Task.WhenAny(processTask, Task.Delay(2_000));
+
+        // Clear the spinner line so subsequent WriteMarkup starts on a clean line.
+        if (hasSpinnerLine && canOverwrite)
+            Console.Write("\r" + new string(' ', 121) + "\r");
+
+        sw.Stop();
+        return (process.HasExited ? process.ExitCode : -1, stderrSb.ToString());
+    }
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
 
@@ -624,6 +721,9 @@ public static class AiBenchmarkRunner
         bool noDownload = false,
         CancellationToken cancellationToken = default)
     {
+        // Defence-in-depth: prevent sleep even when called outside the normal Program.cs flow.
+        using var _sleep = SleepPreventer.Acquire();
+
         var sharedResults = new List<AiDeviceBenchmarkResult>();
         var bestPerDeviceResults = new List<AiDeviceBenchmarkResult>();
 
@@ -674,7 +774,7 @@ public static class AiBenchmarkRunner
                     $"[yellow][INFO][/] No models in catalog — downloading default model [white]{DefaultBootstrapAlias}[/]...");
                 ConsoleOutput.WriteMarkup("[dim]  This is a one-time download and may take several minutes.[/]");
 
-                var (dlExit, _, dlErr) = await RunFoundryAsync(cli, $"model download \"{DefaultBootstrapAlias}\"", 600_000);
+                var (dlExit, dlErr) = await DownloadWithProgressAsync(cli, DefaultBootstrapAlias, 600_000);
                 if (dlExit == 0)
                 {
                     TraceLog.DiagnosticInfo($"Bootstrap download of '{DefaultBootstrapAlias}' succeeded; refreshing catalog");
@@ -925,6 +1025,8 @@ public static class AiBenchmarkRunner
         IEnumerable<string>? devices = null,
         CancellationToken cancellationToken = default)
     {
+        using var _sleep = SleepPreventer.Acquire();
+
         string sourceDir = Path.GetFullPath(
             string.IsNullOrWhiteSpace(directoryPath) ? "." : directoryPath);
 
