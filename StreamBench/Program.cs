@@ -524,22 +524,26 @@ async Task<int> RunAiBenchmarkAsync(
 
     AiLocalRelationSummaryResult? relationSummary = null;
 
-    // Run Q3 when memory JSON files exist in the output directory.
+    // Run Q3 when memory JSON files exist from this run or in the output directory.
     bool runSummary = false;
+    bool hasMemoryJsonFromRun = (memoryJsonPaths ?? [])
+        .Where(p => !string.IsNullOrWhiteSpace(p))
+        .Select(Path.GetFullPath)
+        .Any(File.Exists);
     string checkDir = Path.GetFullPath(outputDir ?? ".");
-    if (Directory.Exists(checkDir))
+    bool hasMemoryJsonInOutputDir = Directory.Exists(checkDir)
+        && Directory.EnumerateFiles(checkDir, "stream_*_results_*.json", SearchOption.TopDirectoryOnly).Any();
+
+    if (hasMemoryJsonFromRun || hasMemoryJsonInOutputDir)
     {
-        bool hasMemoryJson = Directory.EnumerateFiles(checkDir, "stream_*_results_*.json", SearchOption.TopDirectoryOnly).Any();
-        if (hasMemoryJson)
-        {
-            runSummary = true;
-            TraceLog.AiRelationAutoEnabled("Q3 relation summary enabled: memory JSON files found in output directory");
-            ConsoleOutput.WriteMarkup("[dim]  Q3 relation summary enabled (memory JSON files found)[/]");
-        }
-        else
-        {
-            TraceLog.AiRelationSkipped("no memory JSON files found in output directory");
-        }
+        runSummary = true;
+        TraceLog.AiRelationAutoEnabled("Q3 relation summary enabled: memory JSON files found in output directory");
+        ConsoleOutput.WriteMarkup("[dim]  Q3 relation summary enabled (memory JSON files found)[/]");
+    }
+    else
+    {
+        TraceLog.AiRelationSkipped("no memory JSON files found in output directory");
+        ConsoleOutput.WriteMarkup("[dim]  Q3 relation summary skipped (no memory JSON files found)[/]");
     }
 
     if (runSummary)
