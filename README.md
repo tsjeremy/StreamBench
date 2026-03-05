@@ -250,6 +250,15 @@ brew install foundrylocal
 # Use a specific model
 .\StreamBench.exe --ai --ai-model phi-3.5-mini
 
+# Quick mode — cached models only, skip shared pass, 1 model/device (CI/automated)
+.\StreamBench.exe --ai --quick-ai
+
+# Shared-model comparison only (skip best-per-device pass)
+.\StreamBench.exe --ai --ai-shared-only
+
+# Use only cached models (no downloads)
+.\StreamBench.exe --ai --ai-no-download
+
 # Don't save the JSON result file
 .\StreamBench.exe --ai --no-save
 ```
@@ -264,13 +273,20 @@ by this order:
 
 1. Highest selected-device coverage (CPU/GPU/NPU variants available)
 2. Most cached variants for the selected devices
-3. Internal shared-priority list
+3. Internal shared-priority list (ordered by real-world download + inference speed)
+
+The shared pass is capped at **5 model attempts** and a **10-minute time budget**
+to prevent runaway loops. When cached models are available, the shared pass
+skips downloads and uses cached models first. If the Foundry service crashes
+(2 consecutive failures), StreamBench automatically restarts it once before
+falling back to per-device defaults.
 
 If no alias covers all selected devices, StreamBench automatically falls back to
 the best partial coverage and then runs best-per-device comparison pass.
 
-If NPU model load fails during automatic multi-device comparison, StreamBench
-continues with CPU/GPU to avoid long repeated retries in the same run.
+If NPU model load fails during automatic multi-device comparison, or no NPU
+models exist in the catalog, StreamBench removes NPU from the shared pass and
+continues with CPU/GPU.
 
 For single-device runs, StreamBench uses device-specific priority lists and prefers
 cached models first to reduce download/startup time.

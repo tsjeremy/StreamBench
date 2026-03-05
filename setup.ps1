@@ -440,8 +440,16 @@ if ($foundryOk) {
             Write-Host '      (This is a one-time download and may take several minutes.)' -ForegroundColor Yellow
             $epStart = Get-Date
             Write-Host "      Started: $($epStart.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-            # Let stdout/stderr print so the EP download progress bar is visible
-            & $foundryCmd model list 2>&1 | Out-Host
+            # Run with timeout (5 min) to prevent indefinite hangs
+            $epJob = Start-Job -ScriptBlock { param($cmd) & $cmd model list 2>&1 } -ArgumentList $foundryCmd
+            $epDone = $epJob | Wait-Job -Timeout 300
+            if ($null -eq $epDone) {
+                Write-Host '      [!] EP download timed out after 5 min (non-fatal). Stopping...' -ForegroundColor Yellow
+                $epJob | Stop-Job -PassThru | Remove-Job -Force
+            } else {
+                Receive-Job $epJob | Out-Host
+                Remove-Job $epJob -Force
+            }
             $epSec = [int]((Get-Date) - $epStart).TotalSeconds
             Write-Host "      Execution providers ready in ${epSec}s." -ForegroundColor DarkGray
             Write-Host ''
@@ -449,9 +457,18 @@ if ($foundryOk) {
             Write-Host '      Model download progress will appear below.' -ForegroundColor Yellow
             $dlStart = Get-Date
             Write-Host "      Started: $($dlStart.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-            # Show download progress (do NOT pipe to Out-Null)
-            & $foundryCmd model download phi-3.5-mini 2>&1 | Out-Host
-            $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
+            # Run with timeout (10 min) to prevent indefinite hangs
+            $dlJob = Start-Job -ScriptBlock { param($cmd) & $cmd model download phi-3.5-mini 2>&1 } -ArgumentList $foundryCmd
+            $dlDone = $dlJob | Wait-Job -Timeout 600
+            if ($null -eq $dlDone) {
+                Write-Host "      [!] Model download timed out after 10 min (non-fatal). Stopping..." -ForegroundColor Yellow
+                $dlJob | Stop-Job -PassThru | Remove-Job -Force
+                $dlSec = 600
+            } else {
+                Receive-Job $dlJob | Out-Host
+                Remove-Job $dlJob -Force
+                $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
+            }
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "  [OK] Default model (phi-3.5-mini) downloaded in ${dlSec}s." -ForegroundColor Green
             } else {
@@ -496,7 +513,16 @@ if ($foundryOk) {
                 Write-Host '      (This is a one-time download and may take several minutes.)' -ForegroundColor Yellow
                 $epStart2 = Get-Date
                 Write-Host "      Started: $($epStart2.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-                & $foundryCmd model list 2>&1 | Out-Host
+                # Run with timeout (5 min) to prevent indefinite hangs
+                $epJob2 = Start-Job -ScriptBlock { param($cmd) & $cmd model list 2>&1 } -ArgumentList $foundryCmd
+                $epDone2 = $epJob2 | Wait-Job -Timeout 300
+                if ($null -eq $epDone2) {
+                    Write-Host '      [!] EP download timed out after 5 min (non-fatal). Stopping...' -ForegroundColor Yellow
+                    $epJob2 | Stop-Job -PassThru | Remove-Job -Force
+                } else {
+                    Receive-Job $epJob2 | Out-Host
+                    Remove-Job $epJob2 -Force
+                }
                 $epSec2 = [int]((Get-Date) - $epStart2).TotalSeconds
                 Write-Host "      Execution providers ready in ${epSec2}s." -ForegroundColor DarkGray
                 Write-Host ''
@@ -504,8 +530,18 @@ if ($foundryOk) {
                 Write-Host '      Model download progress will appear below.' -ForegroundColor Yellow
                 $dlStart2 = Get-Date
                 Write-Host "      Started: $($dlStart2.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-                & $foundryCmd model download phi-3.5-mini 2>&1 | Out-Host
-                $dlSec2 = [int]((Get-Date) - $dlStart2).TotalSeconds
+                # Run with timeout (10 min) to prevent indefinite hangs
+                $dlJob2 = Start-Job -ScriptBlock { param($cmd) & $cmd model download phi-3.5-mini 2>&1 } -ArgumentList $foundryCmd
+                $dlDone2 = $dlJob2 | Wait-Job -Timeout 600
+                if ($null -eq $dlDone2) {
+                    Write-Host "      [!] Model download timed out after 10 min (non-fatal). Stopping..." -ForegroundColor Yellow
+                    $dlJob2 | Stop-Job -PassThru | Remove-Job -Force
+                    $dlSec2 = 600
+                } else {
+                    Receive-Job $dlJob2 | Out-Host
+                    Remove-Job $dlJob2 -Force
+                    $dlSec2 = [int]((Get-Date) - $dlStart2).TotalSeconds
+                }
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host "  [OK] Default model (phi-3.5-mini) downloaded in ${dlSec2}s." -ForegroundColor Green
                 } else {
