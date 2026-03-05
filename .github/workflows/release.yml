@@ -341,20 +341,17 @@ jobs:
           cd _zip && zip -9 "../release-assets/StreamBench_${TAG}_win_standalone.zip" * && cd ..
 
       - name: Attach assets to GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          for f in release-assets/*; do
-            echo "⬆️ Uploading $(basename $f) ..."
-            gh release upload "$TAG" "$f" --clobber --repo "${{ github.repository }}"
-          done
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: release-assets/*
+          fail_on_unmatched_files: true
 
       - name: Exclude source code archives from release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          RELEASE_ID=$(gh release view "$TAG" --repo "${{ github.repository }}" --json id --jq '.id')
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" --jq '.id')
           gh api --method PATCH "repos/${{ github.repository }}/releases/${RELEASE_ID}" \
             -F exclude_source_code_archives=true

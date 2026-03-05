@@ -151,6 +151,7 @@
  */
 #ifdef NTIMES
     #if NTIMES <= 1
+        #undef NTIMES
         #define NTIMES 100
     #endif
 #endif
