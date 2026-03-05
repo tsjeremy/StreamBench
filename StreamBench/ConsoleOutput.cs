@@ -497,7 +497,7 @@ public static class ConsoleOutput
 
         table.AddRow(
             $"[cyan]Q1 (cold, incl. load)[/]",
-            $"[white]{r.Run1.ModelLoadSec:F3}[/]",
+            $"[bold yellow]{r.Run1.ModelLoadSec:F3}[/]",
             $"[white]{r.Run1.ResponseTimeSec:F3}[/]",
             $"[bold green]{r.Run1.TotalTimeSec:F3}[/]",
             $"[white]{r.Run1.CompletionTokens}[/]",
@@ -506,10 +506,10 @@ public static class ConsoleOutput
         table.AddRow(
             $"[cyan]Q2 (warm)[/]",
             $"[dim]—[/]",
-            $"[white]{r.Run2.ResponseTimeSec:F3}[/]",
+            $"[bold yellow]{r.Run2.ResponseTimeSec:F3}[/]",
             $"[bold green]{r.Run2.ResponseTimeSec:F3}[/]",
             $"[white]{r.Run2.CompletionTokens}[/]",
-            $"[bold cyan]{r.Run2.TokensPerSecond:F1}[/]");
+            $"[bold yellow]{r.Run2.TokensPerSecond:F1}[/]");
 
         table.Render();
 
