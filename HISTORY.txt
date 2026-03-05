@@ -2,6 +2,18 @@
 
 Revisions as of Thu, Mar 05, 2026 (Jeremy Tsai)
 
+Version 5.10.16 of stream.c, stream_gpu.c, and StreamBench released.
+
+  - Fix: Q3 local relation summary now auto-enables when memory JSON files
+    were produced in the current run or already exist in the output directory.
+
+  - Improve: AI inference timing table now highlights key metrics:
+    Q1 model load (s), Q2 response time (s), and Q2 tok/s.
+
+-------------------------------------------------------------------------
+
+Revisions as of Thu, Mar 05, 2026 (Jeremy Tsai)
+
 Version 5.10.15 of stream.c, stream_gpu.c, and StreamBench released.
 
   - Fix: local relation questions (Q1/Q2/Q3 and future Qn) now execute per
