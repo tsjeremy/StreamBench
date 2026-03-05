@@ -32,21 +32,21 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.13).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.15).
 No compiler, .NET SDK, or build tools needed — just download and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
 so you only need a single download. The benchmarks still run as native C code for
 maximum performance — StreamBench extracts them automatically on first run.
 
-> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.13_win_standalone.zip`)
+> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.15_win_standalone.zip`)
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
 ### Windows — Standalone ZIP (recommended)
 
-1. Go to the **[v5.10.13 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.13)**
-2. Download **`StreamBench_v5.10.13_win_standalone.zip`**
+1. Go to the **[v5.10.15 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.15)**
+2. Download **`StreamBench_v5.10.15_win_standalone.zip`**
 3. Extract to any folder and run:
 
 ```powershell
@@ -62,7 +62,7 @@ maximum performance — StreamBench extracts them automatically on first run.
 
 ### Windows — Individual exe download
 
-1. Go to the **[v5.10.13 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.13)**
+1. Go to the **[v5.10.15 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.15)**
 2. Download the exe for your architecture:
 
 | File | Description |
@@ -94,12 +94,12 @@ maximum performance — StreamBench extracts them automatically on first run.
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.13/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.15/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.13 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.13)**
+1. Go to the **[v5.10.15 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.15)**
 2. Download **`StreamBench_osx-arm64`** (Apple Silicon) or **`StreamBench_osx-x64`** (Intel)
 3. Run it:
 
@@ -112,13 +112,13 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.13/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.15/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 ### Using the launcher scripts (alternative)
 
 The launcher scripts are available as separate downloads on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.13).
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.15).
 
 - **`setup.ps1`**: first-time setup — installs VC++ Redistributable, Foundry Local (standalone mode auto-detected)
 - **`run_stream.ps1`**: default memory benchmark launcher (CPU + GPU only)
@@ -151,7 +151,6 @@ $env:STREAMBENCH_ARRAY_SIZE = "100000000"
 # Optional AI launcher overrides (run_stream_ai.ps1)
 $env:STREAMBENCH_AI_MODEL = "phi-4-mini"
 $env:STREAMBENCH_AI_DEVICES = "cpu,npu"   # if unset, all detected devices are used
-$env:STREAMBENCH_AI_LOCAL_SUMMARY = "0"   # disable Q3 local relation summary
 $env:STREAMBENCH_AI_NO_DOWNLOAD = "1"     # cached models only
 ```
 
@@ -244,7 +243,6 @@ AI Inference Benchmark (requires Microsoft AI Foundry Local):
 --ai                     Add AI inference benchmark (memory benchmarks still run by default)
 --ai-device LIST         Comma-separated devices: cpu, gpu, npu (default: all)
 --ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)
---ai-local-summary       Add Q3 local-JSON summary (Q1/Q2 remain benchmark prompts)
 ```
 
 ---
@@ -298,15 +296,14 @@ brew install foundrylocal
 # Use a specific model
 .\StreamBench.exe --ai --ai-model phi-3.5-mini
 
-# Add Q3 local JSON summary after Q1/Q2
-.\StreamBench.exe --ai --ai-local-summary
-
 # Don't save the JSON result file
 .\StreamBench.exe --ai --no-save
 ```
 
-StreamBench prints the full Q1 and Q2 model answers in the command-line output,
-and also includes them in the saved JSON result file.
+StreamBench prints full Q1/Q2 answers and, when memory JSON exists, also runs
+relation questions (Q3 and future Q4/Q5...) on each selected AI device.
+All relation questions use the same question output style and the same
+latency/tokens-per-second reporting method.
 
 When benchmarking multiple devices together, StreamBench chooses shared model aliases
 by this order:
@@ -353,17 +350,21 @@ Results are saved as `ai_inference_benchmark_<timestamp>.json` with full details
 including model info, per-run timings, token counts, full Q1/Q2 response text,
 and response previews.
 
-When `--ai-local-summary` is enabled, StreamBench also saves
+When memory JSON exists in the output directory, StreamBench also runs and saves
 `ai_relation_summary_<model-alias>_<timestamp>.json` containing Q1 (cold),
-Q2 (warm), and Q3 (local JSON summary) plus parsed cross-file relation
-aggregates for model comparison over time.
+Q2 (warm), Q3 (local JSON summary), and future Qn relation prompts per device,
+plus parsed cross-file relation aggregates for model comparison over time.
+This relation summary uses a unified `questions` array schema (`index`,
+`question`, `answer`, `device_type`, `run`) so future prompts (Q4/Q5...) keep
+the same JSON/log/CLI structure and timing metrics.
 
 In addition, after AI completes, StreamBench embeds these AI sections into each
 memory benchmark JSON (`stream_cpu_results_*.json`, `stream_gpu_results_*.json`,
-`stream_npu_results_*.json`) so Q1/Q2/Q3 are available in the same saved file:
+`stream_npu_results_*.json`) so Q1/Q2/Q3 (and future Qn) remain available in
+the same saved file:
 
 - `ai_inference_benchmark` (Q1/Q2 runs)
-- `ai_relation_summary` (Q3 summary answer and timing)
+- `ai_relation_summary` (device-tagged relation question answers and timing)
 
 ### Interpreting results
 

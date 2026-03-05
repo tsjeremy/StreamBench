@@ -3,7 +3,7 @@
 # STREAM Benchmark - Memory + AI Run (Cross-platform)
 # ============================================================
 # Runs CPU + GPU memory bandwidth benchmarks, then AI benchmark
-# and optional 3-question local JSON relation summary
+# with automatic Q3 local JSON relation summary when memory JSON exists
 # in one command via the StreamBench frontend.
 #
 # Default launcher (run_stream.ps1) is memory-only.
@@ -94,8 +94,6 @@ foreach ($name in $benchNames) {
 $csproj = Join-Path $ScriptDir 'StreamBench/StreamBench.csproj'
 $aiModel = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_MODEL)) { '' } else { $env:STREAMBENCH_AI_MODEL }
 $aiDevices = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_DEVICES)) { '' } else { $env:STREAMBENCH_AI_DEVICES }
-$aiNoSummary = $env:STREAMBENCH_AI_LOCAL_SUMMARY -eq '0'
-$aiLocalSummary = -not $aiNoSummary
 $aiNoDownload = $env:STREAMBENCH_AI_NO_DOWNLOAD -eq '1'
 $arraySize = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_ARRAY_SIZE)) { '200000000' } else { $env:STREAMBENCH_ARRAY_SIZE.Trim() }
 if ($arraySize -notmatch '^\d+$') {
@@ -111,7 +109,7 @@ Write-Host ''
 
 Write-Host "  [OK] AI model: $(if ($aiModel) { $aiModel } else { '(auto-select)' })" -ForegroundColor Green
 Write-Host "  [OK] AI device(s): $(if ($aiDevices) { $aiDevices } else { '(all detected)' })" -ForegroundColor Green
-Write-Host "  [OK] AI local summary: $aiLocalSummary" -ForegroundColor Green
+Write-Host "  [OK] Q3 local summary: auto (when memory JSON exists)" -ForegroundColor Green
 Write-Host "  [OK] Array size: $arraySize" -ForegroundColor Green
 
 if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj)) {
@@ -133,11 +131,6 @@ if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj))
     }
     if (-not [string]::IsNullOrWhiteSpace($aiModel)) {
         $appArgs += @('--ai-model', "$aiModel")
-    }
-    if ($aiLocalSummary) {
-        $appArgs += '--ai-local-summary'
-    } else {
-        $appArgs += '--ai-no-summary'
     }
     if ($aiNoDownload) {
         $appArgs += '--ai-no-download'
@@ -195,11 +188,6 @@ if ($benchExe) {
     }
     if (-not [string]::IsNullOrWhiteSpace($aiModel)) {
         $exeArgs += @('--ai-model', "$aiModel")
-    }
-    if ($aiLocalSummary) {
-        $exeArgs += '--ai-local-summary'
-    } else {
-        $exeArgs += '--ai-no-summary'
     }
     if ($aiNoDownload) {
         $exeArgs += '--ai-no-download'

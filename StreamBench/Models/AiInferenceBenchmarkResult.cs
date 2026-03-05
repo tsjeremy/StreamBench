@@ -55,12 +55,23 @@ public record AiRelationDeviceAggregate(
 );
 
 /// <summary>
+/// Relation summary model selection for one device.
+/// </summary>
+public record AiRelationModelSelection(
+    [property: JsonPropertyName("device_type")]                  string DeviceType,
+    [property: JsonPropertyName("model_id")]                     string ModelId,
+    [property: JsonPropertyName("model_alias")]                  string ModelAlias,
+    [property: JsonPropertyName("execution_provider")]           string ExecutionProvider
+);
+
+/// <summary>
 /// One local-AI question and answer.
 /// </summary>
 public record AiRelationQuestionAnswer(
     [property: JsonPropertyName("index")]                        int Index,
     [property: JsonPropertyName("question")]                     string Question,
     [property: JsonPropertyName("answer")]                       string Answer,
+    [property: JsonPropertyName("device_type")]                  string? DeviceType = null,
     [property: JsonPropertyName("run")]                          AiInferenceRun? Run = null
 );
 
@@ -79,5 +90,7 @@ public record AiLocalRelationSummaryResult(
     [property: JsonPropertyName("device_level_correlation")]     double? DeviceLevelCorrelation,
     [property: JsonPropertyName("device_aggregates")]            IReadOnlyList<AiRelationDeviceAggregate> DeviceAggregates,
     [property: JsonPropertyName("questions")]                    IReadOnlyList<AiRelationQuestionAnswer> Questions,
-    [property: JsonPropertyName("timestamp")]                    string Timestamp
+    [property: JsonPropertyName("timestamp")]                    string Timestamp,
+    [property: JsonPropertyName("summary_device_type")]          string? SummaryDeviceType = null,
+    [property: JsonPropertyName("models")]                       IReadOnlyList<AiRelationModelSelection>? Models = null
 );

@@ -524,15 +524,18 @@ public static class ConsoleOutput
     /// <summary>
     /// Prints summary comparison tables for the two-pass AI benchmark.
     /// Pass 1: shared model comparison. Pass 2: best-per-device performance.
-    /// When a relation summary is provided, Q3 timing is shown as a separate line.
+    /// When a relation summary is provided, extra relation questions (Q3+) are shown.
     /// </summary>
     public static void PrintAiSummary(
         AiBenchmarkTwoPassResult twoPassResult,
         AiLocalRelationSummaryResult? relationSummary = null)
     {
-        // Find Q3 run from relation summary (index 3 = third question)
-        var q3 = relationSummary?.Questions
-            .FirstOrDefault(q => q.Index == 3);
+        var relationQuestions = relationSummary?.Questions
+            .Where(q => q.Index >= 3 && q.Run is not null)
+            .OrderBy(q => q.Index)
+            .ThenBy(q => q.DeviceType, StringComparer.OrdinalIgnoreCase)
+            .ToList()
+            ?? [];
 
         // Pass 1: Shared model comparison
         if (twoPassResult.SharedResults.Count > 0)
@@ -569,19 +572,41 @@ public static class ConsoleOutput
             PrintAiComparisonTable(twoPassResult.BestPerDeviceResults);
         }
 
-        // Q3: Cross-device relation summary timing (shown as dedicated section)
-        if (q3?.Run is not null)
+        // Relation analysis questions (Q3+): timing + answer preview
+        if (relationQuestions.Count > 0)
         {
+            string summaryDevice = string.IsNullOrWhiteSpace(relationSummary!.SummaryDeviceType)
+                ? "unknown"
+                : relationSummary.SummaryDeviceType!;
+
             Console.WriteLine();
-            WriteMarkup("[bold cyan]── Q3 — Cross-Device Relation Analysis ──[/]");
-            WriteMarkup($"[dim]  Model: {relationSummary!.ModelAlias} (CPU)[/]");
-            WriteMarkup($"[bold green]  Response: {q3.Run.ResponseTimeSec:F3}s[/]  " +
-                $"[bold cyan]{q3.Run.TokensPerSecond:F1} tok/s[/]  " +
-                $"[white]{q3.Run.CompletionTokens} tokens[/]");
+            WriteMarkup("[bold cyan]── Cross-Device Relation Analysis Questions ──[/]");
+            if (relationSummary.Models is { Count: > 0 })
+            {
+                WriteMarkup("[dim]  Models by device:[/]");
+                foreach (var model in relationSummary.Models)
+                {
+                    string ep = string.IsNullOrWhiteSpace(model.ExecutionProvider)
+                        ? "unknown"
+                        : model.ExecutionProvider;
+                    WriteMarkup($"[dim]    {model.DeviceType}: {model.ModelAlias} ({ep})[/]");
+                }
+            }
+            else
+            {
+                WriteMarkup($"[dim]  Model: {relationSummary.ModelAlias} ({summaryDevice})[/]");
+            }
             Console.WriteLine();
-            WriteMarkup($"[bold yellow]  Q3:[/] [white]{q3.Question}[/]");
-            WriteMultilineAnswer(q3.Answer);
-            Console.WriteLine();
+            foreach (var q in relationQuestions)
+            {
+                string questionDevice = string.IsNullOrWhiteSpace(q.DeviceType) ? summaryDevice : q.DeviceType!;
+                WriteMarkup($"[bold green]  Q{q.Index} [{questionDevice}] Response:[/] {q.Run!.ResponseTimeSec:F3}s  " +
+                    $"[bold cyan]{q.Run.TokensPerSecond:F1} tok/s[/]  " +
+                    $"[white]{q.Run.CompletionTokens} tokens[/]");
+                WriteMarkup($"[bold yellow]  Q{q.Index} [{questionDevice}]:[/] [white]{q.Question}[/]");
+                WriteMultilineAnswer(q.Answer);
+                Console.WriteLine();
+            }
         }
     }
 
@@ -617,7 +642,7 @@ public static class ConsoleOutput
     }
 
     /// <summary>
-    /// Prints 3-question local-AI relation summary generated from local JSON files.
+    /// Prints local-AI relation summary generated from local JSON files.
     /// </summary>
     public static void PrintAiRelationSummary(AiLocalRelationSummaryResult summary)
     {
@@ -628,7 +653,27 @@ public static class ConsoleOutput
         WriteMarkup($"[dim]  Source folder: {summary.SourceDirectory}[/]");
         WriteMarkup($"[dim]  Files parsed: memory {summary.MemoryJsonFiles}, AI {summary.AiJsonFiles}[/]");
         WriteMarkup($"[dim]  Samples parsed: memory {summary.MemorySamples}, AI {summary.AiSamples}[/]");
-        WriteMarkup($"[dim]  Model: {summary.ModelAlias} ({summary.ExecutionProvider})[/]");
+        string summaryDevice = string.IsNullOrWhiteSpace(summary.SummaryDeviceType)
+            ? "unknown"
+            : summary.SummaryDeviceType!;
+        if (summary.Models is { Count: > 0 })
+        {
+            WriteMarkup("[dim]  Models by device:[/]");
+            foreach (var model in summary.Models)
+            {
+                string ep = string.IsNullOrWhiteSpace(model.ExecutionProvider)
+                    ? "unknown"
+                    : model.ExecutionProvider;
+                WriteMarkup($"[dim]    {model.DeviceType}: {model.ModelAlias} ({ep})[/]");
+            }
+        }
+        else
+        {
+            string modelMeta = string.IsNullOrWhiteSpace(summary.ExecutionProvider)
+                ? summaryDevice
+                : $"{summaryDevice}, {summary.ExecutionProvider}";
+            WriteMarkup($"[dim]  Model: {summary.ModelAlias} ({modelMeta})[/]");
+        }
         Console.WriteLine();
 
         if (summary.DeviceAggregates.Count > 0)
@@ -659,32 +704,41 @@ public static class ConsoleOutput
         else
             WriteMarkup("[bold white]Device-level correlation:[/] [dim]insufficient paired device data[/]");
 
-        foreach (var qa in summary.Questions.OrderBy(q => q.Index))
+        foreach (var qa in summary.Questions
+            .OrderBy(q => q.Index)
+            .ThenBy(q => q.DeviceType, StringComparer.OrdinalIgnoreCase))
         {
+            string questionDevice = string.IsNullOrWhiteSpace(qa.DeviceType) ? summaryDevice : qa.DeviceType!;
             Console.WriteLine();
-            WriteMarkup($"[bold yellow]  Q{qa.Index}:[/] [white]{qa.Question}[/]");
+            WriteMarkup($"[bold yellow]  Q{qa.Index} [{questionDevice}]:[/] [white]{qa.Question}[/]");
             WriteMultilineAnswer(qa.Answer);
         }
 
-        // ── Q1/Q2/Q3 inference timing table ──
-        var qWithRun = summary.Questions.Where(q => q.Run is not null).OrderBy(q => q.Index).ToList();
+        // ── Relation question inference timing table (Q1+) ──
+        var qWithRun = summary.Questions
+            .Where(q => q.Run is not null)
+            .OrderBy(q => q.Index)
+            .ThenBy(q => q.DeviceType, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         if (qWithRun.Count > 0)
         {
             Console.WriteLine();
             var qTable = new SimpleTable("[bold white]Relation Summary — Inference Timing[/]")
-                .AddColumn("[bold white]Run[/]",        26)
+                .AddColumn("[bold white]Run[/]",        34)
                 .AddColumn("[white]Response (s)[/]",    14, rightAlign: true)
                 .AddColumn("[bold cyan]Tok/s[/]",       10, rightAlign: true)
                 .AddColumn("[white]Tokens Out[/]",      12, rightAlign: true);
 
             foreach (var qa in qWithRun)
             {
-                string label = qa.Index switch
+                string questionDevice = string.IsNullOrWhiteSpace(qa.DeviceType) ? summaryDevice : qa.DeviceType!;
+                string phase = qa.Index switch
                 {
-                    1 => "Q1 (cold)",
-                    2 => "Q2 (warm)",
-                    _ => $"Q{qa.Index} (relation summary)",
+                    1 => "cold",
+                    2 => "warm",
+                    _ => "relation summary",
                 };
+                string label = $"Q{qa.Index} [{questionDevice}] ({phase})";
                 qTable.AddRow(
                     $"[bold white]{label}[/]",
                     $"[white]{qa.Run!.ResponseTimeSec:F3}[/]",

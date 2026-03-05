@@ -1,5 +1,24 @@
 -------------------------------------------------------------------------
 
+Revisions as of Thu, Mar 05, 2026 (Jeremy Tsai)
+
+Version 5.10.15 of stream.c, stream_gpu.c, and StreamBench released.
+
+  - Fix: local relation questions (Q1/Q2/Q3 and future Qn) now execute per
+    selected AI device (CPU/GPU/NPU) instead of a single summary device.
+
+  - Fix: relation output no longer hardcodes CPU labels; CLI and timing tables
+    now show device-qualified question rows (for example, `Q3 [GPU]`).
+
+  - Improve: relation summary JSON now includes per-device model metadata
+    (`models` list) while retaining unified `questions` entries with
+    `device_type` and inference timing.
+
+  - Improve: trace logging coverage retained for AI relation/model selection
+    flow without adding logging inside hot benchmark loops.
+
+-------------------------------------------------------------------------
+
 Revisions as of Wed, Mar 04, 2026 (Jeremy Tsai)
 
 Version 5.10.14 of stream.c, stream_gpu.c, and StreamBench re-released
@@ -15,8 +34,13 @@ Version 5.10.14 of stream.c, stream_gpu.c, and StreamBench re-released
   - Improve: run_stream_ai.ps1 supports STREAMBENCH_AI_NO_DOWNLOAD=1
     (passes `--ai-no-download`) for cached-model-only AI runs.
 
-  - Fix: run_stream_ai.ps1 now maps STREAMBENCH_AI_LOCAL_SUMMARY=0 to
-    `--ai-no-summary`, so summary auto-run is explicitly disabled.
+  - Change: removed `--ai-local-summary` special flag usage from launcher/docs.
+    Q3 local relation summary now follows the same default AI flow as
+    additional question output alongside Q1/Q2.
+
+  - Change: removed `--ai-no-summary` override path as well; relation summary
+    questions now use one unified output/log/JSON flow (Q3 today, extensible
+    to future Q4/Q5 prompts with the same latency and tokens/sec reporting).
 
   - Improve: user-specified model alias matching now prefers cached and
     smaller variants first, reducing avoidable downloads for strict alias runs.

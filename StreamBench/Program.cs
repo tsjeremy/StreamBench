@@ -5,7 +5,7 @@
 //               [--range START:END:STEP] [--no-save] [--output-dir DIR]
 //               [--exe PATH]
 //               [--ai] [--ai-device cpu|gpu|npu] [--ai-model ALIAS]
-//               [--ai-local-summary] [--ai-no-summary] [--ai-shared-only]
+//               [--ai-shared-only]
 //               [--ai-no-download]
 //
 // If neither --cpu nor --gpu is specified, both benchmarks run automatically
@@ -71,8 +71,6 @@ async Task<int> RunMainAsync(string[] args)
     bool   wantGpu    = false;
     bool   modeSet    = false;   // true if user explicitly passed --cpu or --gpu
     bool   wantAi     = false;   // --ai flag
-    bool   aiLocalSummary = false; // --ai-local-summary
-    bool   aiNoSummary = false;    // --ai-no-summary (opt out of auto Q3)
     bool   aiSharedOnly = false;   // --ai-shared-only (skip best-per-device pass)
     bool   aiNoDownload = false;   // --ai-no-download (cached models only)
     string? aiModel   = null;    // --ai-model ALIAS
@@ -93,8 +91,6 @@ async Task<int> RunMainAsync(string[] args)
                 case "--cpu":   wantCpu = true; modeSet = true; break;
                 case "--gpu":   wantGpu = true; modeSet = true; break;
                 case "--ai":    wantAi  = true; break;
-                case "--ai-local-summary": aiLocalSummary = true; break;
-                case "--ai-no-summary": aiNoSummary = true; break;
                 case "--ai-shared-only": aiSharedOnly = true; break;
                 case "--ai-no-download": aiNoDownload = true; break;
                 case "--no-save": noSave = true; break;
@@ -145,8 +141,12 @@ async Task<int> RunMainAsync(string[] args)
         }
     }
 
+    // Keep these flags referenced in non-AI builds to avoid dead-code warnings.
+    _ = aiSharedOnly;
+    _ = aiNoDownload;
+
     // If user provided AI-specific options, enable AI mode automatically.
-    if (!wantAi && (!string.IsNullOrWhiteSpace(aiModel) || !string.IsNullOrWhiteSpace(aiDevices) || aiLocalSummary))
+    if (!wantAi && (!string.IsNullOrWhiteSpace(aiModel) || !string.IsNullOrWhiteSpace(aiDevices)))
         wantAi = true;
 
 #if ENABLE_AI
@@ -205,7 +205,7 @@ async Task<int> RunMainAsync(string[] args)
         if (wantCpu || wantGpu) Console.WriteLine();
         int aiCode = await RunAiBenchmarkAsync(
             aiDevices, aiModel, noSave, outputDir,
-            aiLocalSummary, aiSharedOnly, aiNoDownload, aiNoSummary,
+            aiSharedOnly, aiNoDownload,
             savedMemoryJsonPaths);
         if (aiCode != 0)
         {
@@ -465,7 +465,7 @@ async Task<int> RunMainAsync(string[] args)
 #if ENABLE_AI
 async Task<int> RunAiBenchmarkAsync(
     string? deviceArg, string? modelAlias, bool noSave, string? outputDir,
-    bool includeLocalSummary, bool sharedOnly, bool noDownload, bool noSummary,
+    bool sharedOnly, bool noDownload,
     IReadOnlyCollection<string>? memoryJsonPaths = null)
 {
     // Parse comma-separated device list (e.g. "cpu,gpu,npu" or "npu")
@@ -524,26 +524,22 @@ async Task<int> RunAiBenchmarkAsync(
 
     AiLocalRelationSummaryResult? relationSummary = null;
 
-    // Auto-enable Q3 when memory JSON files exist, unless user opted out
-    bool runSummary = includeLocalSummary;
-    if (!runSummary && !noSummary)
+    // Run Q3 when memory JSON files exist in the output directory.
+    bool runSummary = false;
+    string checkDir = Path.GetFullPath(outputDir ?? ".");
+    if (Directory.Exists(checkDir))
     {
-        string checkDir = Path.GetFullPath(outputDir ?? ".");
-        if (Directory.Exists(checkDir))
+        bool hasMemoryJson = Directory.EnumerateFiles(checkDir, "stream_*_results_*.json", SearchOption.TopDirectoryOnly).Any();
+        if (hasMemoryJson)
         {
-            bool hasMemoryJson = Directory.EnumerateFiles(checkDir, "stream_*_results_*.json", SearchOption.TopDirectoryOnly).Any();
-            if (hasMemoryJson)
-            {
-                runSummary = true;
-                TraceLog.AiRelationAutoEnabled("memory JSON files found in output directory");
-                ConsoleOutput.WriteMarkup("[dim]  Auto-enabling Q3 relation summary (memory JSON files found)[/]");
-            }
+            runSummary = true;
+            TraceLog.AiRelationAutoEnabled("Q3 relation summary enabled: memory JSON files found in output directory");
+            ConsoleOutput.WriteMarkup("[dim]  Q3 relation summary enabled (memory JSON files found)[/]");
         }
-    }
-    if (noSummary)
-    {
-        runSummary = false;
-        TraceLog.AiRelationSkipped("--ai-no-summary flag set");
+        else
+        {
+            TraceLog.AiRelationSkipped("no memory JSON files found in output directory");
+        }
     }
 
     if (runSummary)
@@ -551,19 +547,13 @@ async Task<int> RunAiBenchmarkAsync(
         string summaryDir = Path.GetFullPath(outputDir ?? ".");
         try
         {
-            relationSummary = await AiBenchmarkRunner.RunLocalRelationSummaryAsync(summaryDir, modelAlias);
+            relationSummary = await AiBenchmarkRunner.RunLocalRelationSummaryAsync(
+                summaryDir, modelAlias, deviceFilter);
         }
         catch (Exception ex)
         {
             DiagnosticHelper.LogException(ex);
             ConsoleOutput.WriteMarkup($"[yellow][WARN][/] Local relation summary failed: {ex.Message}");
-        }
-
-        if (relationSummary is null && includeLocalSummary)
-        {
-            // Only treat as error if user explicitly requested it
-            ConsoleOutput.WriteMarkup("[yellow][WARN][/] Local relation summary did not produce results.");
-            return 1;
         }
     }
 
@@ -589,7 +579,7 @@ async Task<int> RunAiBenchmarkAsync(
             memoryJsonPaths, twoPassResult, relationSummary, outputDir);
         if (mergedPaths.Count > 0)
         {
-            ConsoleOutput.WriteMarkup("[bold white]Embedding AI Q1/Q2/Q3 into memory benchmark JSON...[/]");
+            ConsoleOutput.WriteMarkup("[bold white]Embedding AI questions into memory benchmark JSON...[/]");
             foreach (var path in mergedPaths)
                 ConsoleOutput.PrintFileSaved(path);
             Console.WriteLine();
@@ -631,8 +621,6 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--ai[/]                     Run AI inference benchmark on all available devices");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
-    ConsoleOutput.WriteMarkup("  [cyan]--ai-local-summary[/]       Force Q3 local-JSON summary (auto-enabled when memory JSON exists)");
-    ConsoleOutput.WriteMarkup("  [cyan]--ai-no-summary[/]          Disable auto Q3 relation summary");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-shared-only[/]         Skip best-per-device pass (shared model comparison only)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-no-download[/]         Only use cached models (skip downloads for fast repeat runs)");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
@@ -652,6 +640,5 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  StreamBench --ai                          AI benchmark on all devices (CPU/GPU/NPU)");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-device cpu,npu      AI benchmark on CPU and NPU only");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-model phi-3.5-mini  Use a specific model");
-    ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-local-summary       Add Q3 local JSON summary after Q1/Q2");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --no-save                Run without saving JSON");
 }

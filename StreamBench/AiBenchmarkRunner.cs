@@ -844,12 +844,13 @@ public static class AiBenchmarkRunner
     }
 
     /// <summary>
-    /// Runs three local-AI analysis questions over all benchmark JSON files
-    /// in the specified directory to summarize memory-bandwidth vs AI relation.
+    /// Runs local-AI relation questions over benchmark JSON files in the
+    /// specified directory. Questions are executed per available target device.
     /// </summary>
     public static async Task<AiLocalRelationSummaryResult?> RunLocalRelationSummaryAsync(
         string directoryPath,
         string? modelAlias = null,
+        IEnumerable<string>? devices = null,
         CancellationToken cancellationToken = default)
     {
         string sourceDir = Path.GetFullPath(
@@ -890,7 +891,6 @@ public static class AiBenchmarkRunner
         ConsoleOutput.WriteMarkup($"[dim]  Source folder: {sourceDir}[/]");
         ConsoleOutput.WriteMarkup($"[dim]  Files: {dataset.MemoryFileCount} memory JSON, {dataset.AiFileCount} AI JSON[/]");
 
-        FoundryModel? model = null;
         try
         {
             var allModels = await ListModelsAsync(cli);
@@ -901,49 +901,96 @@ public static class AiBenchmarkRunner
             }
 
             bool strictAlias = !string.IsNullOrWhiteSpace(modelAlias);
-            model = FindBestModel(allModels, "CPU", modelAlias, strictAlias);
-            if (model is null)
-            {
-                ConsoleOutput.WriteMarkup("[yellow][WARN][/] No CPU model available for local relation summary.");
-                return null;
-            }
-
-            // Load model
-            ConsoleOutput.WriteMarkup($"[dim]  Loading summary model: {model.Id}[/]");
-            if (!await LoadModelAsync(cli, model.Id))
-            {
-                ConsoleOutput.WriteMarkup($"[red][FAIL][/] Failed to load model {model.Id}");
-                return null;
-            }
+            var targetDevices = ParseDeviceFilter(devices);
+            TraceLog.DiagnosticInfo(
+                $"Relation summary target devices: {string.Join(", ", targetDevices)}");
 
             var answers = new List<AiRelationQuestionAnswer>();
+            var selectedModels = new List<AiRelationModelSelection>();
 
-            for (int i = 0; i < RelationQuestions.Length; i++)
+            foreach (var deviceType in targetDevices)
             {
-                string question = RelationQuestions[i];
-                string prompt = i switch
+                var model = FindBestModel(allModels, deviceType, modelAlias, strictAlias);
+                if (model is null)
                 {
-                    0 => Q1,
-                    1 => Q2,
-                    _ => BuildRelationPrompt(relationContext, question),
-                };
-                ConsoleOutput.WriteMarkup($"[dim]  Q{i + 1}: {question}[/]");
+                    ConsoleOutput.WriteMarkup(
+                        $"[yellow][SKIP][/] No model available for local relation summary on [white]{deviceType}[/].");
+                    continue;
+                }
 
-                var run = await RunInferenceAsync(
-                    serviceUrl, model.Id, prompt,
-                    modelLoadSec: 0,
-                    deviceLabel: "CPU",
-                    ct: cancellationToken);
+                ConsoleOutput.WriteMarkup(
+                    $"[dim]  Loading summary model ({deviceType}): {model.Id}[/]");
+                if (!await LoadModelAsync(cli, model.Id))
+                {
+                    ConsoleOutput.WriteMarkup(
+                        $"[yellow][SKIP][/] Failed to load summary model on [white]{deviceType}[/]: {model.Id}");
+                    continue;
+                }
 
-                if (run is null)
-                    return null;
+                bool deviceFailed = false;
+                var deviceAnswers = new List<AiRelationQuestionAnswer>();
+                try
+                {
+                    for (int i = 0; i < RelationQuestions.Length; i++)
+                    {
+                        string question = RelationQuestions[i];
+                        string prompt = i switch
+                        {
+                            0 => Q1,
+                            1 => Q2,
+                            _ => BuildRelationPrompt(relationContext, question),
+                        };
+                        ConsoleOutput.WriteMarkup($"[dim]  {deviceType} Q{i + 1}: {question}[/]");
 
-                answers.Add(new AiRelationQuestionAnswer(
-                    Index: i + 1,
-                    Question: question,
-                    Answer: run.ResponseText.Trim(),
-                    Run: run));
+                        var run = await RunInferenceAsync(
+                            serviceUrl, model.Id, prompt,
+                            modelLoadSec: 0,
+                            deviceLabel: deviceType,
+                            ct: cancellationToken);
+
+                        if (run is null)
+                        {
+                            deviceFailed = true;
+                            break;
+                        }
+
+                        deviceAnswers.Add(new AiRelationQuestionAnswer(
+                            Index: i + 1,
+                            Question: question,
+                            Answer: run.ResponseText.Trim(),
+                            DeviceType: deviceType,
+                            Run: run));
+                    }
+                }
+                finally
+                {
+                    await UnloadModelAsync(cli, model.Id);
+                }
+
+                if (deviceFailed)
+                {
+                    ConsoleOutput.WriteMarkup(
+                        $"[yellow][SKIP][/] Relation questions did not complete on [white]{deviceType}[/].");
+                    continue;
+                }
+
+                answers.AddRange(deviceAnswers);
+                selectedModels.Add(new AiRelationModelSelection(
+                    DeviceType: deviceType,
+                    ModelId: model.Id,
+                    ModelAlias: model.Alias,
+                    ExecutionProvider: model.ExecutionProvider));
             }
+
+            if (answers.Count == 0 || selectedModels.Count == 0)
+            {
+                ConsoleOutput.WriteMarkup(
+                    "[yellow][WARN][/] Local relation summary did not produce completed question sets on available devices.");
+                return null;
+            }
+
+            var primaryModel = selectedModels[0];
+            string summaryDeviceType = selectedModels.Count == 1 ? primaryModel.DeviceType : "MULTI";
 
             return new AiLocalRelationSummaryResult(
                 SourceDirectory: sourceDir,
@@ -951,13 +998,15 @@ public static class AiBenchmarkRunner
                 AiJsonFiles: dataset.AiFileCount,
                 MemorySamples: dataset.MemorySamples.Count,
                 AiSamples: dataset.AiSamples.Count,
-                ModelId: model.Id,
-                ModelAlias: model.Alias,
-                ExecutionProvider: model.ExecutionProvider,
+                ModelId: primaryModel.ModelId,
+                ModelAlias: primaryModel.ModelAlias,
+                ExecutionProvider: primaryModel.ExecutionProvider,
                 DeviceLevelCorrelation: deviceCorrelation,
                 DeviceAggregates: deviceAggregates,
                 Questions: answers,
-                Timestamp: DateTime.UtcNow.ToString("O"));
+                Timestamp: DateTime.UtcNow.ToString("O"),
+                SummaryDeviceType: summaryDeviceType,
+                Models: selectedModels);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -968,8 +1017,6 @@ public static class AiBenchmarkRunner
         }
         finally
         {
-            if (model is not null)
-                await UnloadModelAsync(cli, model.Id);
             await StopServiceAsync(cli);
         }
     }
