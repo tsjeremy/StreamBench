@@ -74,6 +74,58 @@ if ($IsWindows) {
     $ext     = ''
 }
 
+# ------------------------------------------------------------------
+#  Windows: auto-check prerequisites (silent — runs setup.ps1 if needed)
+# ------------------------------------------------------------------
+if ($IsWindows) {
+    $setupNeeded = $false
+
+    # 1. VC++ Redistributable (vcomp140.dll)
+    if (-not (Test-Path "$env:SystemRoot\System32\vcomp140.dll") -and
+        -not (Test-Path "$env:SystemRoot\SysWOW64\vcomp140.dll")) {
+        $setupNeeded = $true
+    }
+
+    # 2. .NET 10 Runtime (standalone) or .NET 10 SDK (source)
+    $csprojCheck = Join-Path $ScriptDir 'StreamBench\StreamBench.csproj'
+    $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+    if (Test-Path $csprojCheck) {
+        # Source mode — need SDK
+        $sdks = $null
+        if (Get-Command dotnet -ErrorAction SilentlyContinue) { $sdks = & dotnet --list-sdks 2>$null }
+        if (-not ($sdks -match '^10\.')) { $setupNeeded = $true }
+    } else {
+        # Standalone mode — need Runtime
+        $runtimes = $null
+        if (Get-Command dotnet -ErrorAction SilentlyContinue) { $runtimes = & dotnet --list-runtimes 2>$null }
+        if (-not ($runtimes -match 'Microsoft\.NETCore\.App 10\.')) { $setupNeeded = $true }
+    }
+
+    if ($setupNeeded) {
+        $setupScript = Join-Path $ScriptDir 'setup.ps1'
+        if (Test-Path $setupScript) {
+            Write-Host '  [!] Missing prerequisites detected — running setup.ps1...' -ForegroundColor Yellow
+            Write-Host ''
+            & $setupScript
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host '  [FAIL] setup.ps1 finished with errors. Please resolve and re-run.' -ForegroundColor Red
+                exit 1
+            }
+            # Refresh PATH after setup
+            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                        [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+            Write-Host ''
+        } else {
+            Write-Host '  [!] Prerequisites missing and setup.ps1 not found.' -ForegroundColor Yellow
+            Write-Host '      Run setup.ps1 first, or install manually:' -ForegroundColor Yellow
+            Write-Host '        winget install "Microsoft.VCRedist.2015+.$archTag"' -ForegroundColor Yellow
+            Write-Host '        winget install Microsoft.DotNet.Runtime.10' -ForegroundColor Yellow
+            exit 1
+        }
+    }
+}
+
 Write-Host ''
 Write-Host '  ========================================' -ForegroundColor DarkGray
 Write-Host '   STREAM Memory Bandwidth Benchmark' -ForegroundColor Cyan
@@ -166,40 +218,6 @@ if ($hasBench) {
     exit 1
 }
 
-# ------------------------------------------------------------------
-#  Windows: check for vcomp140.dll (OpenMP runtime)
-# ------------------------------------------------------------------
-if ($IsWindows) {
-    $dllOk = (Test-Path "$env:SystemRoot\System32\vcomp140.dll") -or
-             [bool](Get-Command vcomp140.dll -ErrorAction SilentlyContinue)
-
-    if (-not $dllOk) {
-        Write-Host ''
-        Write-Host '  [!] MISSING: vcomp140.dll' -ForegroundColor Yellow
-        Write-Host '  The CPU benchmark requires the Visual C++ Redistributable.'
-        Write-Host ''
-
-        if (Get-Command winget -ErrorAction SilentlyContinue) {
-            $choice = Read-Host '  Install VC++ Redistributable now? [Y/n]'
-            if ($choice -ne 'n') {
-                winget install "Microsoft.VCRedist.2015+.$archTag" --accept-package-agreements --accept-source-agreements
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host '  [OK] Installation succeeded!' -ForegroundColor Green
-                    $dllOk = $true
-                } else {
-                    Write-Host '  [!] Installation may have failed. Download manually:' -ForegroundColor Red
-                    Write-Host "       https://aka.ms/vs/17/release/vc_redist.$archTag.exe"
-                }
-            } else {
-                Write-Host '  Skipped. CPU benchmark will not run without vcomp140.dll.' -ForegroundColor Yellow
-            }
-        } else {
-            Write-Host "  Download manually: https://aka.ms/vs/17/release/vc_redist.$archTag.exe"
-        }
-        Write-Host ''
-    }
-}
-
 Write-Host ''
 
 # ------------------------------------------------------------------
@@ -226,12 +244,7 @@ if ($useSelfContained) {
     }
 
     if ($hasCpu) {
-        $skipCpu = $IsWindows -and -not $dllOk
-        if ($skipCpu) {
-            Write-Host '  [SKIP] CPU benchmark requires vcomp140.dll.' -ForegroundColor Yellow
-        } else {
-            Invoke-Bench -Mode 'cpu' -Exe $cpuExe
-        }
+        Invoke-Bench -Mode 'cpu' -Exe $cpuExe
     }
 
     if ($hasGpu) {

@@ -101,6 +101,64 @@ if ($arraySize -notmatch '^\d+$') {
     exit 1
 }
 
+# ------------------------------------------------------------------
+#  Windows: auto-check prerequisites (silent — runs setup.ps1 if needed)
+# ------------------------------------------------------------------
+if ($IsWindows) {
+    $setupNeeded = $false
+
+    # 1. VC++ Redistributable (vcomp140.dll)
+    if (-not (Test-Path "$env:SystemRoot\System32\vcomp140.dll") -and
+        -not (Test-Path "$env:SystemRoot\SysWOW64\vcomp140.dll")) {
+        $setupNeeded = $true
+    }
+
+    # 2. .NET 10 Runtime (standalone) or .NET 10 SDK (source)
+    $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+    if (Test-Path $csproj) {
+        # Source mode — need SDK
+        $sdks = $null
+        if (Get-Command dotnet -ErrorAction SilentlyContinue) { $sdks = & dotnet --list-sdks 2>$null }
+        if (-not ($sdks -match '^10\.')) { $setupNeeded = $true }
+    } else {
+        # Standalone mode — need Runtime
+        $runtimes = $null
+        if (Get-Command dotnet -ErrorAction SilentlyContinue) { $runtimes = & dotnet --list-runtimes 2>$null }
+        if (-not ($runtimes -match 'Microsoft\.NETCore\.App 10\.')) { $setupNeeded = $true }
+    }
+
+    # 3. Foundry Local (required for AI benchmark)
+    if (-not (Get-Command foundry -ErrorAction SilentlyContinue) -and
+        -not (Get-Command foundrylocal -ErrorAction SilentlyContinue)) {
+        $setupNeeded = $true
+    }
+
+    if ($setupNeeded) {
+        $setupScript = Join-Path $ScriptDir 'setup.ps1'
+        if (Test-Path $setupScript) {
+            Write-Host '  [!] Missing prerequisites detected — running setup.ps1...' -ForegroundColor Yellow
+            Write-Host ''
+            & $setupScript
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host '  [FAIL] setup.ps1 finished with errors. Please resolve and re-run.' -ForegroundColor Red
+                exit 1
+            }
+            # Refresh PATH after setup
+            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                        [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+            Write-Host ''
+        } else {
+            Write-Host '  [!] Prerequisites missing and setup.ps1 not found.' -ForegroundColor Yellow
+            Write-Host '      Run setup.ps1 first, or install manually:' -ForegroundColor Yellow
+            Write-Host '        winget install "Microsoft.VCRedist.2015+.$archTag"' -ForegroundColor Yellow
+            Write-Host '        winget install Microsoft.DotNet.Runtime.10' -ForegroundColor Yellow
+            Write-Host '        winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+            exit 1
+        }
+    }
+}
+
 Write-Host ''
 Write-Host '  ========================================' -ForegroundColor DarkGray
 Write-Host '   STREAM + AI Benchmark Launcher' -ForegroundColor Cyan
@@ -162,25 +220,6 @@ if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj))
 
 if ($benchExe) {
     Write-Host "  [OK] Found $benchName" -ForegroundColor Green
-
-    # Pre-flight: check Foundry Local is available (CLI alias is 'foundry', not 'foundrylocal')
-    # Refresh PATH in case setup.ps1 just installed it in a prior session
-    if ($IsWindows) {
-        $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
-                    [System.Environment]::GetEnvironmentVariable('PATH', 'User')
-    }
-    $foundryAvailable = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
-                        [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
-    if (-not $foundryAvailable) {
-        Write-Host ''
-        Write-Host '  [!] Microsoft Foundry Local is not installed.' -ForegroundColor Yellow
-        Write-Host '      The AI benchmark requires Foundry Local.' -ForegroundColor Yellow
-        Write-Host '      Install it with: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
-        Write-Host '      After install, restart your terminal and re-run this script.' -ForegroundColor Yellow
-        Write-Host ''
-        Write-Host '      Continuing with memory benchmark only...' -ForegroundColor Yellow
-        Write-Host ''
-    }
 
     $exeArgs = @('--cpu','--gpu','--ai','--array-size',"$arraySize")
     if (-not [string]::IsNullOrWhiteSpace($aiDevices)) {

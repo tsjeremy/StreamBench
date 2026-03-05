@@ -8,9 +8,12 @@
 #
 # What this script does:
 #   1. Installs Visual C++ Redistributable 2015+ (for vcomp140.dll)
-#   2. (Source mode only) Installs .NET 10 SDK if missing
-#   3. (Source mode only) Runs "dotnet restore" for base + AI packages
-#   4. (Optional) Installs Microsoft Foundry Local for AI benchmark
+#   2. Installs .NET 10 SDK (source) or .NET 10 Runtime (standalone)
+#   3. (Source mode only) Checks for MSVC Build Tools (cl.exe)
+#   4. (Source mode only) Runs "dotnet restore" for base + AI packages
+#   5. Checks GPU driver / OpenCL availability for GPU benchmark
+#   6. (Optional) Checks / installs PowerShell 7
+#   7. (Optional) Installs Microsoft Foundry Local for AI benchmark
 #
 # Usage:
 #   .\setup.ps1
@@ -95,7 +98,7 @@ if (-not $hasWinget) {
 # ------------------------------------------------------------------
 #  1. Visual C++ Redistributable (vcomp140.dll for OpenMP)
 # ------------------------------------------------------------------
-Write-Host '  [1/4] Checking Visual C++ Redistributable...' -ForegroundColor Cyan
+Write-Host '  [1/7] Checking Visual C++ Redistributable...' -ForegroundColor Cyan
 
 $vcRedistOk = (Test-Path "$env:SystemRoot\System32\vcomp140.dll") -or
               (Test-Path "$env:SystemRoot\SysWOW64\vcomp140.dll")
@@ -106,7 +109,7 @@ if ($vcRedistOk) {
     Write-Host '  [!] vcomp140.dll not found (required by CPU benchmark).' -ForegroundColor Yellow
     if ($hasWinget) {
         Write-Host "  Installing VC++ Redistributable ($archTag) via winget..." -ForegroundColor Yellow
-        winget install "Microsoft.VCRedist.2015+.$archTag" --accept-package-agreements --accept-source-agreements
+        winget install "Microsoft.VCRedist.2015+.$archTag" --accept-package-agreements --accept-source-agreements --silent
         if ($LASTEXITCODE -eq 0) {
             Write-Host '  [OK] Visual C++ Redistributable installed.' -ForegroundColor Green
         } else {
@@ -123,7 +126,7 @@ Write-Host ''
 #  2. .NET 10 SDK (source mode only)
 # ------------------------------------------------------------------
 if ($hasSource) {
-    Write-Host '  [2/4] Checking .NET 10 SDK...' -ForegroundColor Cyan
+    Write-Host '  [2/7] Checking .NET 10 SDK...' -ForegroundColor Cyan
 
     # Refresh PATH so we pick up dotnet even if it was installed in another session
     $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
@@ -142,7 +145,7 @@ if ($hasSource) {
         Write-Host '  [!] .NET 10 SDK not found.' -ForegroundColor Yellow
         if ($hasWinget) {
             Write-Host '  Installing .NET 10 SDK via winget...' -ForegroundColor Yellow
-            winget install Microsoft.DotNet.SDK.10 --accept-package-agreements --accept-source-agreements
+            winget install Microsoft.DotNet.SDK.10 --accept-package-agreements --accept-source-agreements --silent
             $wingetExit = $LASTEXITCODE
             # Refresh PATH after install
             $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
@@ -169,28 +172,109 @@ if ($hasSource) {
         }
     }
 } else {
-    Write-Host '  [2/4] .NET Runtime check...' -ForegroundColor Cyan
-    # In standalone mode, .NET SDK is not required, but inform the user if .NET Runtime is present
+    Write-Host '  [2/7] Checking .NET 10 Runtime...' -ForegroundColor Cyan
+
+    # Standalone mode requires .NET 10 Runtime (not the full SDK)
     $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
                 [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+
+    $dotnetRuntimeOk = $false
     if (Get-Command dotnet -ErrorAction SilentlyContinue) {
         $runtimes = & dotnet --list-runtimes 2>$null
-        if ($runtimes) {
-            Write-Host '  [OK] .NET Runtime detected (not required for standalone exe).' -ForegroundColor DarkGray
-        } else {
-            Write-Host '  [--] .NET not detected (not required for standalone exe).' -ForegroundColor DarkGray
+        if ($runtimes -match 'Microsoft\.NETCore\.App 10\.') {
+            Write-Host '  [OK] .NET 10 Runtime is already installed.' -ForegroundColor Green
+            $dotnetRuntimeOk = $true
         }
-    } else {
-        Write-Host '  [--] .NET not detected (not required for standalone exe).' -ForegroundColor DarkGray
+    }
+
+    if (-not $dotnetRuntimeOk) {
+        Write-Host '  [!] .NET 10 Runtime not found.' -ForegroundColor Yellow
+        if ($hasWinget) {
+            Write-Host '  Installing .NET 10 Runtime via winget...' -ForegroundColor Yellow
+            winget install Microsoft.DotNet.Runtime.10 --accept-package-agreements --accept-source-agreements --silent
+            $wingetExit = $LASTEXITCODE
+            # Refresh PATH after install
+            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                        [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+            $runtimes = $null
+            if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+                $runtimes = & dotnet --list-runtimes 2>$null
+            }
+            if ($runtimes -match 'Microsoft\.NETCore\.App 10\.') {
+                Write-Host '  [OK] .NET 10 Runtime installed.' -ForegroundColor Green
+                $dotnetRuntimeOk = $true
+            } elseif ($wingetExit -eq 0) {
+                Write-Host '  [OK] .NET 10 Runtime installed.' -ForegroundColor Green
+                $dotnetRuntimeOk = $true
+            } else {
+                Write-Host '  [FAIL] .NET 10 Runtime installation failed.' -ForegroundColor Red
+                Write-Host '         Download manually: https://dot.net/download' -ForegroundColor Yellow
+                $errors++
+            }
+        } else {
+            Write-Host '  Download .NET 10 Runtime from: https://dot.net/download' -ForegroundColor Yellow
+            $errors++
+        }
     }
 }
 Write-Host ''
 
 # ------------------------------------------------------------------
-#  3. dotnet restore (source mode only)
+#  3. MSVC Build Tools (source mode only — for building C backends)
 # ------------------------------------------------------------------
 if ($hasSource) {
-    Write-Host '  [3/4] Running dotnet restore...' -ForegroundColor Cyan
+    Write-Host '  [3/7] Checking MSVC Build Tools (cl.exe)...' -ForegroundColor Cyan
+
+    # Look for vcvarsall.bat (same logic as build_all_windows.ps1)
+    $vcFound = $false
+    $editions = @('Enterprise','Professional','Community','BuildTools')
+    $versions = @('2022','2025','18')
+    $roots    = @($env:ProgramFiles, ${env:ProgramFiles(x86)})
+    foreach ($ver in $versions) {
+        foreach ($ed in $editions) {
+            foreach ($root in $roots) {
+                if (-not $root) { continue }
+                $candidate = Join-Path $root "Microsoft Visual Studio\$ver\$ed\VC\Auxiliary\Build\vcvarsall.bat"
+                if (Test-Path $candidate) { $vcFound = $true; break }
+            }
+            if ($vcFound) { break }
+        }
+        if ($vcFound) { break }
+    }
+    if (-not $vcFound) {
+        # Fallback: vswhere
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        if (Test-Path $vswhere) {
+            $installPath = & $vswhere -latest -property installationPath 2>$null
+            if ($installPath) {
+                $candidate = Join-Path $installPath 'VC\Auxiliary\Build\vcvarsall.bat'
+                if (Test-Path $candidate) { $vcFound = $true }
+            }
+        }
+    }
+
+    if ($vcFound) {
+        Write-Host '  [OK] MSVC Build Tools found (cl.exe available via vcvarsall.bat).' -ForegroundColor Green
+    } else {
+        Write-Host '  [!] MSVC Build Tools not found (needed to build C backends from source).' -ForegroundColor Yellow
+        if ($hasWinget) {
+            Write-Host '      Install with:' -ForegroundColor Yellow
+            Write-Host '        winget install Microsoft.VisualStudio.2022.Community --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --passive"' -ForegroundColor Yellow
+        } else {
+            Write-Host '      Install Visual Studio 2022 with "Desktop development with C++" workload.' -ForegroundColor Yellow
+            Write-Host '      https://visualstudio.microsoft.com/downloads/' -ForegroundColor Yellow
+        }
+    }
+} else {
+    Write-Host '  [3/7] MSVC Build Tools — [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
+}
+Write-Host ''
+
+# ------------------------------------------------------------------
+#  4. dotnet restore (source mode only)
+# ------------------------------------------------------------------
+if ($hasSource) {
+    Write-Host '  [4/7] Running dotnet restore...' -ForegroundColor Cyan
 
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
         Write-Host '  [SKIP] dotnet not available — install .NET 10 SDK first.' -ForegroundColor Yellow
@@ -222,14 +306,60 @@ if ($hasSource) {
         }
     }
 } else {
-    Write-Host '  [3/4] dotnet restore — [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
+    Write-Host '  [4/7] dotnet restore — [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
 }
 Write-Host ''
 
 # ------------------------------------------------------------------
-#  4. Microsoft Foundry Local (for AI benchmark)
+#  5. GPU driver / OpenCL check (for GPU benchmark)
 # ------------------------------------------------------------------
-Write-Host '  [4/4] Checking Microsoft Foundry Local (AI benchmark)...' -ForegroundColor Cyan
+Write-Host '  [5/7] Checking GPU driver / OpenCL availability...' -ForegroundColor Cyan
+
+$openclDll = Join-Path $env:SystemRoot 'System32\OpenCL.dll'
+if (Test-Path $openclDll) {
+    Write-Host '  [OK] OpenCL.dll found — GPU benchmark should work.' -ForegroundColor Green
+} else {
+    Write-Host '  [!] OpenCL.dll not found in System32.' -ForegroundColor Yellow
+    Write-Host '      GPU benchmark requires an OpenCL-capable GPU with up-to-date drivers.' -ForegroundColor Yellow
+    Write-Host '      Install or update your GPU driver:' -ForegroundColor Yellow
+    Write-Host '        NVIDIA : https://www.nvidia.com/drivers' -ForegroundColor Yellow
+    Write-Host '        AMD    : https://www.amd.com/en/support' -ForegroundColor Yellow
+    Write-Host '        Intel  : https://www.intel.com/content/www/us/en/download-center' -ForegroundColor Yellow
+    Write-Host '      (GPU benchmark is optional — CPU benchmark will still work.)' -ForegroundColor DarkGray
+}
+Write-Host ''
+
+# ------------------------------------------------------------------
+#  6. PowerShell 7 (pwsh) — recommended for best experience
+# ------------------------------------------------------------------
+Write-Host '  [6/7] Checking PowerShell 7 (pwsh)...' -ForegroundColor Cyan
+
+if (Get-Command pwsh -ErrorAction SilentlyContinue) {
+    $pwshVer = (& pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()') 2>$null
+    Write-Host "  [OK] PowerShell 7 found (pwsh $pwshVer)." -ForegroundColor Green
+} else {
+    Write-Host '  [!] PowerShell 7 (pwsh) not found.' -ForegroundColor Yellow
+    Write-Host '      Scripts work with PowerShell 5.1, but pwsh is recommended.' -ForegroundColor Yellow
+    if ($hasWinget) {
+        Write-Host '  Installing PowerShell 7 via winget...' -ForegroundColor Yellow
+        winget install Microsoft.PowerShell --accept-package-agreements --accept-source-agreements --silent
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host '  [OK] PowerShell 7 installed.' -ForegroundColor Green
+        } else {
+            Write-Host '  [!] Installation may have failed.' -ForegroundColor Yellow
+            Write-Host '      Install manually: winget install Microsoft.PowerShell' -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host '      Install: winget install Microsoft.PowerShell' -ForegroundColor Yellow
+        Write-Host '      Or: https://github.com/PowerShell/PowerShell/releases/latest' -ForegroundColor Yellow
+    }
+}
+Write-Host ''
+
+# ------------------------------------------------------------------
+#  7. Microsoft Foundry Local (for AI benchmark)
+# ------------------------------------------------------------------
+Write-Host '  [7/7] Checking Microsoft Foundry Local (AI benchmark)...' -ForegroundColor Cyan
 
 # Refresh PATH before checking — catches installs done in other sessions
 $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
@@ -258,7 +388,7 @@ if ($foundryOk) {
     Write-Host '  [!] Foundry Local not found (required for AI benchmark).' -ForegroundColor Yellow
     if ($hasWinget) {
         Write-Host '  Installing Microsoft Foundry Local via winget...' -ForegroundColor Yellow
-        winget install Microsoft.FoundryLocal --accept-package-agreements --accept-source-agreements
+        winget install Microsoft.FoundryLocal --accept-package-agreements --accept-source-agreements --silent
         if ($LASTEXITCODE -eq 0) {
             Write-Host '  [OK] Foundry Local installed.' -ForegroundColor Green
             $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
