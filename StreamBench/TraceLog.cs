@@ -8,7 +8,6 @@
 //   [2026-03-03T15:08:57.2345678Z] [WARN ] Backend not found. Tried: stream_cpu_win_x64.exe
 //   [2026-03-03T15:08:58.3456789Z] [ERROR] Benchmark error. Type: CPU, Error: ...
 
-using System.Reflection;
 using System.Text;
 
 namespace StreamBench;
@@ -27,7 +26,7 @@ public static class TraceLog
         try
         {
             string dir = Path.GetDirectoryName(Environment.ProcessPath)
-                ?? Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)
+                ?? AppContext.BaseDirectory
                 ?? ".";
 
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
