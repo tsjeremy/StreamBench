@@ -103,36 +103,67 @@ public static class AiBenchmarkRunner
 
     // ── Foundry CLI helpers ───────────────────────────────────────────────
 
+    /// <summary>Default model alias used for bootstrapping when no models are cached.</summary>
+    private const string DefaultBootstrapAlias = "phi-3.5-mini";
+
     /// <summary>Finds the foundry CLI executable.</summary>
     private static string? FindFoundryCli()
     {
         var triedNames = new[] { "foundry", "foundrylocal" };
+
+        // 1. Try names on PATH (works when MSIX alias is visible)
         foreach (var name in triedNames)
         {
-            try
+            if (TryProbeCli(name) is string found) return found;
+        }
+
+        // 2. Probe well-known MSIX app execution alias paths (Windows).
+        //    After winget install the alias lives under WindowsApps but may
+        //    not be visible in the current process's PATH until the terminal
+        //    is restarted. Probing the full path works around this.
+        if (OperatingSystem.IsWindows())
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrEmpty(localAppData))
             {
-                var psi = new ProcessStartInfo(name, "--version")
+                var windowsApps = Path.Combine(localAppData, "Microsoft", "WindowsApps");
+                foreach (var name in triedNames)
                 {
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-                using var p = Process.Start(psi);
-                if (p is null) continue;
-                p.WaitForExit(5000);
-                if (p.ExitCode == 0)
-                {
-                    TraceLog.AiCliFound(name);
-                    return name;
+                    var fullPath = Path.Combine(windowsApps, name + ".exe");
+                    if (File.Exists(fullPath) && TryProbeCli(fullPath) is string found2) return found2;
                 }
             }
-            catch (Exception ex)
+        }
+
+        TraceLog.AiCliNotFound(string.Join(", ", triedNames));
+        return null;
+    }
+
+    /// <summary>Probes a single CLI name/path and returns it on success.</summary>
+    private static string? TryProbeCli(string nameOrPath)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo(nameOrPath, "--version")
             {
-                TraceLog.DiagnosticInfo($"CLI probe failed for '{name}': {ex.Message}");
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var p = Process.Start(psi);
+            if (p is null) return null;
+            p.WaitForExit(5000);
+            if (p.ExitCode == 0)
+            {
+                TraceLog.AiCliFound(nameOrPath);
+                return nameOrPath;
             }
         }
-        TraceLog.AiCliNotFound(string.Join(", ", triedNames));
+        catch (Exception ex)
+        {
+            TraceLog.DiagnosticInfo($"CLI probe failed for '{nameOrPath}': {ex.Message}");
+        }
         return null;
     }
 
@@ -300,13 +331,14 @@ public static class AiBenchmarkRunner
         bool IsCached);
 
     /// <summary>Lists all available models from the foundry catalog.</summary>
-    private static async Task<List<FoundryModel>> ListModelsAsync(string cli)
+    /// <param name="firstRunTimeoutMs">Timeout for first-run EP download (default 180 s).</param>
+    private static async Task<List<FoundryModel>> ListModelsAsync(string cli, int firstRunTimeoutMs = 180_000)
     {
         var sw = Stopwatch.StartNew();
         var models = new List<FoundryModel>();
 
         // Try JSON output first
-        var (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list --json", 180_000);
+        var (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list --json", firstRunTimeoutMs);
         if (exitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
         {
             var jsonModels = TryParseModelListJson(stdout);
@@ -319,7 +351,7 @@ public static class AiBenchmarkRunner
         }
 
         // Fallback: parse text output
-        (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list", 180_000);
+        (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list", firstRunTimeoutMs);
         if (exitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
         {
             models = ParseModelListText(stdout);
@@ -600,6 +632,7 @@ public static class AiBenchmarkRunner
         {
             ConsoleOutput.WriteMarkup("[red][FAIL][/] Foundry Local CLI not found (foundry / foundrylocal).");
             ConsoleOutput.WriteMarkup("[dim]  Install: winget install Microsoft.FoundryLocal[/]");
+            ConsoleOutput.WriteMarkup("[dim]  If already installed, restart your terminal (MSIX alias requires a new session).[/]");
             return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
         }
 
@@ -617,13 +650,50 @@ public static class AiBenchmarkRunner
 
         try
         {
-            var allModels = await ListModelsAsync(cli);
+            // First-run note: 'foundry model list' may download execution providers (EPs)
+            // for the user's hardware on first invocation, which can take several minutes.
+            // ListModelsAsync uses a 180 s timeout per attempt; we extend to 300 s for the
+            // initial call to accommodate EP downloads on slower connections.
+            ConsoleOutput.WriteMarkup("[dim]  Loading model catalog (first run may download execution providers)...[/]");
+            var allModels = await ListModelsAsync(cli, firstRunTimeoutMs: 300_000);
+
+            // First-run: the catalog index may still be initialising — retry once after a short delay.
+            if (allModels.Count == 0)
+            {
+                TraceLog.DiagnosticInfo("Catalog empty on first attempt; retrying after 8 s delay");
+                ConsoleOutput.WriteMarkup("[dim]  Catalog empty — waiting for Foundry service to initialise...[/]");
+                await Task.Delay(8_000, cancellationToken);
+                allModels = await ListModelsAsync(cli);
+            }
+
+            // If still empty, attempt to bootstrap by downloading a well-known default model.
+            if (allModels.Count == 0 && !noDownload)
+            {
+                TraceLog.DiagnosticInfo($"Catalog still empty; bootstrapping with default model '{DefaultBootstrapAlias}'");
+                ConsoleOutput.WriteMarkup(
+                    $"[yellow][INFO][/] No models in catalog — downloading default model [white]{DefaultBootstrapAlias}[/]...");
+                ConsoleOutput.WriteMarkup("[dim]  This is a one-time download and may take several minutes.[/]");
+
+                var (dlExit, _, dlErr) = await RunFoundryAsync(cli, $"model download \"{DefaultBootstrapAlias}\"", 600_000);
+                if (dlExit == 0)
+                {
+                    TraceLog.DiagnosticInfo($"Bootstrap download of '{DefaultBootstrapAlias}' succeeded; refreshing catalog");
+                    ConsoleOutput.WriteMarkup($"[dim]  Download of {DefaultBootstrapAlias} complete — refreshing catalog...[/]");
+                    allModels = await ListModelsAsync(cli);
+                }
+                else
+                {
+                    TraceLog.DiagnosticInfo($"Bootstrap download failed (exit={dlExit}): {dlErr}");
+                    ConsoleOutput.WriteMarkup($"[yellow][WARN][/] Default model download failed: {dlErr}");
+                }
+            }
 
             if (allModels.Count == 0)
             {
-                TraceLog.AiCatalogUnavailable("No models found in catalog");
-                ConsoleOutput.WriteMarkup("[yellow][WARN][/] No models found in catalog. " +
-                    "Ensure Foundry Local is installed and models are downloaded.");
+                TraceLog.AiCatalogUnavailable("No models found in catalog after retry and bootstrap");
+                ConsoleOutput.WriteMarkup("[yellow][WARN][/] No models found in catalog.");
+                ConsoleOutput.WriteMarkup("[dim]  On a fresh install, try: foundry model run phi-3.5-mini[/]");
+                ConsoleOutput.WriteMarkup("[dim]  Then re-run the AI benchmark.[/]");
                 return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
             }
 

@@ -367,6 +367,25 @@ $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';
 
 $foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
              [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
+
+# MSIX alias fallback: probe well-known WindowsApps path if not on PATH yet
+if (-not $foundryOk) {
+    $msixDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+    foreach ($name in @('foundry.exe', 'foundrylocal.exe')) {
+        $fullPath = Join-Path $msixDir $name
+        if (Test-Path $fullPath) {
+            $foundryOk = $true
+            break
+        }
+    }
+    if ($foundryOk) {
+        # Ensure WindowsApps is on PATH for this session
+        if ($env:PATH -notlike "*$msixDir*") {
+            $env:PATH = "$msixDir;$env:PATH"
+        }
+    }
+}
+
 if ($foundryOk) {
     Write-Host '  [OK] Microsoft Foundry Local CLI is installed.' -ForegroundColor Green
     # Validate service actually works
@@ -384,6 +403,36 @@ if ($foundryOk) {
         Write-Host '  [!] Foundry Local CLI found but service check failed.' -ForegroundColor Yellow
         Write-Host "      Try: $foundryCmd service start" -ForegroundColor Yellow
     }
+
+    # Check if any models are already cached (fast local-only check)
+    try {
+        $cacheOutput = & $foundryCmd cache list 2>&1 | Out-String
+        $hasCachedModels = ($cacheOutput -match 'phi-|qwen|deepseek|gpt-')
+        if ($hasCachedModels) {
+            Write-Host '  [OK] AI models are cached and ready.' -ForegroundColor Green
+        } else {
+            # No models cached — on first run, 'foundry model list' downloads
+            # execution providers (EPs) for your hardware, which can take several
+            # minutes.  Show progress so the user knows it is not hung.
+            Write-Host '  [!] No AI models cached yet.' -ForegroundColor Yellow
+            Write-Host '      First-time setup: downloading execution providers for your hardware...' -ForegroundColor Cyan
+            Write-Host '      (This is a one-time download and may take several minutes.)' -ForegroundColor Yellow
+            # Let stdout/stderr print so the EP download progress bar is visible
+            & $foundryCmd model list 2>&1 | Out-Host
+            Write-Host ''
+            Write-Host '  Downloading default AI model (phi-3.5-mini)...' -ForegroundColor Cyan
+            Write-Host '      Model download progress will appear below.' -ForegroundColor Yellow
+            # Show download progress (do NOT pipe to Out-Null)
+            & $foundryCmd model download phi-3.5-mini 2>&1 | Out-Host
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host '  [OK] Default model (phi-3.5-mini) downloaded.' -ForegroundColor Green
+            } else {
+                Write-Host '  [!] Model download failed (non-fatal). Try manually: foundry model run phi-3.5-mini' -ForegroundColor Yellow
+            }
+        }
+    } catch {
+        Write-Host '  [!] Could not check model cache (non-fatal).' -ForegroundColor Yellow
+    }
 } else {
     Write-Host '  [!] Foundry Local not found (required for AI benchmark).' -ForegroundColor Yellow
     if ($hasWinget) {
@@ -393,12 +442,40 @@ if ($foundryOk) {
             Write-Host '  [OK] Foundry Local installed.' -ForegroundColor Green
             $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
                         [System.Environment]::GetEnvironmentVariable('PATH', 'User')
-            # Foundry Local MSIX alias may need a new terminal; verify
+            # Probe MSIX alias in well-known WindowsApps path
             $foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
                          [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
             if (-not $foundryOk) {
+                $msixDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+                foreach ($name in @('foundry.exe', 'foundrylocal.exe')) {
+                    $fullPath = Join-Path $msixDir $name
+                    if (Test-Path $fullPath) {
+                        $foundryOk = $true
+                        if ($env:PATH -notlike "*$msixDir*") {
+                            $env:PATH = "$msixDir;$env:PATH"
+                        }
+                        break
+                    }
+                }
+            }
+            if (-not $foundryOk) {
                 Write-Host '  [!] Foundry Local installed but CLI not yet on PATH.' -ForegroundColor Yellow
-                Write-Host '      Please restart your terminal/PowerShell session, then re-run.' -ForegroundColor Yellow
+                Write-Host '      Please restart your terminal/PowerShell session, then re-run setup.ps1.' -ForegroundColor Yellow
+            } else {
+                # CLI is reachable — first-run EP download + default model
+                $foundryCmd = if (Get-Command foundry -ErrorAction SilentlyContinue) { 'foundry' } else { 'foundrylocal' }
+                Write-Host '      First-time setup: downloading execution providers for your hardware...' -ForegroundColor Cyan
+                Write-Host '      (This is a one-time download and may take several minutes.)' -ForegroundColor Yellow
+                & $foundryCmd model list 2>&1 | Out-Host
+                Write-Host ''
+                Write-Host '  Downloading default AI model (phi-3.5-mini)...' -ForegroundColor Cyan
+                Write-Host '      Model download progress will appear below.' -ForegroundColor Yellow
+                & $foundryCmd model download phi-3.5-mini 2>&1 | Out-Host
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host '  [OK] Default model (phi-3.5-mini) downloaded.' -ForegroundColor Green
+                } else {
+                    Write-Host '  [!] Model download failed (non-fatal). Try: foundry model run phi-3.5-mini' -ForegroundColor Yellow
+                }
             }
         } else {
             Write-Host '  [!] Installation may have failed (non-fatal — AI benchmark is optional).' -ForegroundColor Yellow

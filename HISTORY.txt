@@ -1,5 +1,75 @@
 -------------------------------------------------------------------------
 
+Revisions as of Wed, Mar 05, 2026 (Jeremy Tsai)
+
+Version 5.10.18 of stream.c, stream_gpu.c, and StreamBench released.
+
+  - Fix: Foundry Local CLI detection now probes the MSIX well-known path
+    (%LOCALAPPDATA%\Microsoft\WindowsApps) as a fallback when the app
+    execution alias is not yet visible on the current process PATH.
+    Eliminates the "CLI not found" error after winget install without
+    terminal restart.
+
+  - Fix: when Foundry model catalog returns 0 models (common on fresh
+    installs), StreamBench now retries after an 8-second delay to allow
+    the service to finish initialising, then auto-downloads the default
+    model (phi-3.5-mini) as a bootstrap fallback before giving up.
+
+  - Fix: setup.ps1 no longer hangs on first-run Foundry commands.
+    On first run, `foundry model list` downloads execution providers (EPs)
+    for the user's hardware, which can take several minutes.  Previously
+    output was piped to Out-String/Out-Null, hiding all progress and
+    making the script appear hung.  Now uses `foundry cache list` (fast
+    local-only check) to detect cached models first, and shows full
+    Foundry CLI progress output (EP download bars, model download bars)
+    during first-time setup.
+
+  - Fix: ListModelsAsync timeout extended from 180 s to 300 s on the
+    initial call to accommodate first-run EP downloads on slower
+    connections.
+
+  - Improve: error messages now differentiate between CLI not found,
+    service not starting, and empty catalog, with specific guidance for
+    each (e.g. "restart your terminal" for MSIX, "foundry model run
+    phi-3.5-mini" for empty catalog).
+
+  - Improve: setup.ps1 now probes MSIX WindowsApps alias path after
+    fresh winget install and auto-downloads the default AI model
+    (phi-3.5-mini) so the AI benchmark works immediately after setup
+    without requiring a terminal restart or manual model download.
+
+-------------------------------------------------------------------------
+
+Revisions as of Wed, Mar 05, 2026 (Jeremy Tsai)
+
+Version 5.10.17 of stream.c, stream_gpu.c, and StreamBench released.
+
+  - Feat: run_stream.ps1 and run_stream_ai.ps1 launcher scripts now
+    auto-detect whether prerequisites (VC++ Redist, .NET 10 Runtime,
+    PowerShell 7, Foundry Local) are installed and silently run setup.ps1
+    if any are missing. No manual setup step required for first-time users.
+
+  - Feat: setup.ps1 performs all installs silently via winget with
+    --accept-package-agreements and --accept-source-agreements flags.
+
+  - Docs: README updated for v5.10.17 with new auto-setup launcher
+    documentation and .NET 10 Runtime references for standalone binaries.
+
+  - Fix: isolate shared-pass device list for NPU fail-fast to prevent
+    NPU removal from affecting later per-device pass.
+
+-------------------------------------------------------------------------
+
+Revisions as of Wed, Mar 05, 2026 (Jeremy Tsai)
+
+Version 5.10.16 of stream.c, stream_gpu.c, and StreamBench released.
+
+  - Fix: Q3 relation summary logic now checks for memory JSON files from
+    the current run before generating cross-file relation summaries,
+    preventing stale or missing data from prior runs.
+
+-------------------------------------------------------------------------
+
 Revisions as of Thu, Mar 05, 2026 (Jeremy Tsai)
 
 Version 5.10.15 of stream.c, stream_gpu.c, and StreamBench released.
