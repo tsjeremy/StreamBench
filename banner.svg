@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 180" width="900" height="180">
+  <defs>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="0.02" y2="1">
+      <stop offset="0%"   stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="cpu-bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#1f6feb"/>
+      <stop offset="100%" stop-color="#388bfd"/>
+    </linearGradient>
+    <linearGradient id="gpu-bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#2ea043"/>
+      <stop offset="100%" stop-color="#3fb950"/>
+    </linearGradient>
+    <linearGradient id="npu-bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#8957e5"/>
+      <stop offset="100%" stop-color="#bc8cff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="180" rx="8" fill="url(#bg-grad)"/>
+
+  <!-- ── Left column ──────────────────────────────────────────────── -->
+
+  <!-- Title -->
+  <text x="30" y="52"
+        font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="26" font-weight="700" fill="#e6edf3">STREAM Benchmark</text>
+
+  <!-- Subtitle -->
+  <text x="30" y="74"
+        font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" fill="#8b949e">Memory bandwidth · AI inference · CPU · GPU · NPU</text>
+
+  <!-- Divider -->
+  <line x1="30" y1="86" x2="430" y2="86" stroke="#30363d" stroke-width="1"/>
+
+  <!-- CPU bandwidth bar -->
+  <text x="30" y="116" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="11" font-weight="700" fill="#388bfd">CPU</text>
+  <rect x="70" y="108" width="160" height="10" rx="2" fill="url(#cpu-bar)"/>
+  <text x="236" y="116" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="11" fill="#e6edf3">~70 GB/s</text>
+
+  <!-- GPU bandwidth bar -->
+  <text x="30" y="136" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="11" font-weight="700" fill="#3fb950">GPU</text>
+  <rect x="70" y="128" width="230" height="10" rx="2" fill="url(#gpu-bar)"/>
+  <text x="306" y="136" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="11" fill="#e6edf3">~100 GB/s</text>
+
+  <!-- NPU bandwidth bar -->
+  <text x="30" y="156" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="11" font-weight="700" fill="#bc8cff">NPU</text>
+  <rect x="70" y="148" width="280" height="10" rx="2" fill="url(#npu-bar)"/>
+  <text x="356" y="156" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="11" fill="#e6edf3">~120 GB/s</text>
+
+  <!-- Platform line -->
+  <text x="30" y="168" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="11" fill="#8b949e">Windows · macOS · Linux  ·  x64 + ARM64</text>
+  <text x="30" y="178" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="10" fill="#484f58">.NET 10 · OpenCL · OpenMP · Foundry Local AI</text>
+
+  <!-- ── Card 1: Memory Bandwidth ─────────────────────────────────── -->
+  <rect x="460" y="18" width="195" height="144" rx="4"
+        fill="#161b22" stroke="#30363d" stroke-width="1"/>
+
+  <text x="480" y="38" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="10" fill="#8b949e" letter-spacing="0.5">MEMORY  Triad</text>
+
+  <text x="480" y="60" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#388bfd">CPU</text>
+  <text x="540" y="60" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#e6edf3">70 GB/s</text>
+
+  <text x="480" y="82" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#3fb950">GPU</text>
+  <text x="540" y="82" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#e6edf3">100 GB/s</text>
+
+  <text x="480" y="104" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#bc8cff">NPU</text>
+  <text x="540" y="104" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#e6edf3">120 GB/s</text>
+
+  <text x="480" y="124" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="9" fill="#484f58">% of theoretical max</text>
+  <text x="480" y="138" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="9" fill="#484f58">higher = better</text>
+
+  <!-- ── Card 2: AI Inference ──────────────────────────────────────── -->
+  <rect x="668" y="18" width="205" height="144" rx="4"
+        fill="#161b22" stroke="#30363d" stroke-width="1"/>
+
+  <text x="688" y="38" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="10" fill="#8b949e" letter-spacing="0.5">AI INFERENCE  tok/s</text>
+
+  <text x="688" y="60" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#388bfd">CPU</text>
+  <text x="748" y="60" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#e6edf3">42 tok/s</text>
+
+  <text x="688" y="82" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#3fb950">GPU</text>
+  <text x="748" y="82" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#e6edf3">68 tok/s</text>
+
+  <text x="688" y="104" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#bc8cff">NPU</text>
+  <text x="748" y="104" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#e6edf3">95 tok/s</text>
+  <text x="815"  y="104" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="10" fill="#8b949e">← best</text>
+
+  <text x="688" y="124" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="9" fill="#484f58">Q1 cold start · Q2 warm run</text>
+  <text x="688" y="138" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="9" fill="#484f58">phi-3.5-mini · Foundry Local</text>
+</svg>
