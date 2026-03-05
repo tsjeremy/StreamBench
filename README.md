@@ -47,33 +47,23 @@ maximum performance — StreamBench extracts them automatically on first run.
 
 ```mermaid
 flowchart TD
-    A(["🆕 New Windows PC"]) --> B
+    A([New Windows PC]) --> B
+    B["📦 Download StreamBench_win_standalone.zip<br/>github.com/tsjeremy/StreamBench · Releases page"] --> C
+    C["📂 Extract to any folder"] --> D
+    D["⚙️ Run setup.ps1  ← first time only<br/>installs .NET 10, Foundry Local, phi-3.5-mini model"] --> E
+    E["▶ Run run_stream_ai.ps1"] --> F
 
-    B["📦 1 — Download\nStreamBench_v5.10.18_win_standalone.zip\ngithub.com/tsjeremy/StreamBench/releases"] --> C
-
-    C[".\\setup.ps1  ← run once on first use\n───────────────────────────────────────\n✔ Installs VC++ Redistributable 2015+\n✔ Installs .NET 10 Runtime\n✔ Installs PowerShell 7\n✔ Installs Microsoft Foundry Local\n✔ Downloads default AI model  phi-3.5-mini"] --> D
-
-    D[".\\run_stream_ai.ps1\nor  StreamBench_win_x64_ai.exe\n───────────────────────────────────────\nauto-calls setup.ps1 if not yet done"] --> E
-
-    subgraph mem ["Memory Benchmark  stream.c / stream_gpu.c"]
-        direction LR
-        E["🔵 CPU Benchmark\nstream.c + OpenMP\nall logical cores"] --> F["🔵 GPU Benchmark\nstream_gpu.c + OpenCL\nall detected GPUs"]
+    subgraph mem ["💾 Memory Benchmark"]
+        F["🔵 CPU bandwidth test"] --> G["🔵 GPU bandwidth test"]
     end
 
-    F --> G
-
-    subgraph ai ["AI Benchmark  Foundry Local"]
-        direction TB
-        G["🟢 Start Foundry Local service\nload model catalog, select model per device"]
-        G --> H["Q1  cold inference  'Hello World!'\nmodel load time  +  first response latency"]
-        H --> I["Q2  warm inference\n'How to calculate memory bandwidth?'\ntokens per second  ←  key throughput metric"]
-        I --> J["Q3  relation summary\nreads saved JSON files from memory + AI runs\nAI explains: bandwidth vs inference speed tradeoff\nper CPU / GPU / NPU"]
-        J --> K["Stop Foundry Local service"]
+    subgraph ai ["🤖 AI Benchmark  —  Foundry Local"]
+        H["🟢 Q1  cold start latency"] --> I["🟢 Q2  tokens per second"]
+        I --> J["🟢 Q3  relation summary"]
     end
 
-    K --> L
-
-    L["📊 CLI Summary\n───────────────────────────────────────\nMemory:  Triad MB/s  ←  peak sustained bandwidth\n         % of theoretical max  ←  efficiency score\nAI:      Q1 total s = load + first response  cold start\n         Q2 tok/s = warm throughput per device\n         CPU vs GPU vs NPU side-by-side table\nQ3:      AI-written interpretation connecting both results\n───────────────────────────────────────\nSaved ▸  stream_cpu_results_*.json\n         stream_gpu_results_*.json\n         ai_inference_benchmark_*.json\n         ai_relation_summary_*.json"]
+    G --> H
+    J --> K(["📊 CLI summary displayed<br/>JSON result files saved to folder"])
 ```
 
 ### Windows — Standalone ZIP (recommended)
@@ -382,15 +372,15 @@ cached models first to reduce download/startup time.
 
 ```mermaid
 flowchart LR
-    A(["CLI output"]) --> B & C & D
+    A(["📊 CLI output"]) --> B & C & D
 
-    B["🔵 Memory Bandwidth\n━━━━━━━━━━━━━━━━━━━━\nTriad MB/s\n  → peak sustained bandwidth\n  → compare vs theoretical max\n\n% of theoretical\n  → efficiency score\n  higher = better memory config"]
+    B["🔵 Memory Bandwidth<br/>Triad MB/s  —  peak sustained bandwidth<br/>% of theoretical max  —  efficiency score"]
 
-    C["🟢 AI Inference\n━━━━━━━━━━━━━━━━━━━━\nQ1 total time s\n  → cold-start user experience\n  = model load + first response\n\nQ2 tok/s  warm\n  → sustained throughput\n  higher = faster inference\n\nNPU > GPU > CPU  typical order"]
+    C["🟢 AI Inference<br/>Q1 total s  —  cold start time<br/>Q2 tok/s  —  warm throughput<br/>NPU · GPU · CPU  side-by-side"]
 
-    D["📝 Q3 Relation Summary\n━━━━━━━━━━━━━━━━━━━━\nAI-written analysis\n  • memory bandwidth vs tok/s link\n  • best combined device profile\n  • % gap vs theoretical bandwidth\n  • explanation across CPU/GPU/NPU"]
+    D["📝 Q3 Relation Summary<br/>AI-written analysis<br/>bandwidth vs inference tradeoff"]
 
-    B & C & D --> E(["Use results to compare\ndevices, configs, memory upgrades"])
+    B & C & D --> E(["Compare across devices and configurations"])
 ```
 
 ### Saved output
