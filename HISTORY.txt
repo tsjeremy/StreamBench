@@ -1,5 +1,58 @@
 -------------------------------------------------------------------------
 
+Revisions as of Fri, Mar 06, 2026 (Jeremy Tsai)
+
+Version 5.10.19 of stream.c, stream_gpu.c, and StreamBench released.
+
+  - Improve: AI model selection reordered based on real-world benchmark
+    trace data (Lenovo Copilot+ PC, 2026-03-05).  Preferred alias lists
+    for CPU, GPU, NPU, and shared-model passes now prioritise models by
+    combined download time + inference latency.  Large/slow models removed
+    from defaults: gpt-oss-20b, qwen2.5-14b, phi-4, deepseek-r1-14b,
+    deepseek-r1-7b (CPU/GPU lists).
+
+  - Fix: junk catalog entries (e.g. "Autoregistration", "Valid", "🕛",
+    "EPs...") from `foundry model list --json` are now filtered out.
+    Aliases must be at least 3 characters and contain only alphanumeric,
+    hyphen, dot, or underscore characters.
+
+  - Fix: shared-model pass now only considers aliases explicitly listed
+    in SharedAliasPriority, preventing unknown/bogus aliases from being
+    tried during multi-device side-by-side comparison.
+
+  - Improve: shared-model pass capped at 5 attempts and 10-minute time
+    budget (previously unbounded — could iterate 21+ models for 2+ hours).
+
+  - Improve: shared-model pass now prefers cached models when available,
+    skipping downloads to reduce latency on repeat runs.
+
+  - Fix: NPU automatically removed from shared pass when no NPU models
+    exist in the catalog, avoiding repeated failed attempts on devices
+    without NPU execution providers.
+
+  - Fix: consecutive failure detection in shared pass.  After 2 failures,
+    Foundry Local service is automatically restarted once.  After 3
+    consecutive failures, the shared pass is aborted and falls back to
+    per-device defaults.  Prevents runaway loops when the service crashes.
+
+  - Improve: initial catalog timeout reduced from 300 s to 120 s.
+    The original 5-minute wait was excessive when the service is
+    responsive but EP download is not needed.
+
+  - Feat: new `--quick-ai` / `--ai-quick` flag for CI and automated runs.
+    Skips shared-model pass, uses cached models only (no downloads),
+    and runs one model per device for fastest possible AI benchmark.
+
+  - Fix: setup.ps1 EP and model downloads now use Start-Job with timeout
+    protection (5 min for EP, 10 min for model).  Previously, bare
+    `foundry model list` and `foundry model download` could hang
+    indefinitely on unresponsive services.
+
+  - Docs: README updated with --quick-ai flag documentation and revised
+    shared-model selection description.
+
+-------------------------------------------------------------------------
+
 Revisions as of Wed, Mar 05, 2026 (Jeremy Tsai)
 
 Version 5.10.18 of stream.c, stream_gpu.c, and StreamBench released.

@@ -388,7 +388,7 @@ int run_stream_test(size_t array_size)
         int validated = (checkSTREAMresults() == 0) ? 1 : 0;
         StreamBenchResult result;
         result.benchmark_type = "CPU";
-        result.version = "5.10.18";
+        result.version = "5.10.19";
         result.array_size = current_array_size;
         result.bytes_per_element = (int)sizeof(STREAM_TYPE);
         result.ntimes = NTIMES;

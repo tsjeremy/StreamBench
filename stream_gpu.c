@@ -1003,7 +1003,7 @@ int main(int argc, char **argv)
         StreamGpuDevice gpu_dev;
 
         result.benchmark_type = "GPU";
-        result.version = "5.10.18";
+        result.version = "5.10.19";
         result.array_size = array_size;
         result.bytes_per_element = (int)gpu_elem_size;
         result.ntimes = NTIMES;

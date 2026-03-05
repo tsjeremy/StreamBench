@@ -77,6 +77,7 @@ async Task<int> RunMainAsync(string[] args)
     bool   wantAi     = false;   // --ai flag
     bool   aiSharedOnly = false;   // --ai-shared-only (skip best-per-device pass)
     bool   aiNoDownload = false;   // --ai-no-download (cached models only)
+    bool   aiQuick     = false;   // --quick-ai / --ai-quick (CI: skip shared, cached only, 1 model/device)
     string? aiModel   = null;    // --ai-model ALIAS
     string? aiDevices = null;    // --ai-device cpu,gpu,npu (comma-separated)
     long?  arraySize  = null;
@@ -97,6 +98,7 @@ async Task<int> RunMainAsync(string[] args)
                 case "--ai":    wantAi  = true; break;
                 case "--ai-shared-only": aiSharedOnly = true; break;
                 case "--ai-no-download": aiNoDownload = true; break;
+                case "--quick-ai": case "--ai-quick": aiQuick = true; break;
                 case "--no-save": noSave = true; break;
 
                 case "--ai-model" when i + 1 < args.Length:
@@ -148,6 +150,7 @@ async Task<int> RunMainAsync(string[] args)
     // Keep these flags referenced in non-AI builds to avoid dead-code warnings.
     _ = aiSharedOnly;
     _ = aiNoDownload;
+    _ = aiQuick;
 
     // If user provided AI-specific options, enable AI mode automatically.
     if (!wantAi && (!string.IsNullOrWhiteSpace(aiModel) || !string.IsNullOrWhiteSpace(aiDevices)))
@@ -209,7 +212,7 @@ async Task<int> RunMainAsync(string[] args)
         if (wantCpu || wantGpu) Console.WriteLine();
         int aiCode = await RunAiBenchmarkAsync(
             aiDevices, aiModel, noSave, outputDir,
-            aiSharedOnly, aiNoDownload,
+            aiSharedOnly, aiNoDownload, aiQuick,
             savedMemoryJsonPaths);
         if (aiCode != 0)
         {
@@ -469,7 +472,7 @@ async Task<int> RunMainAsync(string[] args)
 #if ENABLE_AI
 async Task<int> RunAiBenchmarkAsync(
     string? deviceArg, string? modelAlias, bool noSave, string? outputDir,
-    bool sharedOnly, bool noDownload,
+    bool sharedOnly, bool noDownload, bool quickMode = false,
     IReadOnlyCollection<string>? memoryJsonPaths = null)
 {
     // Parse comma-separated device list (e.g. "cpu,gpu,npu" or "npu")
@@ -490,7 +493,7 @@ async Task<int> RunAiBenchmarkAsync(
     AiBenchmarkTwoPassResult twoPassResult;
     try
     {
-        twoPassResult = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias, sharedOnly, noDownload);
+        twoPassResult = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias, sharedOnly, noDownload, quickMode);
     }
     catch (Exception ex)
     {

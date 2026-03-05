@@ -40,58 +40,55 @@ public static class AiBenchmarkRunner
         "Based on all local JSON files in this folder (including files from other devices), summarize memory bandwidth and AI benchmark relationship, highlight the best combined profile and also try to explain the % from memory bandwidth benchmark result vs. the theoretical bandwidth calculation of the memory on the device."
     ];
 
-    // Preferred aliases by device (robust defaults).
+    // Preferred aliases by device — ordered by (download time + inference latency)
+    // based on real-world benchmarking on a Lenovo Copilot+ PC (2026-03-05 trace).
+    // Large/slow models (14B+, reasoning, deepseek-r1) removed to avoid timeouts.
     private static readonly string[] PreferredAliasesCpu =
     [
-        "phi-3.5-mini",
-        "qwen2.5-1.5b",
-        "qwen2.5-0.5b",
-        "phi-4-mini",
-        "qwen2.5-7b",
-        "phi-4-mini-reasoning",
-        "gpt-oss-20b",
-        "qwen2.5-14b",
-        "phi-4",
-        "deepseek-r1-7b",
-        "deepseek-r1-14b",
+        "qwen2.5-1.5b",       // 84s dl, 6s warm, 332 tok
+        "phi-3.5-mini",        // 101s dl, 42s warm, 765 tok
+        "qwen2.5-0.5b",        // 39s dl, 2s warm, 302 tok
+        "phi-3-mini-4k",       // 98s dl, 20s warm, 325 tok
+        "phi-3-mini-128k",     // 113s dl, 21s warm, 320 tok
+        "phi-4-mini",          // 208s dl, 48s warm, 740 tok
+        "qwen2.5-7b",          // 229s dl, 59s warm, 585 tok
     ];
 
     private static readonly string[] PreferredAliasesGpu =
     [
-        "qwen2.5-1.5b",
-        "qwen2.5-0.5b",
-        "phi-3.5-mini",
-        "phi-4-mini",
-        "deepseek-r1-7b",
-        "deepseek-r1-14b",
+        "qwen2.5-1.5b",       // 59s dl, 2s warm, 360 tok
+        "phi-3.5-mini",        // 88s dl, 8s warm, 710 tok
+        "phi-3-mini-4k",       // 80s dl, 3s warm, 246 tok
+        "qwen2.5-0.5b",        // 29s dl, 4s warm, 784 tok
+        "phi-4-mini",          // 136s dl, 8s warm, 835 tok
+        "qwen2.5-7b",          // 188s dl, 12s warm, 659 tok
     ];
 
     private static readonly string[] PreferredAliasesNpu =
     [
+        "qwen2.5-0.5b",        // lightest — most likely to succeed on NPU
         "phi-4-mini",
-        "qwen2.5-0.5b",
-        "qwen2.5-7b",
-        "phi-3-mini-128k",
         "phi-3-mini-4k",
+        "phi-3-mini-128k",
+        "qwen2.5-7b",
         "phi-4-mini-reasoning",
         "deepseek-r1-7b",
     ];
 
     // Shared-model priorities used when benchmarking multiple devices side-by-side.
-    // Models with broad device coverage (CPU+GPU+NPU) are listed first to minimise
-    // unnecessary downloads when running multi-device comparisons.
+    // Ordered by combined download + inference speed from real-world trace data.
+    // Large/slow models (deepseek-r1-*, 14B+) removed — they caused service crashes
+    // and inference timeouts in the 2026-03-05 benchmark trace.
     private static readonly string[] SharedAliasPriority =
     [
-        "phi-4-mini",
-        "qwen2.5-0.5b",
-        "qwen2.5-7b",
-        "phi-3-mini-128k",
-        "phi-3-mini-4k",
-        "deepseek-r1-7b",
-        "phi-4-mini-reasoning",
-        "qwen2.5-1.5b",
-        "phi-3.5-mini",
-        "deepseek-r1-14b",
+        "qwen2.5-1.5b",       // fast download, fast inference on all devices
+        "phi-3.5-mini",        // good balance of speed and quality
+        "qwen2.5-0.5b",        // tiny — fastest download and inference
+        "phi-4-mini",          // broader device coverage (CPU+GPU+NPU)
+        "phi-3-mini-4k",       // compact, fast inference
+        "phi-3-mini-128k",     // same as 4k but with longer context
+        "qwen2.5-7b",          // larger but quality results
+        "phi-4-mini-reasoning", // reasoning model — slower but available on NPU
     ];
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -411,6 +408,16 @@ public static class AiBenchmarkRunner
         if (string.IsNullOrEmpty(alias))
             alias = id.Split('/').Last().Split('-').FirstOrDefault() ?? id;
 
+        // Reject junk catalog entries (e.g. "Autoregistration", "Valid", "🕛", "EPs...")
+        // that sometimes appear in `foundry model list --json` output.
+        if (alias.Length < 3
+            || !alias.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '.' || c == '_')
+            || !alias.Any(char.IsLetterOrDigit))
+        {
+            DiagnosticHelper.LogWarning($"Skipping invalid alias '{alias}' (id={id})");
+            return;
+        }
+
         string device = "CPU";
         if (elem.TryGetProperty("runtime", out var rt) && rt.ValueKind == JsonValueKind.Object)
         {
@@ -719,6 +726,7 @@ public static class AiBenchmarkRunner
         string? modelAlias = null,
         bool sharedOnly = false,
         bool noDownload = false,
+        bool quickMode = false,
         CancellationToken cancellationToken = default)
     {
         // Defence-in-depth: prevent sleep even when called outside the normal Program.cs flow.
@@ -752,10 +760,11 @@ public static class AiBenchmarkRunner
         {
             // First-run note: 'foundry model list' may download execution providers (EPs)
             // for the user's hardware on first invocation, which can take several minutes.
-            // ListModelsAsync uses a 180 s timeout per attempt; we extend to 300 s for the
-            // initial call to accommodate EP downloads on slower connections.
+            // ListModelsAsync uses a 180 s timeout per attempt; we use 120 s for the
+            // initial call (reduced from 300 s — the original 5-min wait was too long
+            // when the service is responsive but EP download simply isn't needed).
             ConsoleOutput.WriteMarkup("[dim]  Loading model catalog (first run may download execution providers)...[/]");
-            var allModels = await ListModelsAsync(cli, firstRunTimeoutMs: 300_000);
+            var allModels = await ListModelsAsync(cli, firstRunTimeoutMs: 120_000);
 
             // First-run: the catalog index may still be initialising — retry once after a short delay.
             if (allModels.Count == 0)
@@ -799,13 +808,34 @@ public static class AiBenchmarkRunner
 
             var targetDevices = ParseDeviceFilter(devices).ToList();
             var sharedPassDevices = targetDevices.ToList();
-            TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, sharedOnly: {sharedOnly}");
+
+            // Quick mode (--quick-ai): cached models only, skip shared pass, 1 model per device.
+            if (quickMode)
+            {
+                noDownload = true;
+                sharedOnly = false; // we want per-device, not shared
+                TraceLog.DiagnosticInfo("Quick mode: noDownload=true, skipping shared pass");
+                ConsoleOutput.WriteMarkup("[dim]  Quick mode: using cached models only, 1 model per device.[/]");
+            }
+
+            TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, sharedOnly: {sharedOnly}, quickMode: {quickMode}");
+
+            // Drop NPU from shared pass if no NPU models exist in the catalog —
+            // avoids wasting time trying every shared alias on a device that has no EP.
+            if (sharedPassDevices.Any(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase))
+                && !allModels.Any(m => m.DeviceType.Equals("NPU", StringComparison.OrdinalIgnoreCase)))
+            {
+                sharedPassDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
+                TraceLog.DiagnosticInfo("NPU removed from shared pass — no NPU models in catalog");
+                ConsoleOutput.WriteMarkup("[yellow][INFO][/] No NPU models in catalog — skipping NPU in shared comparison.");
+            }
+
             string? effectiveAlias = modelAlias;
             bool strictAlias = false;
             bool allowNpuFailFast = string.IsNullOrWhiteSpace(modelAlias) && targetDevices.Count > 1;
 
             // ── Pass 1: Multi-device side-by-side comparison with shared model ──
-            if (string.IsNullOrWhiteSpace(effectiveAlias) && sharedPassDevices.Count > 1)
+            if (!quickMode && string.IsNullOrWhiteSpace(effectiveAlias) && sharedPassDevices.Count > 1)
             {
                 var sharedCandidates = SelectSharedAliasCandidates(allModels, sharedPassDevices);
                 TraceLog.DiagnosticInfo($"Shared model candidates: {string.Join(", ", sharedCandidates)}");
@@ -814,11 +844,44 @@ public static class AiBenchmarkRunner
                     strictAlias = true;
                     TraceLog.AiPassStarted("shared", sharedPassDevices.Count);
 
+                    // Determine whether any shared candidates are already cached —
+                    // if so, prefer cached models in the shared pass to avoid downloads.
+                    bool sharedHasCachedModels = sharedCandidates.Any(alias =>
+                        allModels.Any(m => m.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase) && m.IsCached));
+                    bool sharedNoDownload = noDownload || sharedHasCachedModels;
+                    if (sharedHasCachedModels && !noDownload)
+                    {
+                        TraceLog.DiagnosticInfo("Shared pass: cached models available, skipping downloads for shared candidates");
+                        ConsoleOutput.WriteMarkup("[dim]  Cached models available — preferring cached models for shared comparison.[/]");
+                    }
+
+                    const int MaxSharedAttempts = 5;
+                    var sharedTimeBudget = TimeSpan.FromMinutes(10);
+                    var sharedPassTimer = Stopwatch.StartNew();
+                    int sharedAttempt = 0;
+                    int consecutiveFailures = 0;
+                    bool serviceRestarted = false;
                     int bestSuccessCount = -1;
                     List<AiDeviceBenchmarkResult> bestAttemptResults = [];
 
                     foreach (var sharedAlias in sharedCandidates)
                     {
+                        // Guard: stop after MaxSharedAttempts or when time budget is exhausted
+                        if (++sharedAttempt > MaxSharedAttempts)
+                        {
+                            TraceLog.DiagnosticInfo($"Shared pass: reached max {MaxSharedAttempts} attempts, stopping");
+                            ConsoleOutput.WriteMarkup(
+                                $"[yellow][INFO][/] Shared pass: tried {MaxSharedAttempts} models — moving on.");
+                            break;
+                        }
+                        if (sharedPassTimer.Elapsed > sharedTimeBudget)
+                        {
+                            TraceLog.DiagnosticInfo($"Shared pass: time budget ({sharedTimeBudget.TotalMinutes:0} min) exhausted after {sharedAttempt - 1} attempts");
+                            ConsoleOutput.WriteMarkup(
+                                $"[yellow][INFO][/] Shared pass: time budget exhausted ({sharedPassTimer.Elapsed.TotalMinutes:0.0} min) — moving on.");
+                            break;
+                        }
+
                         ConsoleOutput.WriteMarkup(
                             $"[bold cyan]Pass 1 — Trying shared model for side-by-side comparison:[/] [white]{sharedAlias}[/]");
 
@@ -843,22 +906,54 @@ public static class AiBenchmarkRunner
 
                             var devSw = Stopwatch.StartNew();
                             var result = await BenchmarkModelAsync(
-                                cli, serviceUrl, model, deviceType, noDownload, cancellationToken);
+                                cli, serviceUrl, model, deviceType, sharedNoDownload, cancellationToken);
                             devSw.Stop();
                             if (result is not null)
                             {
                                 attemptResults.Add(result with { BenchmarkPass = "shared" });
                                 successCount++;
+                                consecutiveFailures = 0;
                                 TraceLog.AiBenchmarkDeviceCompleted(deviceType, model.Id, devSw.ElapsedMilliseconds);
                             }
-                            else if (allowNpuFailFast && deviceType.Equals("NPU", StringComparison.OrdinalIgnoreCase))
+                            else
                             {
-                                sharedPassDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
-                                allowNpuFailFast = false;
-                                TraceLog.DiagnosticInfo("NPU removed from shared-model comparison after first model-load failure");
-                                ConsoleOutput.WriteMarkup(sharedOnly
-                                    ? "[yellow][WARN][/] NPU model load failed in shared-model pass; continuing with CPU/GPU for this shared-only run."
-                                    : "[yellow][WARN][/] NPU model load failed in shared-model pass; continuing with CPU/GPU for now and retrying NPU in per-device benchmarking.");
+                                consecutiveFailures++;
+
+                                if (allowNpuFailFast && deviceType.Equals("NPU", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    sharedPassDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
+                                    allowNpuFailFast = false;
+                                    TraceLog.DiagnosticInfo("NPU removed from shared-model comparison after first model-load failure");
+                                    ConsoleOutput.WriteMarkup(sharedOnly
+                                        ? "[yellow][WARN][/] NPU model load failed in shared-model pass; continuing with CPU/GPU for this shared-only run."
+                                        : "[yellow][WARN][/] NPU model load failed in shared-model pass; continuing with CPU/GPU for now and retrying NPU in per-device benchmarking.");
+                                }
+
+                                // Detect service crash: 2 consecutive failures → try restart once
+                                if (consecutiveFailures >= 2 && !serviceRestarted)
+                                {
+                                    TraceLog.Warn("2 consecutive failures in shared pass — attempting Foundry service restart");
+                                    ConsoleOutput.WriteMarkup("[yellow][WARN][/] Multiple failures detected — restarting Foundry service...");
+                                    await StopServiceAsync(cli);
+                                    await Task.Delay(3_000, cancellationToken);
+                                    var newUrl = await StartServiceAsync(cli);
+                                    if (newUrl is not null)
+                                    {
+                                        serviceUrl = newUrl;
+                                        TraceLog.DiagnosticInfo($"Service restarted, new URL: {serviceUrl}");
+                                        ConsoleOutput.WriteMarkup($"[dim]  Service restarted: {serviceUrl}[/]");
+                                    }
+                                    serviceRestarted = true;
+                                    consecutiveFailures = 0;
+                                }
+
+                                // Bail from shared pass entirely after 3+ consecutive failures
+                                if (consecutiveFailures >= 3)
+                                {
+                                    TraceLog.Warn("3 consecutive failures — aborting shared pass");
+                                    ConsoleOutput.WriteMarkup("[yellow][WARN][/] Too many consecutive failures — stopping shared pass.");
+                                    goto EndSharedPass;
+                                }
                             }
                         }
 
@@ -880,6 +975,8 @@ public static class AiBenchmarkRunner
                         ConsoleOutput.WriteMarkup(
                             $"[yellow][WARN][/] Shared alias [white]{sharedAlias}[/] covered [white]{successCount}/{sharedPassDevices.Count}[/] devices; trying next candidate.");
                     }
+
+                    EndSharedPass:
 
                     if (sharedResults.Count == 0 && bestAttemptResults.Count > 0)
                     {
@@ -1458,6 +1555,10 @@ public static class AiBenchmarkRunner
                 return new { Alias = g.Key, Coverage = coverage, CachedForTarget = cachedForTarget, Devices = deviceSet };
             })
             .Where(x => x.Coverage > 0)
+            // Only consider aliases explicitly listed in SharedAliasPriority —
+            // this prevents junk/unknown aliases from bloating the shared pass.
+            .Where(x => Array.Exists(SharedAliasPriority,
+                p => p.Equals(x.Alias, StringComparison.OrdinalIgnoreCase)))
             .ToList();
 
         if (byAlias.Count == 0)
