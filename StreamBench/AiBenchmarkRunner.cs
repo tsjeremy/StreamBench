@@ -628,20 +628,21 @@ public static class AiBenchmarkRunner
             }
 
             var targetDevices = ParseDeviceFilter(devices).ToList();
+            var sharedPassDevices = targetDevices.ToList();
             TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, sharedOnly: {sharedOnly}");
             string? effectiveAlias = modelAlias;
             bool strictAlias = false;
             bool allowNpuFailFast = string.IsNullOrWhiteSpace(modelAlias) && targetDevices.Count > 1;
 
             // ── Pass 1: Multi-device side-by-side comparison with shared model ──
-            if (string.IsNullOrWhiteSpace(effectiveAlias) && targetDevices.Count > 1)
+            if (string.IsNullOrWhiteSpace(effectiveAlias) && sharedPassDevices.Count > 1)
             {
-                var sharedCandidates = SelectSharedAliasCandidates(allModels, targetDevices);
+                var sharedCandidates = SelectSharedAliasCandidates(allModels, sharedPassDevices);
                 TraceLog.DiagnosticInfo($"Shared model candidates: {string.Join(", ", sharedCandidates)}");
                 if (sharedCandidates.Count > 0)
                 {
                     strictAlias = true;
-                    TraceLog.AiPassStarted("shared", targetDevices.Count);
+                    TraceLog.AiPassStarted("shared", sharedPassDevices.Count);
 
                     int bestSuccessCount = -1;
                     List<AiDeviceBenchmarkResult> bestAttemptResults = [];
@@ -654,7 +655,7 @@ public static class AiBenchmarkRunner
                         var attemptResults = new List<AiDeviceBenchmarkResult>();
                         int successCount = 0;
 
-                        foreach (var deviceType in targetDevices.ToList())
+                        foreach (var deviceType in sharedPassDevices.ToList())
                         {
                             var model = FindBestModel(allModels, deviceType, sharedAlias, strictAlias);
                             if (model is null)
@@ -682,15 +683,16 @@ public static class AiBenchmarkRunner
                             }
                             else if (allowNpuFailFast && deviceType.Equals("NPU", StringComparison.OrdinalIgnoreCase))
                             {
-                                targetDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
+                                sharedPassDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
                                 allowNpuFailFast = false;
-                                TraceLog.DiagnosticInfo("NPU removed from auto comparison after first model-load failure");
-                                ConsoleOutput.WriteMarkup(
-                                    "[yellow][WARN][/] NPU model load failed; continuing with CPU/GPU to avoid repeated retries.");
+                                TraceLog.DiagnosticInfo("NPU removed from shared-model comparison after first model-load failure");
+                                ConsoleOutput.WriteMarkup(sharedOnly
+                                    ? "[yellow][WARN][/] NPU model load failed in shared-model pass; continuing with CPU/GPU for this shared-only run."
+                                    : "[yellow][WARN][/] NPU model load failed in shared-model pass; continuing with CPU/GPU for now and retrying NPU in per-device benchmarking.");
                             }
                         }
 
-                        TraceLog.AiSharedModelAttempt(sharedAlias, successCount, targetDevices.Count);
+                        TraceLog.AiSharedModelAttempt(sharedAlias, successCount, sharedPassDevices.Count);
 
                         if (successCount > bestSuccessCount)
                         {
@@ -698,24 +700,24 @@ public static class AiBenchmarkRunner
                             bestAttemptResults = attemptResults;
                         }
 
-                        if (successCount == targetDevices.Count)
+                        if (successCount == sharedPassDevices.Count)
                         {
                             sharedResults = attemptResults;
-                            TraceLog.AiPassCompleted("shared", successCount, targetDevices.Count);
+                            TraceLog.AiPassCompleted("shared", successCount, sharedPassDevices.Count);
                             break;
                         }
 
                         ConsoleOutput.WriteMarkup(
-                            $"[yellow][WARN][/] Shared alias [white]{sharedAlias}[/] covered [white]{successCount}/{targetDevices.Count}[/] devices; trying next candidate.");
+                            $"[yellow][WARN][/] Shared alias [white]{sharedAlias}[/] covered [white]{successCount}/{sharedPassDevices.Count}[/] devices; trying next candidate.");
                     }
 
                     if (sharedResults.Count == 0 && bestAttemptResults.Count > 0)
                     {
-                        TraceLog.DiagnosticInfo($"No full coverage; using best partial: {bestAttemptResults.Count}/{targetDevices.Count}");
+                        TraceLog.DiagnosticInfo($"No full coverage; using best partial: {bestAttemptResults.Count}/{sharedPassDevices.Count}");
                         ConsoleOutput.WriteMarkup(
-                            $"[yellow][WARN][/] No single shared model covered all selected devices; using best coverage [white]{bestAttemptResults.Count}/{targetDevices.Count}[/].");
+                            $"[yellow][WARN][/] No single shared model covered all selected devices; using best coverage [white]{bestAttemptResults.Count}/{sharedPassDevices.Count}[/].");
                         sharedResults = bestAttemptResults;
-                        TraceLog.AiPassCompleted("shared", bestAttemptResults.Count, targetDevices.Count);
+                        TraceLog.AiPassCompleted("shared", bestAttemptResults.Count, sharedPassDevices.Count);
                     }
 
                     if (sharedResults.Count == 0)
