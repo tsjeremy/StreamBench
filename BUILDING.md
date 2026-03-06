@@ -228,7 +228,7 @@ clang -O2 -o stream_gpu stream_gpu.c -lm                       # GPU
 ```
 
 > **Note:** macOS has built-in OpenCL support — no additional drivers needed.
-> Apple deprecated OpenCL in favor of Metal, but it still works on current macOS versions.
+> OpenCL is deprecated on macOS in favor of Metal, but it still works on current macOS versions.
 
 ### Compiler Options Reference
 
@@ -322,7 +322,7 @@ JSON files include:
 | "Failed to build program" | Your GPU may not support `cl_khr_fp64` (double precision). Compile with `/DGPU_USE_FLOAT` to use single precision. |
 | Low GPU bandwidth | Ensure you're not on battery power. Some laptops throttle GPU on battery. |
 | macOS OpenCL deprecation warning | Safe to ignore — OpenCL still works on current macOS. |
-| Inflated GPU bandwidth on Apple Silicon (e.g. 30+ TB/s) | This is a known bug in Apple's Metal-backed OpenCL layer, which returns bogus profiling timestamps. Fixed in `stream_gpu.c` v1.0.1 — rebuild from source. |
+| Inflated GPU bandwidth on macOS ARM64 (e.g. 30+ TB/s) | This is a known bug in the macOS Metal-backed OpenCL layer, which returns bogus profiling timestamps. Fixed in `stream_gpu.c` v1.0.1 — rebuild from source. |
 
 ---
 
@@ -338,7 +338,7 @@ StreamBench/
 ├── mysecond.c                # Timer for Fortran version
 ├── Makefile                  # Build targets for Linux/macOS
 ├── build_all_windows.ps1     # Build script for Windows (x64 + ARM64, standard + AI)
-├── build_all_macos.ps1       # Build script for macOS (Intel + Apple Silicon)
+├── build_all_macos.ps1       # Build script for macOS (x64 + ARM64)
 ├── build_all_linux.ps1       # Build script for Linux (x64 + ARM64)
 ├── setup.ps1                 # First-time setup (standalone or source mode)
 ├── run_stream.ps1            # Memory benchmark launcher (CPU + GPU)

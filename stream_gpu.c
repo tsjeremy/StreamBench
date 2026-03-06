@@ -440,7 +440,7 @@ static double mysecond(void)
 /*-----------------------------------------------------------------------*/
 /* HELPER: Wall-clock time in seconds                                    */
 /* Used instead of OpenCL event profiling, which is unreliable on some  */
-/* platforms (e.g. Apple Silicon's Metal-backed OpenCL layer).          */
+/* platforms (e.g. macOS ARM64's Metal-backed OpenCL layer).            */
 /*-----------------------------------------------------------------------*/
 
 static double wtime(void)

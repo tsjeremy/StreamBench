@@ -128,7 +128,7 @@ Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.
 ### macOS — Download and run
 
 1. Go to the **[v5.10.18 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.18)**
-2. Download **`StreamBench_osx-arm64`** (Apple Silicon) or **`StreamBench_osx-x64`** (Intel)
+2. Download **`StreamBench_osx-arm64`** (ARM64) or **`StreamBench_osx-x64`** (x64)
 3. Run it:
 
 ```bash
@@ -383,7 +383,7 @@ The tokens/second metric is directly comparable to your memory bandwidth results
 ### GPU Backend (`stream_gpu.c`)
 
 - **Zero SDK dependency** — OpenCL loaded dynamically via `LoadLibrary` / `dlopen`
-- Works with any OpenCL-capable GPU: AMD, NVIDIA, Intel, Apple
+- Works with any OpenCL-capable GPU: AMD, NVIDIA, Intel, and macOS built-in GPU
 - Automatic GPU discovery and device info
 - Runtime `--array-size N` argument
 
@@ -400,7 +400,7 @@ The results depend on your memory type, number of channels, and frequency:
 | DDR5-6400 | Dual-channel | ~102 GB/s | ~65–80 GB/s | ~70–90 GB/s |
 | LPDDR5X-7500 | Quad-channel | ~120 GB/s | ~70–90 GB/s | ~90–110 GB/s |
 | LPDDR5X-8000 | 8-channel | ~256 GB/s | ~90–110 GB/s | ~180–220 GB/s |
-| LPDDR5-6400 (Apple M1 Ultra) | 1024-bit unified | ~819 GB/s | ~280–300 GB/s (20-thread) | ~600–680 GB/s |
+| LPDDR5-6400 (unified, 1024-bit) | 1024-bit unified | ~819 GB/s | ~280–300 GB/s (20-thread) | ~600–680 GB/s |
 
 > **Tip:** If your results are significantly below these ranges, check that all memory channels are
 > populated, XMP/EXPO profiles are enabled in BIOS, and the system is plugged in (not on battery).

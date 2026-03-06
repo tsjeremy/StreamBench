@@ -29,7 +29,7 @@ Revisions as of Fri, Mar 06, 2026 (Jeremy Tsai)
 Version 5.10.19 of stream.c, stream_gpu.c, and StreamBench released.
 
   - Improve: AI model selection reordered based on real-world benchmark
-    trace data (Lenovo Copilot+ PC, 2026-03-05).  Preferred alias lists
+    trace data (Copilot+ PC, 2026-03-05).  Preferred alias lists
     for CPU, GPU, NPU, and shared-model passes now prioritise models by
     combined download time + inference latency.  Large/slow models removed
     from defaults: gpt-oss-20b, qwen2.5-14b, phi-4, deepseek-r1-14b,
@@ -380,13 +380,13 @@ stream_gpu.c (GPU):
 * GPU memory bandwidth benchmark using OpenCL — initial release
 * Cross-platform: Windows, Linux, macOS — no SDK needed
 * OpenCL library loaded dynamically at runtime (LoadLibrary / dlopen)
-* Works with any OpenCL-capable GPU: AMD, NVIDIA, Intel, Apple
+* Works with any OpenCL-capable GPU: AMD, NVIDIA, Intel, and macOS built-in GPU
 * Wall-clock timing (clock_gettime/QueryPerformanceCounter) + clFinish
   for reliable cross-platform GPU measurement; replaces OpenCL event
-  profiling which returns bogus timestamps on Apple Silicon (M1/M2/M3/M4)
+  profiling which returns bogus timestamps on macOS ARM64
   causing bandwidth to be reported as tens of TB/s instead of ~600-800 GB/s
 * Includes full validation and CSV/JSON output matching CPU format
-* Verified on Apple M1 Ultra: ~280-300 GB/s CPU, ~650 GB/s GPU
+* Verified on macOS ARM64 (unified memory): ~280-300 GB/s CPU, ~650 GB/s GPU
 
 Makefile updated with GPU target and documentation comments.
 README.md rewritten with comprehensive guide for CPU and GPU versions

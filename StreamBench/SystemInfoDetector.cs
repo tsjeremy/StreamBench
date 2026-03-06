@@ -145,7 +145,7 @@ public static class SystemInfoDetector
         }
         if (IsOSX)
         {
-            // Intel Macs expose hw.cpufrequency; Apple Silicon returns 0
+            // x64 macOS exposes hw.cpufrequency; ARM64 macOS returns 0
             if (long.TryParse(Run("sysctl", "-n hw.cpufrequency").Trim(), out long hz) && hz > 0)
                 return ((int)(hz / 1_000_000), 0);
             return (0, 0);
@@ -274,7 +274,7 @@ $cpu = Get-WmiObject Win32_Processor | Select-Object -First 1
             }
             else
             {
-                // Apple Silicon unified memory: total is in "SPMemoryDataType"; no per-slot info
+                // ARM64 macOS unified memory: total is in "SPMemoryDataType"; no per-slot info
                 string? dimmType = StrProp(item, "dimm_type");
                 string? totalStr = StrProp(item, "SPMemoryDataType");
                 if (dimmType is null || totalStr is null) continue;
