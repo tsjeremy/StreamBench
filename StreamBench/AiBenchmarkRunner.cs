@@ -72,8 +72,9 @@ public static class AiBenchmarkRunner
         "phi-3-mini-4k",
         "phi-3-mini-128k",
         "qwen2.5-7b",
-        "phi-4-mini-reasoning",
-        "deepseek-r1-7b",
+        // Reasoning models (phi-4-mini-reasoning, deepseek-r1-*) intentionally
+        // excluded — they generate internal chain-of-thought tokens that make
+        // NPU inference extremely slow (>300 s), causing HttpClient timeouts.
     ];
 
     // Shared-model priorities used when benchmarking multiple devices side-by-side.
@@ -1183,76 +1184,95 @@ public static class AiBenchmarkRunner
 
             foreach (var deviceType in targetDevices)
             {
-                var model = FindBestModel(allModels, deviceType, modelAlias, strictAlias);
-                if (model is null)
-                {
-                    ConsoleOutput.WriteMarkup(
-                        $"[yellow][SKIP][/] No model available for local relation summary on [white]{deviceType}[/].");
-                    continue;
-                }
+                var triedModelIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                bool deviceSucceeded = false;
 
-                ConsoleOutput.WriteMarkup(
-                    $"[dim]  Loading summary model ({deviceType}): {model.Id}[/]");
-                if (!await LoadModelAsync(cli, model.Id))
+                // Retry loop: if the first model fails (e.g. NPU timeout), try the
+                // next preferred model for this device before giving up.
+                const int maxRetries = 2;
+                for (int attempt = 0; attempt < maxRetries && !deviceSucceeded; attempt++)
                 {
-                    ConsoleOutput.WriteMarkup(
-                        $"[yellow][SKIP][/] Failed to load summary model on [white]{deviceType}[/]: {model.Id}");
-                    continue;
-                }
-
-                bool deviceFailed = false;
-                var deviceAnswers = new List<AiRelationQuestionAnswer>();
-                try
-                {
-                    for (int i = 0; i < RelationQuestions.Length; i++)
+                    var model = FindBestModel(allModels, deviceType, modelAlias, strictAlias,
+                        excludeIds: triedModelIds);
+                    if (model is null)
                     {
-                        string question = RelationQuestions[i];
-                        string prompt = i switch
-                        {
-                            0 => Q1,
-                            1 => Q2,
-                            _ => BuildRelationPrompt(relationContext, question),
-                        };
-                        ConsoleOutput.WriteMarkup($"[dim]  {deviceType} Q{i + 1}: {question}[/]");
-
-                        var run = await RunInferenceAsync(
-                            serviceUrl, model.Id, prompt,
-                            modelLoadSec: 0,
-                            deviceLabel: deviceType,
-                            ct: cancellationToken);
-
-                        if (run is null)
-                        {
-                            deviceFailed = true;
-                            break;
-                        }
-
-                        deviceAnswers.Add(new AiRelationQuestionAnswer(
-                            Index: i + 1,
-                            Question: question,
-                            Answer: run.ResponseText.Trim(),
-                            DeviceType: deviceType,
-                            Run: run));
+                        if (attempt == 0)
+                            ConsoleOutput.WriteMarkup(
+                                $"[yellow][SKIP][/] No model available for local relation summary on [white]{deviceType}[/].");
+                        break;
                     }
-                }
-                finally
-                {
-                    await UnloadModelAsync(cli, model.Id);
+                    triedModelIds.Add(model.Id);
+
+                    ConsoleOutput.WriteMarkup(
+                        $"[dim]  Loading summary model ({deviceType}): {model.Id}[/]");
+                    if (!await LoadModelAsync(cli, model.Id))
+                    {
+                        ConsoleOutput.WriteMarkup(
+                            $"[yellow][SKIP][/] Failed to load summary model on [white]{deviceType}[/]: {model.Id}");
+                        continue;
+                    }
+
+                    bool deviceFailed = false;
+                    var deviceAnswers = new List<AiRelationQuestionAnswer>();
+                    try
+                    {
+                        for (int i = 0; i < RelationQuestions.Length; i++)
+                        {
+                            string question = RelationQuestions[i];
+                            string prompt = i switch
+                            {
+                                0 => Q1,
+                                1 => Q2,
+                                _ => BuildRelationPrompt(relationContext, question),
+                            };
+                            ConsoleOutput.WriteMarkup($"[dim]  {deviceType} Q{i + 1}: {question}[/]");
+
+                            var run = await RunInferenceAsync(
+                                serviceUrl, model.Id, prompt,
+                                modelLoadSec: 0,
+                                deviceLabel: deviceType,
+                                ct: cancellationToken);
+
+                            if (run is null)
+                            {
+                                deviceFailed = true;
+                                break;
+                            }
+
+                            deviceAnswers.Add(new AiRelationQuestionAnswer(
+                                Index: i + 1,
+                                Question: question,
+                                Answer: run.ResponseText.Trim(),
+                                DeviceType: deviceType,
+                                Run: run));
+                        }
+                    }
+                    finally
+                    {
+                        await UnloadModelAsync(cli, model.Id);
+                    }
+
+                    if (deviceFailed)
+                    {
+                        ConsoleOutput.WriteMarkup(
+                            $"[yellow][RETRY][/] Relation questions did not complete on [white]{deviceType}[/] with {model.Alias}; trying next model...");
+                        continue;
+                    }
+
+                    answers.AddRange(deviceAnswers);
+                    selectedModels.Add(new AiRelationModelSelection(
+                        DeviceType: deviceType,
+                        ModelId: model.Id,
+                        ModelAlias: model.Alias,
+                        ExecutionProvider: model.ExecutionProvider));
+                    deviceSucceeded = true;
                 }
 
-                if (deviceFailed)
+                if (!deviceSucceeded && triedModelIds.Count > 0)
                 {
                     ConsoleOutput.WriteMarkup(
-                        $"[yellow][SKIP][/] Relation questions did not complete on [white]{deviceType}[/].");
-                    continue;
+                        $"[yellow][SKIP][/] Relation questions did not complete on [white]{deviceType}[/] after {triedModelIds.Count} model(s).");
                 }
-
-                answers.AddRange(deviceAnswers);
-                selectedModels.Add(new AiRelationModelSelection(
-                    DeviceType: deviceType,
-                    ModelId: model.Id,
-                    ModelAlias: model.Alias,
-                    ExecutionProvider: model.ExecutionProvider));
             }
 
             if (answers.Count == 0 || selectedModels.Count == 0)
@@ -1428,10 +1448,12 @@ public static class AiBenchmarkRunner
         IReadOnlyList<FoundryModel> allModels,
         string deviceLabel,
         string? aliasHint,
-        bool strictAlias)
+        bool strictAlias,
+        IReadOnlySet<string>? excludeIds = null)
     {
         var candidates = allModels
             .Where(m => m.DeviceType.Equals(deviceLabel, StringComparison.OrdinalIgnoreCase))
+            .Where(m => excludeIds is null || !excludeIds.Contains(m.Id))
             .ToList();
 
         if (candidates.Count == 0)
@@ -1473,14 +1495,15 @@ public static class AiBenchmarkRunner
 
         var preferredAliases = GetPreferredAliases(deviceLabel);
 
-        // 1. Preferred aliases that are already cached
+        // 1. Preferred aliases that are already cached (exact alias match first)
         foreach (var alias in preferredAliases)
         {
             var cachedPreferred = candidates.FirstOrDefault(c =>
-                c.IsCached &&
-                (c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
-                    || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
-                    || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase)));
+                    c.IsCached && c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase))
+                ?? candidates.FirstOrDefault(c =>
+                    c.IsCached &&
+                    (c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
+                        || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase)));
             if (cachedPreferred is not null)
             {
                 TraceLog.AiModelSelected(cachedPreferred.Id, cachedPreferred.Alias, deviceLabel, "cached preferred");
@@ -1500,12 +1523,15 @@ public static class AiBenchmarkRunner
         }
 
         // 3. Preferred aliases in configured order (download if needed)
+        //    Prefer exact alias match to avoid e.g. "phi-4-mini" accidentally
+        //    matching "phi-4-mini-reasoning" via Id.Contains.
         foreach (var alias in preferredAliases)
         {
             var v = candidates.FirstOrDefault(c =>
-                c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
-                    || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
-                    || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase));
+                    c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase))
+                ?? candidates.FirstOrDefault(c =>
+                    c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
+                        || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase));
             if (v is not null)
             {
                 TraceLog.AiModelSelected(v.Id, v.Alias, deviceLabel, "preferred uncached");
