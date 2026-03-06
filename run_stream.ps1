@@ -33,14 +33,25 @@ $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
 # ------------------------------------------------------------------
-#  PowerShell 5.1 compatibility: define $IsWindows if not present
+#  Prevent system sleep end-to-end (Windows only)
+#  ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001)
 # ------------------------------------------------------------------
+$sleepPrevented = $false
 if ($null -eq (Get-Variable -Name 'IsWindows' -ErrorAction SilentlyContinue)) {
-    # PowerShell 5.1 only runs on Windows
-    $IsWindows = $true
-    $IsMacOS   = $false
-    $IsLinux   = $false
+    $IsWindows = $true; $IsMacOS = $false; $IsLinux = $false
 }
+if ($IsWindows) {
+    try {
+        Add-Type -Namespace Win32 -Name SleepUtil -MemberDefinition @'
+            [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+            public static extern uint SetThreadExecutionState(uint esFlags);
+'@ -ErrorAction Stop
+        [Win32.SleepUtil]::SetThreadExecutionState(0x80000001) | Out-Null
+        $sleepPrevented = $true
+    } catch {}
+}
+
+try {
 
 # ------------------------------------------------------------------
 #  Detect OS and architecture
@@ -257,3 +268,9 @@ Write-Host '  ========================================' -ForegroundColor DarkGra
 Write-Host '   Benchmark Complete' -ForegroundColor Green
 Write-Host '  ========================================' -ForegroundColor DarkGray
 Write-Host ''
+
+} finally {
+    if ($sleepPrevented) {
+        try { [Win32.SleepUtil]::SetThreadExecutionState(0x80000000) | Out-Null } catch {}
+    }
+}

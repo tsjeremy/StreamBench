@@ -45,7 +45,7 @@ permissions:
 # ─────────────────────────────────────────────────────────────────────────────
 jobs:
 
-  # ── macOS: arm64 (Apple Silicon) + x64 (Intel) ───────────────────────────
+  # ── macOS: arm64 + x64 ───────────────────────────────────────────────────
   build-macos:
     name: Build (macOS)
     runs-on: macos-latest

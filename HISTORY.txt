@@ -2,6 +2,31 @@
 
 Revisions as of Fri, Mar 06, 2026 (Jeremy Tsai)
 
+Version 5.10.20 of stream.c, stream_gpu.c, and StreamBench released.
+
+  - Fix: setup.ps1 no longer appears to hang during first-time Foundry
+    Local setup.  The model catalog dump (~200 lines) is now suppressed,
+    and silent Wait-Job calls replaced with a polling loop that prints
+    progress dots every 5 seconds.
+
+  - Fix: NPU AI inference timeouts caused by reasoning models
+    (phi-4-mini-reasoning, deepseek-r1-7b) generating internal
+    chain-of-thought tokens.  FindBestModel now prioritises exact alias
+    matches, reasoning models removed from PreferredAliasesNpu, and
+    relation summary retries with an exclude list on failure.
+
+  - Remove: NPU no longer participates in memory bandwidth benchmarks.
+    Memory benchmarks now run on CPU and GPU only.  AI inference
+    continues to support CPU, GPU, and NPU.
+
+  - Docs: all OEM brand names (e.g. vendor-specific chip names, PC
+    brand names) replaced with generic platform terms throughout code,
+    comments, build scripts, and documentation.
+
+-------------------------------------------------------------------------
+
+Revisions as of Fri, Mar 06, 2026 (Jeremy Tsai)
+
 Version 5.10.19 (updated) of StreamBench released.
 
   - Fix: default AI model changed from qwen2.5-1.5b to phi-3.5-mini for
