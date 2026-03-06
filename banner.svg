@@ -39,28 +39,21 @@
   <!-- CPU bandwidth bar -->
   <text x="30" y="116" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="11" font-weight="700" fill="#388bfd">CPU</text>
-  <rect x="70" y="108" width="160" height="10" rx="2" fill="url(#cpu-bar)"/>
+  <rect x="70" y="108" width="62" height="10" rx="2" fill="url(#cpu-bar)"/>
   <text x="236" y="116" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="11" fill="#e6edf3">~70 GB/s</text>
+        font-size="11" fill="#e6edf3">~47 GB/s</text>
 
   <!-- GPU bandwidth bar -->
   <text x="30" y="136" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="11" font-weight="700" fill="#3fb950">GPU</text>
-  <rect x="70" y="128" width="230" height="10" rx="2" fill="url(#gpu-bar)"/>
+  <rect x="70" y="128" width="280" height="10" rx="2" fill="url(#gpu-bar)"/>
   <text x="306" y="136" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="11" fill="#e6edf3">~100 GB/s</text>
-
-  <!-- NPU bandwidth bar -->
-  <text x="30" y="156" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="11" font-weight="700" fill="#bc8cff">NPU</text>
-  <rect x="70" y="148" width="280" height="10" rx="2" fill="url(#npu-bar)"/>
-  <text x="356" y="156" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="11" fill="#e6edf3">~120 GB/s</text>
+        font-size="11" fill="#e6edf3">~213 GB/s</text>
 
   <!-- Platform line -->
-  <text x="30" y="168" font-family="'Segoe UI',system-ui,sans-serif"
+  <text x="30" y="156" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="11" fill="#8b949e">Windows · macOS · Linux  ·  x64 + ARM64</text>
-  <text x="30" y="178" font-family="'Segoe UI',system-ui,sans-serif"
+  <text x="30" y="166" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="10" fill="#484f58">.NET 10 · OpenCL · OpenMP · Foundry Local AI</text>
 
   <!-- ── Card 1: Memory Bandwidth ─────────────────────────────────── -->
@@ -68,26 +61,21 @@
         fill="#161b22" stroke="#30363d" stroke-width="1"/>
 
   <text x="480" y="38" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="10" fill="#8b949e" letter-spacing="0.5">MEMORY  Triad</text>
+        font-size="10" fill="#8b949e" letter-spacing="0.5">MEMORY  Bandwidth</text>
 
   <text x="480" y="60" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="12" font-weight="700" fill="#388bfd">CPU</text>
   <text x="540" y="60" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="12" font-weight="700" fill="#e6edf3">70 GB/s</text>
+        font-size="12" font-weight="700" fill="#e6edf3">47 GB/s</text>
 
   <text x="480" y="82" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="12" font-weight="700" fill="#3fb950">GPU</text>
   <text x="540" y="82" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="12" font-weight="700" fill="#e6edf3">100 GB/s</text>
+        font-size="12" font-weight="700" fill="#e6edf3">213 GB/s</text>
 
-  <text x="480" y="104" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="12" font-weight="700" fill="#bc8cff">NPU</text>
-  <text x="540" y="104" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="12" font-weight="700" fill="#e6edf3">120 GB/s</text>
-
-  <text x="480" y="124" font-family="'Segoe UI',system-ui,sans-serif"
+  <text x="480" y="112" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="9" fill="#484f58">% of theoretical max</text>
-  <text x="480" y="138" font-family="'Segoe UI',system-ui,sans-serif"
+  <text x="480" y="126" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="9" fill="#484f58">higher = better</text>
 
   <!-- ── Card 2: AI Inference ──────────────────────────────────────── -->
@@ -100,18 +88,18 @@
   <text x="688" y="60" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="12" font-weight="700" fill="#388bfd">CPU</text>
   <text x="748" y="60" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="12" font-weight="700" fill="#e6edf3">42 tok/s</text>
+        font-size="12" font-weight="700" fill="#e6edf3">17.8 tok/s</text>
 
   <text x="688" y="82" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="12" font-weight="700" fill="#3fb950">GPU</text>
   <text x="748" y="82" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="12" font-weight="700" fill="#e6edf3">68 tok/s</text>
+        font-size="12" font-weight="700" fill="#e6edf3">51.7 tok/s</text>
 
   <text x="688" y="104" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="12" font-weight="700" fill="#bc8cff">NPU</text>
   <text x="748" y="104" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="12" font-weight="700" fill="#e6edf3">95 tok/s</text>
-  <text x="815"  y="104" font-family="'Segoe UI',system-ui,sans-serif"
+        font-size="12" font-weight="700" fill="#e6edf3">8.2 tok/s</text>
+  <text x="815"  y="82" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="10" fill="#8b949e">← best</text>
 
   <text x="688" y="124" font-family="'Segoe UI',system-ui,sans-serif"

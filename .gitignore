@@ -30,3 +30,5 @@ StreamBench/backends/
 # Visual Studio
 .vs/
 *.log
+*.pptx
+*.pptx.bak
