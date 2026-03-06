@@ -40,28 +40,29 @@ public static class AiBenchmarkRunner
         "Based on all local JSON files in this folder (including files from other devices), summarize memory bandwidth and AI benchmark relationship, highlight the best combined profile and also try to explain the % from memory bandwidth benchmark result vs. the theoretical bandwidth calculation of the memory on the device."
     ];
 
-    // Preferred aliases by device — ordered by (download time + inference latency)
-    // based on real-world benchmarking on a Lenovo Copilot+ PC (2026-03-05 trace).
+    // Preferred aliases by device — ordered by answer quality then speed.
+    // phi-3.5-mini promoted to #1: qwen2.5-1.5b/0.5b are faster but produce
+    // factually incorrect answers (wrong formulas, wrong math, hallucinations).
     // Large/slow models (14B+, reasoning, deepseek-r1) removed to avoid timeouts.
     private static readonly string[] PreferredAliasesCpu =
     [
-        "qwen2.5-1.5b",       // 84s dl, 6s warm, 332 tok
-        "phi-3.5-mini",        // 101s dl, 42s warm, 765 tok
-        "qwen2.5-0.5b",        // 39s dl, 2s warm, 302 tok
-        "phi-3-mini-4k",       // 98s dl, 20s warm, 325 tok
-        "phi-3-mini-128k",     // 113s dl, 21s warm, 320 tok
-        "phi-4-mini",          // 208s dl, 48s warm, 740 tok
-        "qwen2.5-7b",          // 229s dl, 59s warm, 585 tok
+        "phi-3.5-mini",        // 101s dl, 42s warm, 765 tok — correct answers
+        "phi-4-mini",          // 208s dl, 48s warm, 740 tok — smart, NPU support
+        "phi-3-mini-4k",       // 98s dl, 20s warm, 325 tok — compact, decent quality
+        "phi-3-mini-128k",     // 113s dl, 21s warm, 320 tok — long context variant
+        "qwen2.5-1.5b",        // 84s dl, 6s warm, 332 tok — fast but unreliable answers
+        "qwen2.5-0.5b",        // 39s dl, 2s warm, 302 tok — fastest, low quality
+        "qwen2.5-7b",          // 229s dl, 59s warm, 585 tok — larger, slower
     ];
 
     private static readonly string[] PreferredAliasesGpu =
     [
-        "qwen2.5-1.5b",       // 59s dl, 2s warm, 360 tok
-        "phi-3.5-mini",        // 88s dl, 8s warm, 710 tok
-        "phi-3-mini-4k",       // 80s dl, 3s warm, 246 tok
-        "qwen2.5-0.5b",        // 29s dl, 4s warm, 784 tok
-        "phi-4-mini",          // 136s dl, 8s warm, 835 tok
-        "qwen2.5-7b",          // 188s dl, 12s warm, 659 tok
+        "phi-3.5-mini",        // 88s dl, 8s warm, 710 tok — correct answers
+        "phi-4-mini",          // 136s dl, 8s warm, 835 tok — smart, NPU support
+        "phi-3-mini-4k",       // 80s dl, 3s warm, 246 tok — compact, decent quality
+        "qwen2.5-1.5b",        // 59s dl, 2s warm, 360 tok — fast but unreliable answers
+        "qwen2.5-0.5b",        // 29s dl, 4s warm, 784 tok — fastest, low quality
+        "qwen2.5-7b",          // 188s dl, 12s warm, 659 tok — larger, slower
     ];
 
     private static readonly string[] PreferredAliasesNpu =
@@ -76,17 +77,18 @@ public static class AiBenchmarkRunner
     ];
 
     // Shared-model priorities used when benchmarking multiple devices side-by-side.
-    // Ordered by combined download + inference speed from real-world trace data.
+    // phi-3.5-mini promoted to #1 for answer correctness (qwen2.5 models produce
+    // factual errors in Q2/Q3 answers). phi-4-mini #2 for NPU support.
     // Large/slow models (deepseek-r1-*, 14B+) removed — they caused service crashes
     // and inference timeouts in the 2026-03-05 benchmark trace.
     private static readonly string[] SharedAliasPriority =
     [
-        "qwen2.5-1.5b",       // fast download, fast inference on all devices
-        "phi-3.5-mini",        // good balance of speed and quality
-        "qwen2.5-0.5b",        // tiny — fastest download and inference
-        "phi-4-mini",          // broader device coverage (CPU+GPU+NPU)
-        "phi-3-mini-4k",       // compact, fast inference
+        "phi-3.5-mini",        // best quality, CPU+GPU coverage
+        "phi-4-mini",          // smart, adds NPU coverage
+        "phi-3-mini-4k",       // compact, decent quality
         "phi-3-mini-128k",     // same as 4k but with longer context
+        "qwen2.5-1.5b",        // fast fallback — lower answer quality
+        "qwen2.5-0.5b",        // tiny fallback — lowest quality
         "qwen2.5-7b",          // larger but quality results
         "phi-4-mini-reasoning", // reasoning model — slower but available on NPU
     ];

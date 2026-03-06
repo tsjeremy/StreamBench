@@ -2,6 +2,30 @@
 
 Revisions as of Fri, Mar 06, 2026 (Jeremy Tsai)
 
+Version 5.10.19 (updated) of StreamBench released.
+
+  - Fix: default AI model changed from qwen2.5-1.5b to phi-3.5-mini for
+    CPU and GPU devices.  qwen2.5-1.5b/0.5b are fast but produce factually
+    incorrect answers:
+      * Q2: wrong bandwidth formulas and math errors (e.g. 300*64/8=24000)
+      * Q2: fabricated DDR multipliers (DDR4 = 4×Width×Speed — wrong)
+      * Q2: off-topic responses (Python mbit library, TCP/IP, disk I/O)
+      * Q3: "A gigabyte = one million gigabytes" hallucination
+      * Q3: mixed GPU VRAM bandwidth (347 GB/s) with system memory (89.6 GB/s)
+    phi-3.5-mini (3.7B params) gives correct, well-structured answers
+    with acceptable inference speed (~42s warm on CPU, ~8s warm on GPU).
+
+  - Improve: phi-4-mini promoted to #2 priority for CPU/GPU/shared as
+    a smart alternative with NPU support.  NPU list unchanged (qwen2.5-0.5b
+    stays #1 as the lightest model for limited NPU execution providers).
+
+  - Improve: shared-model priority list now leads with phi-3.5-mini for
+    answer correctness during multi-device side-by-side comparisons.
+
+-------------------------------------------------------------------------
+
+Revisions as of Fri, Mar 06, 2026 (Jeremy Tsai)
+
 Version 5.10.19 of stream.c, stream_gpu.c, and StreamBench released.
 
   - Improve: AI model selection reordered based on real-world benchmark
