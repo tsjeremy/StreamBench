@@ -110,7 +110,7 @@ flowchart TD
 .\StreamBench_win_x64.exe --gpu
 
 # AI inference benchmark (requires AI-enabled exe + Foundry Local)
-# The _ai binary auto-runs memory + AI on all devices (CPU/GPU/NPU) with no flags needed:
+# The _ai binary auto-runs memory (CPU/GPU) + AI (CPU/GPU/NPU) with no flags needed:
 .\StreamBench_win_x64_ai.exe
 
 # Or specify devices explicitly:
@@ -344,9 +344,8 @@ This relation summary uses a unified `questions` array schema (`index`,
 the same JSON/log/CLI structure and timing metrics.
 
 In addition, after AI completes, StreamBench embeds these AI sections into each
-memory benchmark JSON (`stream_cpu_results_*.json`, `stream_gpu_results_*.json`,
-`stream_npu_results_*.json`) so Q1/Q2/Q3 (and future Qn) remain available in
-the same saved file:
+memory benchmark JSON (`stream_cpu_results_*.json`, `stream_gpu_results_*.json`)
+so Q1/Q2/Q3 (and future Qn) remain available in the same saved file:
 
 - `ai_inference_benchmark` (Q1/Q2 runs)
 - `ai_relation_summary` (device-tagged relation question answers and timing)

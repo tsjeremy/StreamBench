@@ -255,8 +255,9 @@ async Task<int> RunMainAsync(string[] args)
                 noSave, outputDir, gpuDevice.Value, $"GPU #{gpuDevice.Value}");
         }
 
-        // Discover all GPUs
-        var gpus = await BenchmarkRunner.ListGpusAsync(exe);
+        // Discover all GPUs (exclude NPU devices — memory benchmark is GPU-only)
+        var allDevices = await BenchmarkRunner.ListGpusAsync(exe);
+        var gpus = allDevices.Where(g => g.DeviceKind != "NPU").ToList();
 
         if (gpus.Count == 0)
         {
@@ -273,24 +274,14 @@ async Task<int> RunMainAsync(string[] args)
         }
 
         // Multiple devices — enumerate and run each
-        int gpuCount = gpus.Count(g => g.DeviceKind == "GPU");
-        int npuCount = gpus.Count(g => g.DeviceKind == "NPU");
-        string deviceSummary = (gpuCount, npuCount) switch
-        {
-            ( > 0, > 0) => $"{gpuCount} GPU(s) + {npuCount} NPU(s)",
-            (_, > 0)     => $"{npuCount} NPU(s)",
-            _            => $"{gpuCount} GPU(s)",
-        };
-        ConsoleOutput.WriteMarkup($"[bold cyan]Discovered {deviceSummary}:[/]");
+        ConsoleOutput.WriteMarkup($"[bold cyan]Discovered {gpus.Count} GPU(s):[/]");
         for (int i = 0; i < gpus.Count; i++)
         {
             var g = gpus[i];
             double memGb = g.GlobalMemoryBytes / (1024.0 * 1024.0 * 1024.0);
-            string displayName = g.DeviceKind == "NPU"
-                ? (GpuDeviceInfo.InferNpuDisplayName(g.Name, g.Vendor) ?? g.Name)
-                : (GpuDeviceInfo.InferGpuDisplayName(g.Name, g.Vendor) ?? g.Name);
+            string displayName = GpuDeviceInfo.InferGpuDisplayName(g.Name, g.Vendor) ?? g.Name;
             ConsoleOutput.WriteMarkup(
-                $"  [white]#{g.Index}[/] [bold white]{displayName}[/] [dim]({g.DeviceKind}, {g.Vendor}, {memGb:F1} GB)[/]");
+                $"  [white]#{g.Index}[/] [bold white]{displayName}[/] [dim](GPU, {g.Vendor}, {memGb:F1} GB)[/]");
         }
         Console.WriteLine();
 
@@ -299,14 +290,12 @@ async Task<int> RunMainAsync(string[] args)
         {
             if (i > 0) Console.WriteLine();
             var g = gpus[i];
-            string displayName = g.DeviceKind == "NPU"
-                ? (GpuDeviceInfo.InferNpuDisplayName(g.Name, g.Vendor) ?? g.Name)
-                : (GpuDeviceInfo.InferGpuDisplayName(g.Name, g.Vendor) ?? g.Name);
-            ConsoleOutput.WriteMarkup($"[bold cyan]── {g.DeviceKind} #{g.Index}: {displayName} ──[/]");
+            string displayName = GpuDeviceInfo.InferGpuDisplayName(g.Name, g.Vendor) ?? g.Name;
+            ConsoleOutput.WriteMarkup($"[bold cyan]── GPU #{g.Index}: {displayName} ──[/]");
 
             // Only print system info for the first device (it's the same for all)
             int code = await RunSingleGpuAsync(exe, arraySize, rangeStart, rangeEnd, rangeStep,
-                noSave, outputDir, g.Index, $"{g.DeviceKind} #{g.Index} ({displayName})",
+                noSave, outputDir, g.Index, $"GPU #{g.Index} ({displayName})",
                 printSystemInfo: i == 0);
             if (code != 0) exitCode = code;
         }

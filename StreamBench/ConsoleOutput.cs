@@ -230,10 +230,6 @@ public static class ConsoleOutput
         Console.WriteLine();
         WriteMarkup("[cyan]══════════════════════════════════════════════════════════════[/]");
         string typeLabel = r.Type;
-        if (string.Equals(typeLabel, "GPU", StringComparison.OrdinalIgnoreCase)
-            && r.Device is not null
-            && GpuDeviceInfo.InferNpuDisplayName(r.Device.Name, r.Device.Vendor, r.System?.CpuModel) is not null)
-            typeLabel = "NPU";
         WriteMarkup($"[cyan]  STREAM Benchmark v{r.Version} — {typeLabel} Memory Bandwidth[/]");
         WriteMarkup("[cyan]══════════════════════════════════════════════════════════════[/]");
         WriteMarkup($"[dim]  Timestamp : {r.Timestamp}[/]");
@@ -323,7 +319,7 @@ public static class ConsoleOutput
     }
 
     /// <summary>
-    /// Prints the GPU/NPU device info box. Called separately so it can be
+    /// Prints the GPU device info box. Called separately so it can be
     /// shown for every device even when system info is printed only once.
     /// </summary>
     public static void PrintDeviceInfo(BenchmarkResult r)
@@ -331,23 +327,16 @@ public static class ConsoleOutput
         if (r.Device is null) return;
 
         var dev = r.Device;
-        string? cpuModel = r.System?.CpuModel;
-        string? npuName = GpuDeviceInfo.InferNpuDisplayName(dev.Name, dev.Vendor, cpuModel);
-        bool isNpu = npuName is not null;
-        string devKind = isNpu ? "NPU" : "GPU";
-        // Resolve friendly name for both NPU and GPU devices
-        string displayName = npuName
-            ?? GpuDeviceInfo.InferGpuDisplayName(dev.Name, dev.Vendor)
-            ?? dev.Name;
+        string displayName = GpuDeviceInfo.InferGpuDisplayName(dev.Name, dev.Vendor) ?? dev.Name;
 
-        var gpuTable = new SimpleTable($"[bold white]{devKind} Device[/]")
+        var gpuTable = new SimpleTable("[bold white]GPU Device[/]")
             .AddColumn("[cyan]Property[/]", 22)
             .AddColumn("[white]Value[/]");
 
         gpuTable.AddRow("[cyan]Device[/]",         $"[bold cyan]{displayName}[/]");
         if (!displayName.Equals(dev.Name, StringComparison.Ordinal))
             gpuTable.AddRow("[cyan]OpenCL Name[/]", $"[dim]{dev.Name}[/]");
-        gpuTable.AddRow("[cyan]Type[/]",            $"[white]{devKind}[/]");
+        gpuTable.AddRow("[cyan]Type[/]",            $"[white]GPU[/]");
         gpuTable.AddRow("[cyan]Vendor[/]",          $"[white]{dev.Vendor}[/]");
         gpuTable.AddRow("[cyan]Compute Units[/]",   $"[white]{dev.ComputeUnits}[/]");
         gpuTable.AddRow("[cyan]Max Frequency[/]",   $"[white]{dev.MaxFrequencyMhz} MHz[/]");

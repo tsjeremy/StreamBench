@@ -259,7 +259,9 @@ public static class BenchmarkRunner
 }
 
 /// <summary>
-/// Represents a GPU/NPU device discovered via --list-gpus.
+/// Represents a GPU device discovered via --list-gpus.
+/// NPU detection is retained for AI benchmark device classification
+/// but NPU devices are excluded from memory bandwidth benchmarks.
 /// </summary>
 public record GpuDeviceInfo
 {

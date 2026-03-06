@@ -278,7 +278,6 @@ The key metric is **Best Rate MB/s** — this is the peak sustained memory bandw
 Results are automatically saved to CSV files:
 *   CPU: `stream_results_<size>M.csv`
 *   GPU: `stream_gpu_results_<size>M.csv`
-*   NPU: `stream_npu_results_<size>M.csv`
 *   Range testing: `stream_range_results_<start>M_to_<end>M_step_<step>M.csv`
 
 ### JSON Output
@@ -286,7 +285,6 @@ Results are automatically saved to CSV files:
 Results are also saved as JSON files with full system/device information for easy side-by-side comparison across different machines:
 *   CPU: `stream_cpu_results_<size>M.json`
 *   GPU: `stream_gpu_results_<size>M.json`
-*   NPU: `stream_npu_results_<size>M.json`
 
 JSON files include:
 *   **System info**: hostname, OS, architecture, CPU model, logical CPUs, CPU frequency, total RAM, NUMA nodes
