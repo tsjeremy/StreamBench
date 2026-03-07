@@ -201,6 +201,15 @@ public static class TraceLog
     public static void AiRelationSkipped(string reason)
         => Info($"AI relation summary skipped. Reason: {reason}");
 
+    public static void AiCatalogDeviceTypes(string summary)
+        => Info($"AI catalog device types: {summary}");
+
+    public static void NpuHardwareDetected(string info)
+        => Info($"NPU hardware detected: {info}");
+
+    public static void NpuHardwareNotDetected()
+        => Info("NPU hardware not detected on this system");
+
     // ── System info detection ─────────────────────────────────────────────
 
     public static void SystemInfoDetectionStarted()

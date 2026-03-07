@@ -480,9 +480,10 @@ async Task<int> RunAiBenchmarkAsync(
     ConsoleOutput.WriteMarkup($"[dim]  Q2 (warm): {AiBenchmarkRunner.Q2}[/]");
 
     AiBenchmarkTwoPassResult twoPassResult;
+    AiBenchmarkRunner.AiSession? aiSession = null;
     try
     {
-        twoPassResult = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias, sharedOnly, noDownload, quickMode);
+        (twoPassResult, aiSession) = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias, sharedOnly, noDownload, quickMode);
     }
     catch (Exception ex)
     {
@@ -504,6 +505,7 @@ async Task<int> RunAiBenchmarkAsync(
         ConsoleOutput.WriteMarkup("[dim]  Ensure Microsoft AI Foundry Local is installed:[/]");
         ConsoleOutput.WriteMarkup("[dim]  Windows: winget install Microsoft.FoundryLocal[/]");
         ConsoleOutput.WriteMarkup("[dim]  macOS:   brew install foundrylocal[/]");
+        if (aiSession is not null) await aiSession.StopAsync();
         return 1;
     }
 
@@ -548,7 +550,11 @@ async Task<int> RunAiBenchmarkAsync(
         try
         {
             relationSummary = await AiBenchmarkRunner.RunLocalRelationSummaryAsync(
-                summaryDir, modelAlias, deviceFilter);
+                summaryDir, modelAlias, deviceFilter,
+                existingCli: aiSession?.Cli,
+                existingServiceUrl: aiSession?.ServiceUrl,
+                existingCatalog: aiSession?.Catalog,
+                existingAiResults: twoPassResult);
         }
         catch (Exception ex)
         {
@@ -585,6 +591,10 @@ async Task<int> RunAiBenchmarkAsync(
             Console.WriteLine();
         }
     }
+
+    // Stop the Foundry service now that all AI work is done
+    if (aiSession is not null)
+        await aiSession.StopAsync();
 
     return 0;
 }

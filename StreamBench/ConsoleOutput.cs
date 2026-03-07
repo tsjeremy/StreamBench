@@ -605,6 +605,10 @@ public static class ConsoleOutput
     {
         if (results.Count == 0) return;
 
+        // Find the fastest tok/s in Q1 and Q2 to highlight
+        double maxQ1Tps = results.Max(r => r.Run1.TokensPerSecond);
+        double maxQ2Tps = results.Max(r => r.Run2.TokensPerSecond);
+
         var table = new SimpleTable("[bold white]Device Comparison[/]")
             .AddColumn("[bold white]Device[/]",     8)
             .AddColumn("[white]Model[/]",           30)
@@ -616,14 +620,22 @@ public static class ConsoleOutput
 
         foreach (var r in results)
         {
+            // Highlight the fastest tok/s in bold yellow
+            string q1TpsMarkup = r.Run1.TokensPerSecond >= maxQ1Tps && results.Count > 1
+                ? $"[bold yellow]{r.Run1.TokensPerSecond:F1}[/]"
+                : $"[bold cyan]{r.Run1.TokensPerSecond:F1}[/]";
+            string q2TpsMarkup = r.Run2.TokensPerSecond >= maxQ2Tps && results.Count > 1
+                ? $"[bold yellow]{r.Run2.TokensPerSecond:F1}[/]"
+                : $"[bold cyan]{r.Run2.TokensPerSecond:F1}[/]";
+
             table.AddRow(
                 $"[bold white]{r.DeviceType}[/]",
                 $"[dim]{r.ModelAlias}[/]",
                 $"[white]{r.Run1.ModelLoadSec:F3}[/]",
                 $"[bold green]{r.Run1.TotalTimeSec:F3}[/]",
-                $"[bold cyan]{r.Run1.TokensPerSecond:F1}[/]",
+                q1TpsMarkup,
                 $"[bold green]{r.Run2.ResponseTimeSec:F3}[/]",
-                $"[bold cyan]{r.Run2.TokensPerSecond:F1}[/]");
+                q2TpsMarkup);
         }
 
         table.Render();
@@ -751,14 +763,66 @@ public static class ConsoleOutput
             return;
         }
 
+        // Determine max content width for word-wrapping
+        int maxWidth;
+        try { maxWidth = Math.Max(60, Console.WindowWidth - 6); } // 6 = "  │ " prefix + margin
+        catch { maxWidth = 114; } // fallback for redirected output
+
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
         var lines = normalized.Split('\n');
         foreach (var line in lines)
         {
             if (string.IsNullOrWhiteSpace(line))
+            {
                 WriteMarkup("[gray]  │[/]");
-            else
+                continue;
+            }
+
+            // Word-wrap long lines
+            if (line.Length <= maxWidth)
+            {
                 WriteMarkup($"[gray]  │[/] [white]{line}[/]");
+            }
+            else
+            {
+                foreach (var wrappedLine in WordWrap(line, maxWidth))
+                    WriteMarkup($"[gray]  │[/] [white]{wrappedLine}[/]");
+            }
+        }
+    }
+
+    /// <summary>Wraps text at word boundaries to fit within maxWidth characters.</summary>
+    private static IEnumerable<string> WordWrap(string text, int maxWidth)
+    {
+        if (maxWidth <= 0 || text.Length <= maxWidth)
+        {
+            yield return text;
+            yield break;
+        }
+
+        int start = 0;
+        while (start < text.Length)
+        {
+            int remaining = text.Length - start;
+            if (remaining <= maxWidth)
+            {
+                yield return text[start..];
+                break;
+            }
+
+            // Find the last space within maxWidth
+            int breakAt = text.LastIndexOf(' ', start + maxWidth, maxWidth);
+            if (breakAt <= start)
+            {
+                // No space found — hard break
+                yield return text.Substring(start, maxWidth);
+                start += maxWidth;
+            }
+            else
+            {
+                yield return text[start..breakAt];
+                start = breakAt + 1; // skip the space
+            }
         }
     }
 

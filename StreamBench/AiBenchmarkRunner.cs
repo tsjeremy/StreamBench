@@ -322,7 +322,7 @@ public static class AiBenchmarkRunner
     // ── Model catalog via CLI ─────────────────────────────────────────────
 
     /// <summary>Model info parsed from foundry CLI JSON output.</summary>
-    private sealed record FoundryModel(
+    internal sealed record FoundryModel(
         string Id,
         string Alias,
         string DeviceType,
@@ -719,12 +719,33 @@ public static class AiBenchmarkRunner
     // ── Public entry point ────────────────────────────────────────────────
 
     /// <summary>
+    /// Session context returned by RunAsync for reuse by the relation summary.
+    /// Avoids redundant Foundry service start and catalog reload.
+    /// Caller should call <see cref="StopSessionAsync"/> when done.
+    /// </summary>
+    internal sealed class AiSession
+    {
+        public string Cli { get; init; } = "";
+        public string ServiceUrl { get; init; } = "";
+        public List<FoundryModel> Catalog { get; init; } = [];
+
+        public async Task StopAsync()
+        {
+            if (!string.IsNullOrEmpty(Cli))
+                await StopServiceAsync(Cli);
+        }
+    }
+
+    /// <summary>
     /// Runs the AI inference benchmark on the requested device(s).
     /// Returns a two-pass result: shared model comparison + best-per-device performance.
+    /// The returned <see cref="AiSession"/> can be passed to <see cref="RunLocalRelationSummaryAsync"/>
+    /// to avoid a redundant Foundry service restart.
+    /// Caller should call <c>session.StopAsync()</c> after all AI work is complete.
     /// When sharedOnly is true, the best-per-device pass is skipped.
     /// When noDownload is true, only already-cached models are used.
     /// </summary>
-    public static async Task<AiBenchmarkTwoPassResult> RunAsync(
+    internal static async Task<(AiBenchmarkTwoPassResult Result, AiSession? Session)> RunAsync(
         IEnumerable<string>? devices = null,
         string? modelAlias = null,
         bool sharedOnly = false,
@@ -744,7 +765,7 @@ public static class AiBenchmarkRunner
             ConsoleOutput.WriteMarkup("[red][FAIL][/] Foundry Local CLI not found (foundry / foundrylocal).");
             ConsoleOutput.WriteMarkup("[dim]  Install: winget install Microsoft.FoundryLocal[/]");
             ConsoleOutput.WriteMarkup("[dim]  If already installed, restart your terminal (MSIX alias requires a new session).[/]");
-            return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
+            return (new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults), null);
         }
 
         string? serviceUrl = await StartServiceAsync(cli);
@@ -752,13 +773,14 @@ public static class AiBenchmarkRunner
         {
             ConsoleOutput.WriteMarkup("[red][FAIL][/] Cannot start Foundry Local service.");
             ConsoleOutput.WriteMarkup("[dim]  Try: foundry service start[/]");
-            return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
+            return (new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults), null);
         }
 
         TraceLog.DiagnosticInfo($"Foundry service URL: {serviceUrl}");
         ConsoleOutput.WriteMarkup($"[bold cyan]Starting Microsoft AI Foundry Local service...[/]");
         ConsoleOutput.WriteMarkup($"[dim]  Service URL: {serviceUrl}[/]");
 
+        List<FoundryModel> allModels = [];
         try
         {
             // First-run note: 'foundry model list' may download execution providers (EPs)
@@ -767,7 +789,7 @@ public static class AiBenchmarkRunner
             // initial call (reduced from 300 s — the original 5-min wait was too long
             // when the service is responsive but EP download simply isn't needed).
             ConsoleOutput.WriteMarkup("[dim]  Loading model catalog (first run may download execution providers)...[/]");
-            var allModels = await ListModelsAsync(cli, firstRunTimeoutMs: 120_000);
+            allModels = await ListModelsAsync(cli, firstRunTimeoutMs: 120_000);
 
             // First-run: the catalog index may still be initialising — retry once after a short delay.
             if (allModels.Count == 0)
@@ -806,8 +828,12 @@ public static class AiBenchmarkRunner
                 ConsoleOutput.WriteMarkup("[yellow][WARN][/] No models found in catalog.");
                 ConsoleOutput.WriteMarkup("[dim]  On a fresh install, try: foundry model run phi-3.5-mini[/]");
                 ConsoleOutput.WriteMarkup("[dim]  Then re-run the AI benchmark.[/]");
-                return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
+                await StopServiceAsync(cli);
+                return (new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults), null);
             }
+
+            // Log a summary of device types available in the catalog
+            LogCatalogDeviceTypes(allModels);
 
             var targetDevices = ParseDeviceFilter(devices).ToList();
             var sharedPassDevices = targetDevices.ToList();
@@ -825,12 +851,30 @@ public static class AiBenchmarkRunner
 
             // Drop NPU from shared pass if no NPU models exist in the catalog —
             // avoids wasting time trying every shared alias on a device that has no EP.
-            if (sharedPassDevices.Any(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase))
-                && !allModels.Any(m => m.DeviceType.Equals("NPU", StringComparison.OrdinalIgnoreCase)))
+            bool npuTargeted = sharedPassDevices.Any(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
+            bool npuModelsExist = allModels.Any(m => m.DeviceType.Equals("NPU", StringComparison.OrdinalIgnoreCase));
+            if (npuTargeted && !npuModelsExist)
             {
                 sharedPassDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
                 TraceLog.DiagnosticInfo("NPU removed from shared pass — no NPU models in catalog");
-                ConsoleOutput.WriteMarkup("[yellow][INFO][/] No NPU models in catalog — skipping NPU in shared comparison.");
+
+                // Probe for NPU hardware to provide a better diagnostic message
+                var npuHwInfo = SystemInfoDetector.DetectNpuHardware();
+                if (npuHwInfo is not null)
+                {
+                    TraceLog.NpuHardwareDetected(npuHwInfo);
+                    ConsoleOutput.WriteMarkup(
+                        $"[yellow][WARN][/] NPU hardware detected ([white]{npuHwInfo}[/]) but no compatible AI models found in Foundry catalog.");
+                    ConsoleOutput.WriteMarkup("[dim]  Try updating Foundry Local: winget upgrade Microsoft.FoundryLocal[/]");
+                }
+                else
+                {
+                    TraceLog.NpuHardwareNotDetected();
+                    ConsoleOutput.WriteMarkup(
+                        "[yellow][INFO][/] No NPU hardware detected — skipping NPU benchmark.");
+                    ConsoleOutput.WriteMarkup(
+                        "[dim]  NPU benchmarks require Intel Core Ultra (AI Boost) or Qualcomm Snapdragon X (Hexagon NPU).[/]");
+                }
             }
 
             string? effectiveAlias = modelAlias;
@@ -1107,22 +1151,30 @@ public static class AiBenchmarkRunner
             ConsoleOutput.WriteMarkup($"[red]Error:[/] Foundry Local service error: {ex.Message}");
             ConsoleOutput.WriteMarkup($"[dim]  {diag}[/]");
         }
-        finally
-        {
-            await StopServiceAsync(cli);
-        }
 
-        return new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults);
+        // Return session so caller can reuse it for relation summary and stop it when done.
+        // Service is NOT stopped here — caller is responsible for calling session.StopAsync().
+        var session = new AiSession { Cli = cli, ServiceUrl = serviceUrl, Catalog = allModels };
+        return (new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults), session);
     }
 
     /// <summary>
     /// Runs local-AI relation questions over benchmark JSON files in the
     /// specified directory. Questions are executed per available target device.
+    /// When <paramref name="existingCli"/>, <paramref name="existingServiceUrl"/>, and
+    /// <paramref name="existingCatalog"/> are provided, the service and catalog are reused
+    /// instead of starting a new Foundry session (saves ~200 s).
+    /// When <paramref name="existingAiResults"/> is provided, Q1/Q2 answers are copied
+    /// from the existing benchmark instead of re-running inference.
     /// </summary>
-    public static async Task<AiLocalRelationSummaryResult?> RunLocalRelationSummaryAsync(
+    internal static async Task<AiLocalRelationSummaryResult?> RunLocalRelationSummaryAsync(
         string directoryPath,
         string? modelAlias = null,
         IEnumerable<string>? devices = null,
+        string? existingCli = null,
+        string? existingServiceUrl = null,
+        List<FoundryModel>? existingCatalog = null,
+        AiBenchmarkTwoPassResult? existingAiResults = null,
         CancellationToken cancellationToken = default)
     {
         using var _sleep = SleepPreventer.Acquire();
@@ -1147,27 +1199,36 @@ public static class AiBenchmarkRunner
         double? deviceCorrelation = CalculateDeviceCorrelation(deviceAggregates);
         string relationContext = BuildRelationContext(sourceDir, dataset, deviceAggregates, deviceCorrelation);
 
-        string? cli = FindFoundryCli();
+        // Reuse existing Foundry session if provided
+        bool ownsService = false;
+        string? cli = existingCli ?? FindFoundryCli();
         if (cli is null)
         {
             ConsoleOutput.WriteMarkup("[red][FAIL][/] Foundry Local CLI not found for relation summary.");
             return null;
         }
 
-        string? serviceUrl = await StartServiceAsync(cli);
+        string? serviceUrl = existingServiceUrl;
         if (serviceUrl is null)
         {
-            ConsoleOutput.WriteMarkup("[red][FAIL][/] Cannot start Foundry Local service for relation summary.");
-            return null;
+            serviceUrl = await StartServiceAsync(cli);
+            ownsService = true;
+            if (serviceUrl is null)
+            {
+                ConsoleOutput.WriteMarkup("[red][FAIL][/] Cannot start Foundry Local service for relation summary.");
+                return null;
+            }
         }
 
         ConsoleOutput.WriteMarkup("[bold cyan]Running local-AI relation summary from saved JSON files...[/]");
         ConsoleOutput.WriteMarkup($"[dim]  Source folder: {sourceDir}[/]");
         ConsoleOutput.WriteMarkup($"[dim]  Files: {dataset.MemoryFileCount} memory JSON, {dataset.AiFileCount} AI JSON[/]");
+        if (existingServiceUrl is not null)
+            ConsoleOutput.WriteMarkup("[dim]  Reusing existing Foundry service session[/]");
 
         try
         {
-            var allModels = await ListModelsAsync(cli);
+            var allModels = existingCatalog ?? await ListModelsAsync(cli);
             if (allModels.Count == 0)
             {
                 ConsoleOutput.WriteMarkup("[yellow][WARN][/] No local AI models available for relation summary.");
@@ -1219,6 +1280,30 @@ public static class AiBenchmarkRunner
                         for (int i = 0; i < RelationQuestions.Length; i++)
                         {
                             string question = RelationQuestions[i];
+
+                            // Reuse Q1/Q2 from existing AI benchmark results if available
+                            if (i < 2 && existingAiResults is not null)
+                            {
+                                var existingResult = existingAiResults.SharedResults
+                                    .Concat(existingAiResults.BestPerDeviceResults)
+                                    .FirstOrDefault(r =>
+                                        r.DeviceType.Equals(deviceType, StringComparison.OrdinalIgnoreCase)
+                                        && r.ModelAlias.Equals(model.Alias, StringComparison.OrdinalIgnoreCase));
+
+                                if (existingResult is not null)
+                                {
+                                    var existingRun = i == 0 ? existingResult.Run1 : existingResult.Run2;
+                                    ConsoleOutput.WriteMarkup($"[dim]  {deviceType} Q{i + 1}: reusing from AI benchmark[/]");
+                                    deviceAnswers.Add(new AiRelationQuestionAnswer(
+                                        Index: i + 1,
+                                        Question: question,
+                                        Answer: existingRun.ResponseText.Trim(),
+                                        DeviceType: deviceType,
+                                        Run: existingRun));
+                                    continue;
+                                }
+                            }
+
                             string prompt = i switch
                             {
                                 0 => Q1,
@@ -1310,7 +1395,8 @@ public static class AiBenchmarkRunner
         }
         finally
         {
-            await StopServiceAsync(cli);
+            if (ownsService)
+                await StopServiceAsync(cli);
         }
     }
 
@@ -1496,42 +1582,49 @@ public static class AiBenchmarkRunner
         var preferredAliases = GetPreferredAliases(deviceLabel);
 
         // 1. Preferred aliases that are already cached (exact alias match first)
+        //    For GPU, prefer CUDA > DirectML > generic execution providers.
         foreach (var alias in preferredAliases)
         {
-            var cachedPreferred = candidates.FirstOrDefault(c =>
-                    c.IsCached && c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase))
-                ?? candidates.FirstOrDefault(c =>
-                    c.IsCached &&
-                    (c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
-                        || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase)));
-            if (cachedPreferred is not null)
+            var cachedForAlias = candidates
+                .Where(c => c.IsCached &&
+                    (c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
+                    || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
+                    || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(c => RankExecutionProvider(c.Id, c.ExecutionProvider))
+                .ThenBy(c => c.FileSizeMb > 0 ? c.FileSizeMb : double.MaxValue)
+                .FirstOrDefault();
+            if (cachedForAlias is not null)
             {
-                TraceLog.AiModelSelected(cachedPreferred.Id, cachedPreferred.Alias, deviceLabel, "cached preferred");
-                return cachedPreferred;
+                TraceLog.AiModelSelected(cachedForAlias.Id, cachedForAlias.Alias, deviceLabel, "cached preferred");
+                return cachedForAlias;
             }
         }
 
-        // 2. Any cached model for this device (prefer smaller model)
+        // 2. Any cached model for this device (prefer optimized EP, then smaller)
         var anyCached = candidates
             .Where(c => c.IsCached)
-            .OrderBy(c => c.FileSizeMb > 0 ? c.FileSizeMb : double.MaxValue)
+            .OrderBy(c => RankExecutionProvider(c.Id, c.ExecutionProvider))
+            .ThenBy(c => c.FileSizeMb > 0 ? c.FileSizeMb : double.MaxValue)
             .FirstOrDefault();
         if (anyCached is not null)
         {
-            TraceLog.AiModelSelected(anyCached.Id, anyCached.Alias, deviceLabel, "cached smallest");
+            TraceLog.AiModelSelected(anyCached.Id, anyCached.Alias, deviceLabel, "cached best-ep");
             return anyCached;
         }
 
         // 3. Preferred aliases in configured order (download if needed)
         //    Prefer exact alias match to avoid e.g. "phi-4-mini" accidentally
         //    matching "phi-4-mini-reasoning" via Id.Contains.
+        //    Within an alias, prefer CUDA > DirectML > generic.
         foreach (var alias in preferredAliases)
         {
-            var v = candidates.FirstOrDefault(c =>
-                    c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase))
-                ?? candidates.FirstOrDefault(c =>
-                    c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
-                        || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase));
+            var v = candidates
+                .Where(c => c.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)
+                    || c.Id.StartsWith(alias, StringComparison.OrdinalIgnoreCase)
+                    || c.Id.Contains(alias, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(c => RankExecutionProvider(c.Id, c.ExecutionProvider))
+                .ThenBy(c => c.FileSizeMb > 0 ? c.FileSizeMb : double.MaxValue)
+                .FirstOrDefault();
             if (v is not null)
             {
                 TraceLog.AiModelSelected(v.Id, v.Alias, deviceLabel, "preferred uncached");
@@ -1539,9 +1632,10 @@ public static class AiBenchmarkRunner
             }
         }
 
-        // 4. Smallest available model
+        // 4. Smallest available model (prefer optimized EP)
         var smallest = candidates
-            .OrderBy(c => c.FileSizeMb > 0 ? c.FileSizeMb : double.MaxValue)
+            .OrderBy(c => RankExecutionProvider(c.Id, c.ExecutionProvider))
+            .ThenBy(c => c.FileSizeMb > 0 ? c.FileSizeMb : double.MaxValue)
             .FirstOrDefault();
         if (smallest is not null)
             TraceLog.AiModelSelected(smallest.Id, smallest.Alias, deviceLabel, "smallest available");
@@ -1555,6 +1649,37 @@ public static class AiBenchmarkRunner
             "NPU" => PreferredAliasesNpu,
             _     => PreferredAliasesCpu,
         };
+
+    /// <summary>
+    /// Ranks a model's execution provider for GPU selection.
+    /// Lower = better: CUDA (0) > DirectML (1) > generic (2) > unknown (3).
+    /// CPU/NPU models are unaffected (always 0).
+    /// </summary>
+    private static int RankExecutionProvider(string modelId, string executionProvider)
+    {
+        string id = modelId.ToLowerInvariant();
+        string ep = executionProvider.ToLowerInvariant();
+
+        if (id.Contains("cuda") || ep.Contains("cuda"))   return 0;
+        if (id.Contains("directml") || ep.Contains("directml")) return 1;
+        if (id.Contains("generic"))                         return 2;
+        return 3;
+    }
+
+    /// <summary>
+    /// Logs a summary of device types found in the model catalog.
+    /// </summary>
+    private static void LogCatalogDeviceTypes(IReadOnlyList<FoundryModel> allModels)
+    {
+        var counts = allModels
+            .GroupBy(m => m.DeviceType.ToUpperInvariant())
+            .OrderBy(g => g.Key)
+            .Select(g => $"{g.Key} ({g.Count()})")
+            .ToList();
+        string summary = string.Join(", ", counts);
+        TraceLog.AiCatalogDeviceTypes(summary);
+        ConsoleOutput.WriteMarkup($"[dim]  Catalog models by device: {summary}[/]");
+    }
 
     private static List<string> SelectSharedAliasCandidates(
         IReadOnlyList<FoundryModel> allModels,

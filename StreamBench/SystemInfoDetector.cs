@@ -378,6 +378,59 @@ $mems | ConvertTo-Json -Depth 1
         return BuildMemoryInfo(modules);
     }
 
+    // ── NPU Hardware Detection ────────────────────────────────────────────
+
+    /// <summary>
+    /// Probes for NPU (Neural Processing Unit) hardware on Windows via WMI.
+    /// Returns a description string if found, or null if no NPU detected.
+    /// Non-Windows platforms always return null.
+    /// </summary>
+    public static string? DetectNpuHardware()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return null;
+
+        try
+        {
+            // Query PnP devices for known NPU identifiers
+            string psScript =
+                "$npus = Get-CimInstance Win32_PnPEntity | " +
+                "Where-Object { " +
+                "  $_.Name -match 'NPU|Neural|AI Accelerator|AI Boost' -or " +
+                "  ($_.PNPClass -eq 'System' -and $_.Name -match 'NPU') " +
+                "}; " +
+                "if ($npus) { ($npus | Select-Object -ExpandProperty Name -Unique) -join '; ' } " +
+                "else { '' }";
+
+            string encoded = Convert.ToBase64String(
+                System.Text.Encoding.Unicode.GetBytes(psScript));
+
+            var psi = new ProcessStartInfo("powershell.exe",
+                $"-NoProfile -NonInteractive -EncodedCommand {encoded}")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            using var process = Process.Start(psi);
+            if (process is null) return null;
+
+            string output = process.StandardOutput.ReadToEnd().Trim();
+            process.WaitForExit(15_000);
+
+            if (!string.IsNullOrWhiteSpace(output))
+                return output;
+        }
+        catch (Exception ex)
+        {
+            TraceLog.SystemInfoDetectionWarning("NPU", ex.Message);
+        }
+
+        return null;
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private static bool IsOSX   => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
