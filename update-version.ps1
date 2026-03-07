@@ -50,10 +50,15 @@ $Updated++
 
 # ── 2. stream_version.h ─────────────────────────────────────────────────
 $path = Join-Path $ScriptDir 'stream_version.h'
+$parts = $NewVersion -split '\.'
+$major = $parts[0]; $minor = $parts[1]; $patch = $parts[2]
 $content = Get-Content $path -Raw
-$content = $content -replace '#define STREAM_VERSION ".*"', "#define STREAM_VERSION `"$NewVersion`""
+$content = $content -replace '#define STREAM_VERSION       ".*"', "#define STREAM_VERSION       `"$NewVersion`""
+$content = $content -replace '#define STREAM_VERSION_MAJOR \d+', "#define STREAM_VERSION_MAJOR $major"
+$content = $content -replace '#define STREAM_VERSION_MINOR \d+', "#define STREAM_VERSION_MINOR $minor"
+$content = $content -replace '#define STREAM_VERSION_PATCH \d+', "#define STREAM_VERSION_PATCH $patch"
 Set-Content -Path $path -Value $content -NoNewline
-Write-Host "  [OK] stream_version.h" -ForegroundColor Green
+Write-Host "  [OK] stream_version.h ($major.$minor.$patch)" -ForegroundColor Green
 $Updated++
 
 # ── 3. stream.c header comment (line 3) ─────────────────────────────────

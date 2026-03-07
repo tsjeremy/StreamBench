@@ -76,11 +76,14 @@ $CpuLibs = 'advapi32.lib'
 $GpuOpts = '/O2 /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100'
 $GpuLibs = 'advapi32.lib'
 
-# Helper: invoke cl.exe inside a vcvarsall environment
+# Helper: invoke cl.exe inside a vcvarsall environment (with version resource)
 function Invoke-Cl {
     param([string]$Arch, [string]$Opts, [string]$OutExe, [string]$Source, [string]$Libs)
-    $cmd = "`"$vcvarsall`" $Arch >nul 2>&1 && cl.exe $Opts /Fe:`"$ScriptDir\$OutExe`" `"$ScriptDir\$Source`" /link $Libs"
+    # Compile the version resource, then compile+link the C source with it
+    $resFile = [IO.Path]::ChangeExtension($OutExe, '.res')
+    $cmd = "`"$vcvarsall`" $Arch >nul 2>&1 && rc.exe /nologo /fo `"$ScriptDir\$resFile`" `"$ScriptDir\stream_version.rc`" && cl.exe $Opts /Fe:`"$ScriptDir\$OutExe`" `"$ScriptDir\$Source`" `"$ScriptDir\$resFile`" /link $Libs"
     cmd /c $cmd
+    Remove-Item "$ScriptDir\$resFile" -ErrorAction SilentlyContinue
     return $LASTEXITCODE -eq 0
 }
 

@@ -193,8 +193,9 @@ jobs:
       - name: Build C binaries (x64)
         shell: cmd
         run: |
-          cl.exe /nologo /O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp /Fe:stream_cpu_win_x64.exe stream.c /link advapi32.lib
-          cl.exe /nologo /O2           /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100         /Fe:stream_gpu_win_x64.exe stream_gpu.c /link advapi32.lib
+          rc.exe /nologo /fo stream_version.res stream_version.rc
+          cl.exe /nologo /O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp /Fe:stream_cpu_win_x64.exe stream.c stream_version.res /link advapi32.lib
+          cl.exe /nologo /O2           /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100         /Fe:stream_gpu_win_x64.exe stream_gpu.c stream_version.res /link advapi32.lib
 
       - name: Smoke-test C binaries (x64)
         timeout-minutes: 2
@@ -289,8 +290,9 @@ jobs:
       - name: Build C binaries (ARM64)
         shell: cmd
         run: |
-          cl.exe /nologo /O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp /Fe:stream_cpu_win_arm64.exe stream.c /link advapi32.lib
-          cl.exe /nologo /O2           /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100         /Fe:stream_gpu_win_arm64.exe stream_gpu.c /link advapi32.lib
+          rc.exe /nologo /fo stream_version.res stream_version.rc
+          cl.exe /nologo /O2 /DTUNED /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100 /openmp /Fe:stream_cpu_win_arm64.exe stream.c stream_version.res /link advapi32.lib
+          cl.exe /nologo /O2           /DSTREAM_ARRAY_SIZE=200000000 /DNTIMES=100         /Fe:stream_gpu_win_arm64.exe stream_gpu.c stream_version.res /link advapi32.lib
 
       - name: Publish StreamBench (win-arm64, self-contained with embedded backends)
         shell: pwsh

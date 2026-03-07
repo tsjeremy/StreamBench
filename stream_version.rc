@@ -1,0 +1,41 @@
+/*-----------------------------------------------------------------------*/
+/* stream_version.rc — Win32 version resource for STREAM C backends      */
+/*                                                                       */
+/* Compiled by rc.exe and linked into each .exe so that Windows Explorer */
+/* Properties → Details shows the correct FileVersion / ProductVersion.  */
+/*                                                                       */
+/* DO NOT EDIT version numbers here — they come from stream_version.h.   */
+/* Run update-version.ps1 to change the version.                         */
+/*-----------------------------------------------------------------------*/
+
+#include <winver.h>
+#include "stream_version.h"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     STREAM_VERSION_MAJOR, STREAM_VERSION_MINOR, STREAM_VERSION_PATCH, 0
+PRODUCTVERSION  STREAM_VERSION_MAJOR, STREAM_VERSION_MINOR, STREAM_VERSION_PATCH, 0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"          /* US English, Unicode */
+        BEGIN
+            VALUE "CompanyName",      "StreamBench"
+            VALUE "FileDescription",  "STREAM Memory Bandwidth Benchmark"
+            VALUE "FileVersion",      STREAM_VERSION
+            VALUE "InternalName",     "StreamBench"
+            VALUE "LegalCopyright",   "Copyright 1991-2013 John D. McCalpin; GPU/Windows enhancements by Jeremy Tsai"
+            VALUE "OriginalFilename", "StreamBench.exe"
+            VALUE "ProductName",      "StreamBench"
+            VALUE "ProductVersion",   STREAM_VERSION
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0
+    END
+END
