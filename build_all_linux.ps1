@@ -23,6 +23,16 @@ $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Push-Location $ScriptDir
 
+# Read version from the single source of truth
+$VersionFile = Join-Path $ScriptDir 'VERSION'
+if (Test-Path $VersionFile) {
+    $Version = (Get-Content $VersionFile -Raw).Trim()
+    Write-Host "Version: $Version (from VERSION file)"
+} else {
+    $Version = '0.0.0-dev'
+    Write-Host "WARNING: VERSION file not found, using $Version" -ForegroundColor Yellow
+}
+
 $Errors = 0
 
 $CpuDefs = '-DTUNED -DSTREAM_ARRAY_SIZE=200000000 -DNTIMES=100'
@@ -104,7 +114,7 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     Pop-Location; exit 0
 }
 
-dotnet build "$ScriptDir/StreamBench/StreamBench.csproj" --configuration Release --nologo -v quiet
+dotnet build "$ScriptDir/StreamBench/StreamBench.csproj" --configuration Release -p:Version=$Version --nologo -v quiet
 if ($LASTEXITCODE -eq 0) {
     Write-Host '[OK] StreamBench (.NET)' -ForegroundColor Green
 } else {
@@ -136,7 +146,7 @@ foreach ($tag in @('x64','arm64')) {
 
     dotnet publish "$ScriptDir/StreamBench/StreamBench.csproj" `
         -c Release -r $rid --self-contained true `
-        -p:PublishSingleFile=true --nologo -v quiet `
+        -p:PublishSingleFile=true -p:Version=$Version --nologo -v quiet `
         -o "$ScriptDir/publish/$rid"
 
     if ($LASTEXITCODE -eq 0) {

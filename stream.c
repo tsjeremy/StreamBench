@@ -1,6 +1,6 @@
 /*-----------------------------------------------------------------------*/
 /* Program: STREAM                                                       */
-/* Revision: $Id: stream.c,v 5.10.20 2026/03/06 jtsai Exp $             */
+/* Revision: $Id: stream.c,v 5.10.20 2026/03/07 jtsai Exp $             */
 /* Original code developed by John D. McCalpin                           */
 /* Programmers: John D. McCalpin                                         */
 /*              Joe R. Zagar                                             */
@@ -121,8 +121,9 @@
     #include <omp.h> /* Include the OpenMP library */
 #endif
 
-#include "stream_hwinfo.h" /* System & hardware info detection */
-#include "stream_output.h" /* JSON output to stdout */
+#include "stream_version.h" /* Version from single source of truth */
+#include "stream_hwinfo.h"  /* System & hardware info detection */
+#include "stream_output.h"  /* JSON output to stdout */
 
 /*-----------------------------------------------------------------------*/
 /* CONFIGURATION PARAMETERS                                              */
@@ -388,7 +389,7 @@ int run_stream_test(size_t array_size)
         int validated = (checkSTREAMresults() == 0) ? 1 : 0;
         StreamBenchResult result;
         result.benchmark_type = "CPU";
-        result.version = "5.10.20";
+        result.version = STREAM_VERSION;
         result.array_size = current_array_size;
         result.bytes_per_element = (int)sizeof(STREAM_TYPE);
         result.ntimes = NTIMES;

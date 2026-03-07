@@ -9,7 +9,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
-    <Version>5.10.20</Version>
+    <!-- Version is read from the VERSION file at the repo root (single source of truth).
+         To bump the version, run: .\update-version.ps1 -NewVersion X.Y.Z -->
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\VERSION').Trim())</Version>
     <Description>STREAM Benchmark .NET 10 frontend — colored output, JSON/CSV saving, AI-extensible</Description>
   </PropertyGroup>
 

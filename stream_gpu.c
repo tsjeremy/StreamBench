@@ -1,6 +1,6 @@
 /*-----------------------------------------------------------------------*/
 /* Program: STREAM (GPU Version)                                         */
-/* Revision: $Id: stream_gpu.c,v 5.10.20 2026/03/06 jtsai Exp $         */
+/* Revision: $Id: stream_gpu.c,v 5.10.20 2026/03/07 jtsai Exp $         */
 /* Original CPU code developed by John D. McCalpin                       */
 /* GPU/OpenCL version by Jeremy Tsai                                     */
 /*                                                                       */
@@ -100,8 +100,9 @@
     #include <dlfcn.h>
 #endif
 
-#include "stream_hwinfo.h" /* Hardware & system info detection */
-#include "stream_output.h" /* JSON output formatting */
+#include "stream_version.h" /* Version from single source of truth */
+#include "stream_hwinfo.h"  /* Hardware & system info detection */
+#include "stream_output.h"  /* JSON output formatting */
 
 /*-----------------------------------------------------------------------*/
 /* CONFIGURATION                                                         */
@@ -1003,7 +1004,7 @@ int main(int argc, char **argv)
         StreamGpuDevice gpu_dev;
 
         result.benchmark_type = "GPU";
-        result.version = "5.10.20";
+        result.version = STREAM_VERSION;
         result.array_size = array_size;
         result.bytes_per_element = (int)gpu_elem_size;
         result.ntimes = NTIMES;

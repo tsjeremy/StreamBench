@@ -17,6 +17,16 @@ $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Push-Location $ScriptDir
 
+# Read version from the single source of truth
+$VersionFile = Join-Path $ScriptDir 'VERSION'
+if (Test-Path $VersionFile) {
+    $Version = (Get-Content $VersionFile -Raw).Trim()
+    Write-Host "Version: $Version (from VERSION file)"
+} else {
+    $Version = '0.0.0-dev'
+    Write-Host "WARNING: VERSION file not found, using $Version" -ForegroundColor Yellow
+}
+
 $Errors = 0
 
 # ------------------------------------------------------------------
@@ -146,7 +156,7 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     Pop-Location; exit 0
 }
 
-dotnet build "$ScriptDir\StreamBench\StreamBench.csproj" --configuration Release --nologo -v quiet
+dotnet build "$ScriptDir\StreamBench\StreamBench.csproj" --configuration Release -p:Version=$Version --nologo -v quiet
 if ($LASTEXITCODE -eq 0) {
     Write-Host '[OK] StreamBench (.NET)' -ForegroundColor Green
 } else {
@@ -184,6 +194,7 @@ foreach ($t in $publishTargets) {
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
         -p:EnableCompressionInSingleFile=true `
+        -p:Version=$Version `
         -o "$ScriptDir\publish\$($t.Rid)" --nologo -v quiet
 
     if ($LASTEXITCODE -eq 0) {
@@ -202,6 +213,7 @@ foreach ($t in $publishTargets) {
         -p:IncludeNativeLibrariesForSelfExtract=true `
         -p:EnableCompressionInSingleFile=true `
         -p:EnableAI=true `
+        -p:Version=$Version `
         -o "$ScriptDir\publish\$($t.Rid)-ai" --nologo -v quiet
 
     if ($LASTEXITCODE -eq 0) {

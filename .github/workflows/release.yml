@@ -53,6 +53,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate VERSION matches release tag
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
+          TAG_VERSION="${TAG#v}"
+          if [ "$FILE_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::VERSION file ($FILE_VERSION) does not match release tag ($TAG_VERSION)."
+            echo "Run: ./update-version.ps1 -NewVersion $TAG_VERSION"
+            exit 1
+          fi
+          echo "✓ VERSION file ($FILE_VERSION) matches tag ($TAG)"
+
       - name: Install libomp
         run: brew install libomp
 
@@ -153,6 +166,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate VERSION matches release tag
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
+        shell: pwsh
+        run: |
+          $Tag = '${{ github.event.inputs.tag || github.ref_name }}'
+          $FileVersion = (Get-Content VERSION -Raw).Trim()
+          $TagVersion = $Tag.TrimStart('v')
+          if ($FileVersion -ne $TagVersion) {
+            Write-Error "VERSION file ($FileVersion) does not match release tag ($TagVersion). Run: .\update-version.ps1 -NewVersion $TagVersion"
+            exit 1
+          }
+          Write-Host "✓ VERSION file ($FileVersion) matches tag ($Tag)"
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
