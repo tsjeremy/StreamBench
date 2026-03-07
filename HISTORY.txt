@@ -1,5 +1,40 @@
 -------------------------------------------------------------------------
 
+Revisions as of Fri, Mar 07, 2026 (Jeremy Tsai)
+
+Version 5.10.21 of stream.c, stream_gpu.c, and StreamBench released.
+
+  - Centralize version management: single VERSION file at repo root
+    drives stream_version.h, StreamBench.csproj, all build scripts,
+    and CI workflow.  Run update-version.ps1 to bump everywhere.
+
+  - Win32 version resource (stream_version.rc) embedded in C backend
+    executables — Properties > Details now shows FileVersion.
+
+  - Version number added to CLI startup banner, trace log headers,
+    and AI benchmark / relation summary JSON output.
+
+  - NPU hardware detection: WMI probe logs whether an NPU is present
+    even when Foundry catalog has no NPU models.
+
+  - Foundry service reuse: relation summary reuses the running Foundry
+    session instead of starting/stopping a second instance (~60s saved).
+
+  - Q1/Q2 result reuse: relation summary copies inference answers from
+    the main AI benchmark instead of re-running them (~120s saved).
+
+  - CUDA GPU model preference: RankExecutionProvider selects cuda-gpu
+    variants over generic-gpu for significantly higher tok/s.
+
+  - Console output polish: word-wrap for AI answers, highlight fastest
+    tok/s in bold yellow in comparison tables.
+
+  - Fix: service resource leak on empty catalog and empty results paths.
+
+  - Fix: BUILDING.md stale version reference (was v5.10.18).
+
+-------------------------------------------------------------------------
+
 Revisions as of Fri, Mar 06, 2026 (Jeremy Tsai)
 
 Version 5.10.20 of stream.c, stream_gpu.c, and StreamBench released.
