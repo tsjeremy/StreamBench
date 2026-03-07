@@ -34,6 +34,7 @@ public static class TraceLog
 
             Writer = new StreamWriter(LogPath, append: false, Encoding.UTF8) { AutoFlush = true };
             Writer.WriteLine($"# StreamBench Trace — {DateTime.Now:O}");
+            Writer.WriteLine($"# Version: {VersionInfo.Version}");
             Writer.WriteLine($"# Process: {Environment.ProcessPath}");
             Writer.WriteLine($"# Machine: {Environment.MachineName}");
             Writer.WriteLine($"# OS: {Environment.OSVersion}");

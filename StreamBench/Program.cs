@@ -44,6 +44,7 @@ AppDomain.CurrentDomain.UnhandledException += (_, e) =>
 };
 
 TraceLog.AppStarted(string.Join(" ", args));
+ConsoleOutput.WriteMarkup($"[dim]StreamBench v{VersionInfo.Version}[/]");
 
 int finalExitCode;
 try

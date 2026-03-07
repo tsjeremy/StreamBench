@@ -1371,6 +1371,7 @@ public static class AiBenchmarkRunner
             string summaryDeviceType = selectedModels.Count == 1 ? primaryModel.DeviceType : "MULTI";
 
             return new AiLocalRelationSummaryResult(
+                Version: VersionInfo.Version,
                 SourceDirectory: sourceDir,
                 MemoryJsonFiles: dataset.MemoryFileCount,
                 AiJsonFiles: dataset.AiFileCount,
@@ -1443,6 +1444,7 @@ public static class AiBenchmarkRunner
             }
 
             return new AiDeviceBenchmarkResult(
+                Version:           VersionInfo.Version,
                 DeviceType:        deviceLabel,
                 ModelId:           model.Id,
                 ModelAlias:        model.Alias,
