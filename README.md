@@ -36,14 +36,14 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.21).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22).
 No compiler, .NET SDK, or build tools needed — just download and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
 so you only need a single download. The benchmarks still run as native C code for
 maximum performance — StreamBench extracts them automatically on first run.
 
-> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.21_win_standalone.zip`)
+> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.22_win_standalone.zip`)
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
@@ -54,11 +54,12 @@ flowchart TD
     A([New Windows PC]) --> B
     B["📦 Download StreamBench_win_standalone.zip<br/>github.com/tsjeremy/StreamBench · Releases page"] --> C
     C["📂 Extract to any folder"] --> D
-    D["⚙️ Run setup.ps1  ← first time only<br/>installs .NET 10, Foundry Local, phi-3.5-mini model"] --> E
-    E["▶ Run run_stream_ai.ps1"] --> F
+    D["▶ Run run_stream.cmd<br/>or pwsh ./run_stream.ps1"] --> E{"Choose mode"}
 
     subgraph mem ["💾 Memory Benchmark"]
-        F["🔵 CPU bandwidth test"] --> G["🔵 GPU bandwidth test"]
+        E -->|"Memory only"| F["🔵 CPU bandwidth test"]
+        E -->|"Memory + AI"| F
+        F --> G["🔵 GPU bandwidth test"]
     end
 
     subgraph ai ["🤖 AI Benchmark  —  Foundry Local"]
@@ -72,25 +73,37 @@ flowchart TD
 
 ### Windows — Standalone ZIP (recommended)
 
-1. Go to the **[v5.10.21 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.21)**
-2. Download **`StreamBench_v5.10.21_win_standalone.zip`**
-3. Extract to any folder and run:
+1. Go to the **[v5.10.22 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22)**
+2. Download **`StreamBench_v5.10.22_win_standalone.zip`**
+3. Extract to any folder and run the recommended Windows entrypoint:
+
+```cmd
+run_stream.cmd
+```
+
+This opens a simple launcher where you can choose:
+
+- **Memory benchmark only**
+- **Memory benchmark + AI benchmark**
+
+If prerequisites are missing, the launcher automatically runs `setup.ps1` first.
+
+Optional manual / advanced path:
 
 ```powershell
-# First-time setup (installs prerequisites: VC++ Redist, .NET 10 Runtime,
-# PowerShell 7, and Foundry Local for AI — all silent via winget)
-.\.setup.ps1
+# Explicit first-time setup (optional)
+.\setup.ps1
 
-# Memory benchmark (CPU + GPU) — auto-runs setup.ps1 if prerequisites are missing
+# Same unified launcher inside PowerShell
 .\run_stream.ps1
 
-# Memory + AI benchmark — auto-runs setup.ps1 if prerequisites are missing
+# Compatibility shortcut that preselects AI mode
 .\run_stream_ai.ps1
 ```
 
 ### Windows — Individual exe download
 
-1. Go to the **[v5.10.21 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.21)**
+1. Go to the **[v5.10.22 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22)**
 2. Download the exe for your architecture:
 
 | File | Description |
@@ -122,12 +135,12 @@ flowchart TD
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.21/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.22/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.21 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.21)**
+1. Go to the **[v5.10.22 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22)**
 2. Download **`StreamBench_osx-arm64`** (ARM64) or **`StreamBench_osx-x64`** (x64)
 3. Run it:
 
@@ -140,35 +153,42 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.21/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.22/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 ### Using the launcher scripts (alternative)
 
-The launcher scripts are available as separate downloads on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.21).
+The launcher files are available as separate downloads on the
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22).
 
-- **`setup.ps1`**: first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and Foundry Local (all silent via winget; standalone mode auto-detected)
-- **`run_stream.ps1`**: default memory benchmark launcher (CPU + GPU only) — **auto-runs `setup.ps1`** if prerequisites are missing
-- **`run_stream_ai.ps1`**: memory + AI launcher (CPU + GPU + AI, uses `*_ai.exe` when available) — **auto-runs `setup.ps1`** if prerequisites are missing
+- **`setup.ps1`**: optional first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and Foundry Local (all silent via winget; standalone mode auto-detected)
+- **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass and lets you choose memory-only or memory + AI
+- **`run_stream.ps1`**: unified PowerShell launcher for Windows, macOS, and Linux — **auto-runs `setup.ps1`** on Windows if prerequisites are missing
+- **`run_stream_ai.cmd`**: Windows compatibility shortcut that preselects AI mode and automatically uses PowerShell bypass
+- **`run_stream_ai.ps1`**: compatibility shortcut that forwards into the unified launcher with AI mode preselected
 
 Download the script(s) alongside the `StreamBench_*` binary and run:
 
 - **Windows**:
+  ```cmd
+  rem Recommended: unified launcher + automatic execution-policy bypass
+  run_stream.cmd
+
+  rem Compatibility AI shortcut
+  run_stream_ai.cmd
+  ```
+
   ```powershell
-  # If blocked by execution policy ("not digitally signed" error), unblock first:
-  Unblock-File .\run_stream.ps1
+  # Same unified launcher inside PowerShell
   .\run_stream.ps1
 
-  # Memory + AI launcher:
-  Unblock-File .\run_stream_ai.ps1
+  # Compatibility AI shortcut
   .\run_stream_ai.ps1
 
-  # Or run directly with bypass:
+  # Fallback if you prefer to invoke the script explicitly with bypass
   pwsh -ExecutionPolicy Bypass -File .\run_stream.ps1
-  pwsh -ExecutionPolicy Bypass -File .\run_stream_ai.ps1
   ```
-- **macOS/Linux**: `pwsh ./run_stream.ps1` or `pwsh ./run_stream_ai.ps1`
+- **macOS/Linux**: `pwsh ./run_stream.ps1` (choose mode) or `pwsh ./run_stream_ai.ps1` (compatibility AI shortcut)
 
 Launcher environment overrides:
 
@@ -176,7 +196,10 @@ Launcher environment overrides:
 # Override default 200M array size for both launchers
 $env:STREAMBENCH_ARRAY_SIZE = "100000000"
 
-# Optional AI launcher overrides (run_stream_ai.ps1)
+# Preselect launcher mode without prompting (advanced / automation)
+$env:STREAMBENCH_LAUNCH_MODE = "ai"
+
+# Optional AI launcher overrides (applied when AI mode is selected)
 $env:STREAMBENCH_AI_MODEL = "phi-4-mini"
 $env:STREAMBENCH_AI_DEVICES = "cpu,npu"   # if unset, all detected devices are used
 $env:STREAMBENCH_AI_NO_DOWNLOAD = "1"     # cached models only

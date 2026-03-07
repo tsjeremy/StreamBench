@@ -349,10 +349,12 @@ jobs:
           name: windows-binaries
           path: release-assets/
 
-      - name: Copy launcher scripts to release assets
+      - name: Copy launcher files to release assets
         run: |
           cp setup.ps1 release-assets/
+          cp run_stream.cmd release-assets/
           cp run_stream.ps1 release-assets/
+          cp run_stream_ai.cmd release-assets/
           cp run_stream_ai.ps1 release-assets/
 
       - name: Create Windows standalone ZIP
@@ -364,7 +366,9 @@ jobs:
           cp release-assets/StreamBench_win_x64_ai.exe _zip/
           cp release-assets/StreamBench_win_arm64_ai.exe _zip/
           cp release-assets/setup.ps1 _zip/
+          cp release-assets/run_stream.cmd _zip/
           cp release-assets/run_stream.ps1 _zip/
+          cp release-assets/run_stream_ai.cmd _zip/
           cp release-assets/run_stream_ai.ps1 _zip/
           cd _zip && zip -9 "../release-assets/StreamBench_${TAG}_win_standalone.zip" * && cd ..
 

@@ -2,6 +2,29 @@
 
 Revisions as of Fri, Mar 07, 2026 (Jeremy Tsai)
 
+Version 5.10.22 of stream.c, stream_gpu.c, and StreamBench released.
+
+  - Unified launcher flow: run_stream.ps1 is now the primary script and
+    lets users choose between memory-only and memory + AI runs instead of
+    forcing two separate full launcher implementations.
+
+  - Windows-friendly startup: added run_stream.cmd and run_stream_ai.cmd
+    so downloaded releases can start with PowerShell execution-policy
+    bypass automatically, without asking new users to type manual setup
+    commands first.
+
+  - Compatibility cleanup: run_stream_ai.ps1 now forwards into the
+    unified launcher with AI mode preselected instead of duplicating the
+    full launch logic.
+
+  - Documentation and release packaging updated to point users to the
+    single recommended entrypoint and include the new wrapper files in
+    the Windows standalone ZIP.
+
+-------------------------------------------------------------------------
+
+Revisions as of Fri, Mar 07, 2026 (Jeremy Tsai)
+
 Version 5.10.21 of stream.c, stream_gpu.c, and StreamBench released.
 
   - Centralize version management: single VERSION file at repo root

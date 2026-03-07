@@ -184,8 +184,8 @@ foreach ($tag in @('arm64','x64')) {
 Write-Host ''
 Write-Host "  Run:  ./StreamBench_osx-$nativeTag --cpu"
 Write-Host "        ./StreamBench_osx-$nativeTag --gpu"
-Write-Host '  Or:   pwsh ./run_stream.ps1    (memory-only, auto-detect architecture)'
-Write-Host '        pwsh ./run_stream_ai.ps1 (memory + AI, auto-detect architecture)'
+Write-Host '  Or:   pwsh ./run_stream.ps1    (unified launcher; choose memory or memory + AI)'
+Write-Host '        pwsh ./run_stream_ai.ps1 (compatibility AI shortcut)'
 
 Write-Host ''
 if ($Errors -gt 0) {

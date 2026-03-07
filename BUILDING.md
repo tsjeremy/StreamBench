@@ -1,6 +1,6 @@
 # Building StreamBench from Source
 
-This guide covers building StreamBench from source. If you just want to run benchmarks, see the [pre-built binaries](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.21) — no build required.
+This guide covers building StreamBench from source. If you just want to run benchmarks, see the [pre-built binaries](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22) — no build required.
 
 ## Build from Source
 
@@ -306,7 +306,7 @@ JSON files include:
 | Problem | Solution |
 |---------|----------|
 | `'cl.exe' is not recognized` | You opened a regular Command Prompt or PowerShell instead of the **Developer Command Prompt**. Search the Start Menu for **"x64 Native Tools Command Prompt for VS"**. |
-| `VCOMP140.DLL was not found` | The exe was compiled with `/openmp`, which requires the **Visual C++ Redistributable** on the target machine. **Fix:** Install [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), or use `run_stream.ps1` which auto-detects and installs it. On ARM64: [VC++ Redistributable ARM64](https://aka.ms/vs/17/release/vc_redist.arm64.exe). You can also install via winget: `winget install Microsoft.VCRedist.2015+.x64` |
+| `VCOMP140.DLL was not found` | The exe was compiled with `/openmp`, which requires the **Visual C++ Redistributable** on the target machine. **Fix:** Install [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), or use `run_stream.cmd` (recommended on Windows) or `run_stream.ps1`, which auto-detect and install prerequisites. On ARM64: [VC++ Redistributable ARM64](https://aka.ms/vs/17/release/vc_redist.arm64.exe). You can also install via winget: `winget install Microsoft.VCRedist.2015+.x64` |
 | Very low bandwidth | Ensure OpenMP is enabled (`/openmp` or `-fopenmp`). Without it, only 1 thread is used. |
 | "Failed to allocate memory" | Reduce `STREAM_ARRAY_SIZE`. 100M elements needs ~2.4 GB RAM. |
 | Results vary wildly | Increase `NTIMES` (e.g., 100) and close background applications. |
@@ -341,8 +341,10 @@ StreamBench/
 ├── build_all_macos.ps1       # Build script for macOS (x64 + ARM64)
 ├── build_all_linux.ps1       # Build script for Linux (x64 + ARM64)
 ├── setup.ps1                 # First-time setup (standalone or source mode)
-├── run_stream.ps1            # Memory benchmark launcher (CPU + GPU)
-├── run_stream_ai.ps1         # Memory + AI benchmark launcher
+├── run_stream.cmd            # Recommended Windows launcher (choose memory or memory + AI)
+├── run_stream.ps1            # Unified PowerShell launcher (cross-platform)
+├── run_stream_ai.cmd         # Windows compatibility shortcut for AI mode
+├── run_stream_ai.ps1         # PowerShell compatibility shortcut for AI mode
 ├── README.md                 # Main README (pre-built binaries, features, results)
 ├── BUILDING.md               # Build from source guide
 ├── README                    # Original STREAM project notes

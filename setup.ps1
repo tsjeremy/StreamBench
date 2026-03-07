@@ -3,8 +3,8 @@
 # STREAM Benchmark - Windows Setup Script
 # ============================================================
 # Installs prerequisites and prepares the environment so that
-# run_stream.ps1 and run_stream_ai.ps1 work on a fresh Windows
-# machine (no Visual Studio required for running).
+# run_stream.ps1 (and the Windows wrapper run_stream.cmd) work on a
+# fresh Windows machine (no Visual Studio required for running).
 #
 # What this script does:
 #   1. Installs Visual C++ Redistributable 2015+ (for vcomp140.dll)
@@ -596,8 +596,10 @@ if ($errors -eq 0) {
     Write-Host '   Setup complete!' -ForegroundColor Green
     Write-Host ''
     Write-Host '  You can now run:' -ForegroundColor Cyan
-    Write-Host '    .\run_stream.ps1        (memory benchmark only)'
-    Write-Host '    .\run_stream_ai.ps1     (memory + AI benchmark)'
+    Write-Host '    .\run_stream.cmd        (recommended Windows launcher; choose memory or memory + AI)'
+    Write-Host '    .\run_stream.ps1        (same unified launcher inside PowerShell)'
+    Write-Host '    .\run_stream_ai.cmd     (Windows compatibility AI shortcut)'
+    Write-Host '    .\run_stream_ai.ps1     (compatibility AI shortcut)'
 } else {
     Write-Host "   Setup finished with $errors issue(s). See messages above." -ForegroundColor Yellow
     Write-Host ''

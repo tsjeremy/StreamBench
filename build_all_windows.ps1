@@ -133,7 +133,7 @@ foreach ($b in $builds) {
 }
 Write-Host ''
 Write-Host '  Note: CPU builds require Visual C++ Redistributable on the target machine.'
-Write-Host '        Use run_stream.ps1 to auto-detect and install if needed.'
+Write-Host '        Use run_stream.cmd (or run_stream.ps1) to auto-detect and install if needed.'
 Write-Host ''
 
 # Cleanup obj files
@@ -234,8 +234,10 @@ foreach ($t in $publishTargets) {
 Write-Host ''
 Write-Host '  Run:  StreamBench_win_x64.exe --cpu'
 Write-Host '        StreamBench_win_x64.exe --gpu'
-Write-Host '  Or:   .\run_stream.ps1     (memory-only, auto-detect architecture)'
-Write-Host '        .\run_stream_ai.ps1  (memory + AI, auto-detect architecture)'
+Write-Host '  Or:   .\run_stream.cmd     (recommended Windows launcher; choose memory or memory + AI)'
+Write-Host '        .\run_stream.ps1     (same unified PowerShell launcher)'
+Write-Host '        .\run_stream_ai.cmd  (Windows compatibility AI shortcut)'
+Write-Host '        .\run_stream_ai.ps1  (compatibility AI shortcut)'
 
 Write-Host ''
 if ($Errors -gt 0) {
