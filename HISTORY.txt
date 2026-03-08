@@ -4,18 +4,10 @@ Revisions as of Sun, Mar 08, 2026
 
 Version 5.10.23 of stream.c, stream_gpu.c, and StreamBench released.
 
-  - Verified Microsoft AI Foundry Local support on macOS (Apple Silicon):
-    AI inference benchmark now confirmed working on macOS via
-    `brew tap microsoft/foundrylocal && brew install foundrylocal`.
-    Both CPU and GPU inference tested successfully with Metal acceleration.
-
   - Fixed stale pre-built macOS binaries: rebuilt stream_cpu_macos_arm64,
     stream_gpu_macos_arm64, stream_cpu_macos_x64, stream_gpu_macos_x64
     from current source. Old binaries were missing --list-gpus support,
     causing a JSON parse error during GPU discovery.
-
-  - Updated expected bandwidth guidance for LPDDR5-6400 (unified, 1024-bit)
-    based on latest benchmark runs: CPU ~300–310 GB/s, GPU ~670–700 GB/s.
 
   - Documentation updates: added macOS Foundry Local install instructions
     (brew tap + brew install), macOS AI benchmark examples in README,
@@ -134,9 +126,7 @@ Revisions as of Fri, Mar 06, 2026 (Jeremy Tsai)
 
 Version 5.10.19 of stream.c, stream_gpu.c, and StreamBench released.
 
-  - Improve: AI model selection reordered based on real-world benchmark
-    trace data (Copilot+ PC, 2026-03-05).  Preferred alias lists
-    for CPU, GPU, NPU, and shared-model passes now prioritise models by
+  - Improve: AI model selection reordered to prioritise models by
     combined download time + inference latency.  Large/slow models removed
     from defaults: gpt-oss-20b, qwen2.5-14b, phi-4, deepseek-r1-14b,
     deepseek-r1-7b (CPU/GPU lists).
@@ -492,7 +482,6 @@ stream_gpu.c (GPU):
   profiling which returns bogus timestamps on macOS ARM64
   causing bandwidth to be reported as tens of TB/s instead of ~600-800 GB/s
 * Includes full validation and CSV/JSON output matching CPU format
-* Verified on macOS ARM64 (unified memory): ~280-300 GB/s CPU, ~650 GB/s GPU
 
 Makefile updated with GPU target and documentation comments.
 README.md rewritten with comprehensive guide for CPU and GPU versions
