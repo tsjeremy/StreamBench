@@ -1,5 +1,28 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sun, Mar 08, 2026
+
+Version 5.10.23 of stream.c, stream_gpu.c, and StreamBench released.
+
+  - Verified Microsoft AI Foundry Local support on macOS (Apple Silicon):
+    AI inference benchmark now confirmed working on macOS via
+    `brew tap microsoft/foundrylocal && brew install foundrylocal`.
+    Both CPU and GPU inference tested successfully with Metal acceleration.
+
+  - Fixed stale pre-built macOS binaries: rebuilt stream_cpu_macos_arm64,
+    stream_gpu_macos_arm64, stream_cpu_macos_x64, stream_gpu_macos_x64
+    from current source. Old binaries were missing --list-gpus support,
+    causing a JSON parse error during GPU discovery.
+
+  - Updated expected bandwidth guidance for LPDDR5-6400 (unified, 1024-bit)
+    based on latest benchmark runs: CPU ~300–310 GB/s, GPU ~670–700 GB/s.
+
+  - Documentation updates: added macOS Foundry Local install instructions
+    (brew tap + brew install), macOS AI benchmark examples in README,
+    and macOS setup section in BUILDING.md.
+
+-------------------------------------------------------------------------
+
 Revisions as of Fri, Mar 07, 2026 (Jeremy Tsai)
 
 Version 5.10.22 of stream.c, stream_gpu.c, and StreamBench released.

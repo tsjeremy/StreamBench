@@ -36,14 +36,14 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23).
 No compiler, .NET SDK, or build tools needed — just download and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
 so you only need a single download. The benchmarks still run as native C code for
 maximum performance — StreamBench extracts them automatically on first run.
 
-> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.22_win_standalone.zip`)
+> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.23_win_standalone.zip`)
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
@@ -73,8 +73,8 @@ flowchart TD
 
 ### Windows — Standalone ZIP (recommended)
 
-1. Go to the **[v5.10.22 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22)**
-2. Download **`StreamBench_v5.10.22_win_standalone.zip`**
+1. Go to the **[v5.10.23 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23)**
+2. Download **`StreamBench_v5.10.23_win_standalone.zip`**
 3. Extract to any folder and run the recommended Windows entrypoint:
 
 ```cmd
@@ -103,7 +103,7 @@ Optional manual / advanced path:
 
 ### Windows — Individual exe download
 
-1. Go to the **[v5.10.22 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22)**
+1. Go to the **[v5.10.23 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23)**
 2. Download the exe for your architecture:
 
 | File | Description |
@@ -135,12 +135,12 @@ Optional manual / advanced path:
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.22/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.23/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.22 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22)**
+1. Go to the **[v5.10.23 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23)**
 2. Download **`StreamBench_osx-arm64`** (ARM64) or **`StreamBench_osx-x64`** (x64)
 3. Run it:
 
@@ -153,13 +153,13 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.22/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.23/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 ### Using the launcher scripts (alternative)
 
 The launcher files are available as separate downloads on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22).
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23).
 
 - **`setup.ps1`**: optional first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and Foundry Local (all silent via winget; standalone mode auto-detected)
 - **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass and lets you choose memory-only or memory + AI
@@ -255,6 +255,7 @@ winget install Microsoft.FoundryLocal
 
 ```bash
 # macOS
+brew tap microsoft/foundrylocal
 brew install foundrylocal
 ```
 
@@ -262,10 +263,12 @@ brew install foundrylocal
 
 ```powershell
 # Memory-only default (CPU + GPU)
-.\StreamBench.exe
+.\StreamBench.exe                                   # Windows
+./StreamBench_osx-arm64                             # macOS
 
 # Add AI benchmark on all available AI devices (CPU/GPU/NPU)
-.\StreamBench.exe --ai
+.\StreamBench.exe --ai                              # Windows
+./StreamBench_osx-arm64 --ai                        # macOS
 
 # Benchmark specific devices
 .\StreamBench.exe --ai --ai-device cpu,gpu
@@ -423,7 +426,7 @@ The results depend on your memory type, number of channels, and frequency:
 | DDR5-6400 | Dual-channel | ~102 GB/s | ~65–80 GB/s | ~70–90 GB/s |
 | LPDDR5X-7500 | Quad-channel | ~120 GB/s | ~70–90 GB/s | ~90–110 GB/s |
 | LPDDR5X-8000 | 8-channel | ~256 GB/s | ~90–110 GB/s | ~180–220 GB/s |
-| LPDDR5-6400 (unified, 1024-bit) | 1024-bit unified | ~819 GB/s | ~280–300 GB/s (20-thread) | ~600–680 GB/s |
+| LPDDR5-6400 (unified, 1024-bit) | 1024-bit unified | ~819 GB/s | ~300–310 GB/s (20-thread) | ~670–700 GB/s |
 
 > **Tip:** If your results are significantly below these ranges, check that all memory channels are
 > populated, XMP/EXPO profiles are enabled in BIOS, and the system is plugged in (not on battery).

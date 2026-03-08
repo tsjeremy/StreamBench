@@ -1,6 +1,6 @@
 # Building StreamBench from Source
 
-This guide covers building StreamBench from source. If you just want to run benchmarks, see the [pre-built binaries](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.22) — no build required.
+This guide covers building StreamBench from source. If you just want to run benchmarks, see the [pre-built binaries](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23) — no build required.
 
 ## Build from Source
 
@@ -30,6 +30,20 @@ winget install --id Microsoft.DotNet.Runtime.10 --architecture x64
 
 > **Windows ARM64 note (Snapdragon/Qualcomm):** StreamBench now auto-uses `win-x64`
 > for local `dotnet run` on ARM64 Windows. You only need the x64 runtime install command above.
+
+### New macOS setup
+
+```bash
+# .NET SDK
+brew install --cask dotnet-sdk
+
+# OpenMP support for CPU benchmark multi-threading
+brew install libomp
+
+# AI benchmark backend (Foundry Local)
+brew tap microsoft/foundrylocal
+brew install foundrylocal
+```
 
 ### 1. Build everything
 

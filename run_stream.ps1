@@ -433,7 +433,7 @@ function Invoke-StreamBenchMemoryLaunch {
     if ($Resolved.LaunchType -eq 'self') {
         Write-Host "  [OK] Found $($Resolved.BenchName)" -ForegroundColor Green
         Write-Host ''
-        & $Resolved.BenchExe --array-size $ArraySize
+        & $Resolved.BenchExe --array-size $ArraySize | Out-Host
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  [FAIL] Benchmark exited with error code $LASTEXITCODE." -ForegroundColor Red
         }
@@ -452,7 +452,7 @@ function Invoke-StreamBenchMemoryLaunch {
             [Parameter(Mandatory)] [string]$RequestedArraySize
         )
 
-        & dotnet run --project "$ProjectPath" -- "--$Mode" --exe "$ExePath" --array-size "$RequestedArraySize"
+        & dotnet run --project "$ProjectPath" -- "--$Mode" --exe "$ExePath" --array-size "$RequestedArraySize" | Out-Host
         return $LASTEXITCODE
     }
 
@@ -494,7 +494,7 @@ function Invoke-StreamBenchAiLaunch {
 
     if ($Resolved.LaunchType -eq 'source') {
         Write-Host '  [OK] Using dotnet build + app run (source mode)' -ForegroundColor Green
-        & dotnet build "$($Resolved.Csproj)" -p:EnableAI=true --nologo -v:q
+        & dotnet build "$($Resolved.Csproj)" -p:EnableAI=true --nologo -v:q | Out-Host
         if ($LASTEXITCODE -ne 0) {
             return $LASTEXITCODE
         }
@@ -522,7 +522,7 @@ function Invoke-StreamBenchAiLaunch {
                 Select-Object -First 1
 
             if ($appExe) {
-                & $appExe.FullName @appArgs
+                & $appExe.FullName @appArgs | Out-Host
                 return $LASTEXITCODE
             }
         }
@@ -536,7 +536,7 @@ function Invoke-StreamBenchAiLaunch {
             return 1
         }
 
-        & dotnet $dll.FullName @appArgs
+        & dotnet $dll.FullName @appArgs | Out-Host
         return $LASTEXITCODE
     }
 
@@ -553,7 +553,7 @@ function Invoke-StreamBenchAiLaunch {
         $exeArgs += '--ai-no-download'
     }
 
-    & $Resolved.BenchExe @exeArgs
+    & $Resolved.BenchExe @exeArgs | Out-Host
     return $LASTEXITCODE
 }
 
