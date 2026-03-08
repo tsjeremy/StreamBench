@@ -221,7 +221,7 @@ public static class AiBenchmarkRunner
         if (completedTask == readTask)
             return await readTask;
 
-        TraceLog.DiagnosticInfo(
+        TraceLog.Warn(
             $"Timed out reading foundry {streamName} for command: {command} (timeout={timeoutMs}ms)");
         return "";
     }
@@ -524,15 +524,16 @@ public static class AiBenchmarkRunner
 
     /// <summary>Loads a model via foundry CLI. Downloads first if not cached.</summary>
     private static async Task<bool> LoadModelAsync(string cli, string modelId,
-        bool noDownload = false, int timeoutMs = 300_000)
+        bool noDownload = false, int timeoutMs = 300_000, string device = "")
     {
-        TraceLog.AiModelLoading(modelId, "");
+        TraceLog.AiModelLoading(modelId, device);
+        var loadSw = Stopwatch.StartNew();
 
         // Try loading directly first (succeeds if model is already cached)
         var (exitCode, stdout, stderr) = await RunFoundryAsync(cli, $"model load \"{modelId}\"", timeoutMs);
         if (exitCode == 0)
         {
-            TraceLog.AiModelLoaded(modelId, 0);
+            TraceLog.AiModelLoaded(modelId, loadSw.ElapsedMilliseconds);
             return true;
         }
 
@@ -543,7 +544,7 @@ public static class AiBenchmarkRunner
         {
             if (noDownload)
             {
-                TraceLog.AiModelDownloadSkipped(modelId, "");
+                TraceLog.AiModelDownloadSkipped(modelId, device);
                 ConsoleOutput.WriteMarkup($"[yellow][SKIP][/] Model not cached and --ai-no-download is set: {modelId}");
                 return false;
             }
@@ -569,7 +570,7 @@ public static class AiBenchmarkRunner
             (exitCode, _, stderr) = await RunFoundryAsync(cli, $"model load \"{modelId}\"", timeoutMs);
             if (exitCode == 0)
             {
-                TraceLog.AiModelLoaded(modelId, 0);
+                TraceLog.AiModelLoaded(modelId, loadSw.ElapsedMilliseconds);
                 return true;
             }
         }
@@ -856,7 +857,8 @@ public static class AiBenchmarkRunner
             if (npuTargeted && !npuModelsExist)
             {
                 sharedPassDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
-                TraceLog.DiagnosticInfo("NPU removed from shared pass — no NPU models in catalog");
+                targetDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
+                TraceLog.DiagnosticInfo("NPU removed from target devices — no NPU models in catalog");
 
                 // Probe for NPU hardware to provide a better diagnostic message
                 var npuHwInfo = SystemInfoDetector.DetectNpuHardware();
@@ -1266,7 +1268,7 @@ public static class AiBenchmarkRunner
 
                     ConsoleOutput.WriteMarkup(
                         $"[dim]  Loading summary model ({deviceType}): {model.Id}[/]");
-                    if (!await LoadModelAsync(cli, model.Id))
+                    if (!await LoadModelAsync(cli, model.Id, device: deviceType))
                     {
                         ConsoleOutput.WriteMarkup(
                             $"[yellow][SKIP][/] Failed to load summary model on [white]{deviceType}[/]: {model.Id}");
@@ -1410,7 +1412,7 @@ public static class AiBenchmarkRunner
         // Load model
         ConsoleOutput.WriteMarkup("[dim]  Loading model...[/]");
         var loadSw = Stopwatch.StartNew();
-        if (!await LoadModelAsync(cli, model.Id, noDownload))
+        if (!await LoadModelAsync(cli, model.Id, noDownload, device: deviceLabel))
         {
             ConsoleOutput.WriteMarkup($"[red]  Failed to load {model.Id}[/]");
             return null;

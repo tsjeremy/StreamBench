@@ -78,8 +78,8 @@ public static class TraceLog
 
     // ── Benchmark operations ──────────────────────────────────────────────
 
-    public static void BenchmarkStarted(string type, string exePath, long arraySize)
-        => Info($"Benchmark started. Type: {type}, Exe: {exePath}, ArraySize: {arraySize}");
+    public static void BenchmarkStarted(string type, string exePath, long? arraySize)
+        => Info($"Benchmark started. Type: {type}, Exe: {exePath}, ArraySize: {arraySize?.ToString() ?? "default"}");
 
     public static void BenchmarkCompleted(string type, long durationMs)
         => Info($"Benchmark completed. Type: {type}, Duration: {durationMs}ms");

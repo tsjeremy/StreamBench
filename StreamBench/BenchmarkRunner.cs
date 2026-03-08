@@ -87,7 +87,7 @@ public static class BenchmarkRunner
             args.AddRange(["--gpu-device", gpuDeviceIndex.Value.ToString()]);
 
         string benchType = executablePath.Contains("gpu", StringComparison.OrdinalIgnoreCase) ? "GPU" : "CPU";
-        TraceLog.BenchmarkStarted(benchType, executablePath, arraySize ?? 0);
+        TraceLog.BenchmarkStarted(benchType, executablePath, arraySize);
         var benchSw = Stopwatch.StartNew();
 
         var psi = new ProcessStartInfo
