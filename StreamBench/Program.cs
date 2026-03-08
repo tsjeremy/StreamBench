@@ -321,7 +321,7 @@ async Task<int> RunMainAsync(string[] args)
                 gpuDeviceIndex: gpuDeviceIndex, gpuLabel: gpuLabel);
             if (result is null)
             {
-                ConsoleOutput.WriteMarkup("[red]Error:[/] GPU benchmark failed or returned no output.");
+                ConsoleOutput.WriteMarkup("[red][FAIL][/] GPU benchmark failed or returned no output.");
                 return 1;
             }
             DisplayAndSave(result, noSave, outputDir, printSystemInfo);
@@ -353,7 +353,7 @@ async Task<int> RunMainAsync(string[] args)
             var result = await ConsoleOutput.RunWithSpinnerAsync(exe, arraySize, isGpu);
             if (result is null)
             {
-                ConsoleOutput.WriteMarkup("[red]Error:[/] Benchmark failed or returned no output.");
+                ConsoleOutput.WriteMarkup("[red][FAIL][/] Benchmark failed or returned no output.");
                 return 1;
             }
             DisplayAndSave(result, noSave, outputDir);
@@ -398,7 +398,7 @@ async Task<int> RunMainAsync(string[] args)
 
             if (result is null)
             {
-                ConsoleOutput.WriteMarkup($"[red]  Test {idx + 1} failed.[/]");
+                ConsoleOutput.WriteMarkup($"[red][FAIL][/] Test {idx + 1} failed.");
                 continue;
             }
 
@@ -634,6 +634,7 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-shared-only[/]         Skip best-per-device pass (shared model comparison only)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-no-download[/]         Only use cached models (skip downloads for fast repeat runs)");
+    ConsoleOutput.WriteMarkup("  [cyan]--quick-ai[/]               Fast CI mode: cached models only, 1 model per device");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Diagnostics:[/]");
@@ -652,4 +653,5 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-device cpu,npu      AI benchmark on CPU and NPU only");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-model phi-3.5-mini  Use a specific model");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --no-save                Run without saving JSON");
+    ConsoleOutput.WriteMarkup("  StreamBench --ai --quick-ai               CI: fast, cached models only");
 }
