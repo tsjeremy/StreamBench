@@ -19,6 +19,12 @@
 $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
+# Ensure UTF-8 output for Unicode spinner/box-drawing characters
+if ($PSVersionTable.PSVersion.Major -le 5) {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+}
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 function Initialize-StreamBenchPlatformFlags {
     if ($null -eq (Get-Variable -Name 'IsWindows' -ErrorAction SilentlyContinue)) {
         $script:StreamBenchIsWindows = $true
@@ -494,8 +500,9 @@ function Invoke-StreamBenchAiLaunch {
 
     if ($Resolved.LaunchType -eq 'source') {
         Write-Host '  [OK] Using dotnet build + app run (source mode)' -ForegroundColor Green
-        & dotnet build "$($Resolved.Csproj)" -p:EnableAI=true --nologo -v:q | Out-Host
+        $buildOutput = & dotnet build "$($Resolved.Csproj)" -p:EnableAI=true --nologo -v:q 2>&1
         if ($LASTEXITCODE -ne 0) {
+            $buildOutput | Out-Host
             return $LASTEXITCODE
         }
 
