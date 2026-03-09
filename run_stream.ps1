@@ -20,9 +20,7 @@ $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
 # Ensure UTF-8 output for Unicode spinner/box-drawing characters
-if ($PSVersionTable.PSVersion.Major -le 5) {
-    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-}
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 function Initialize-StreamBenchPlatformFlags {
@@ -385,15 +383,8 @@ function Resolve-StreamBenchAiLaunch {
     param([Parameter(Mandatory)] [object]$Platform)
 
     $csproj = Join-Path $ScriptDir 'StreamBench\StreamBench.csproj'
-    if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj)) {
-        return [pscustomobject]@{
-            LaunchType = 'source'
-            BenchName = $null
-            BenchExe = $null
-            Csproj = $csproj
-        }
-    }
 
+    # Priority 1: prebuilt AI executable (end-user scenario)
     if ($Platform.OsTag -eq 'win') {
         $benchNames = @(
             "StreamBench_win_$($Platform.ArchTag)_ai$($Platform.Ext)",
@@ -424,10 +415,41 @@ function Resolve-StreamBenchAiLaunch {
         }
     }
 
+    # Priority 2: build from source (developer scenario)
+    if ((Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path $csproj)) {
+        return [pscustomobject]@{
+            LaunchType = 'source'
+            BenchName = $null
+            BenchExe = $null
+            Csproj = $csproj
+        }
+    }
+
     Write-Host '  [ERROR] StreamBench binary or dotnet project not found.' -ForegroundColor Red
     Write-Host "          Expected one of: $($benchNames -join ', ') in $ScriptDir" -ForegroundColor Red
     Write-Host '          Or project file: StreamBench\StreamBench.csproj' -ForegroundColor Red
     return $null
+}
+
+# Launch a child process that writes directly to the console (preserving \r spinner animation).
+# Using [Process]::Start with no stdout redirection avoids PowerShell's pipeline capturing output.
+function Start-StreamBenchProcess {
+    param(
+        [Parameter(Mandatory)] [string]$FilePath,
+        [string[]]$Arguments = @()
+    )
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $FilePath
+    $psi.UseShellExecute = $false
+    if ($Arguments.Count -gt 0) {
+        $escaped = foreach ($a in $Arguments) {
+            if ($a -match '[ "]') { '"{0}"' -f ($a -replace '"', '\"') } else { $a }
+        }
+        $psi.Arguments = $escaped -join ' '
+    }
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.WaitForExit()
+    return $p.ExitCode
 }
 
 function Invoke-StreamBenchMemoryLaunch {
@@ -439,11 +461,11 @@ function Invoke-StreamBenchMemoryLaunch {
     if ($Resolved.LaunchType -eq 'self') {
         Write-Host "  [OK] Found $($Resolved.BenchName)" -ForegroundColor Green
         Write-Host ''
-        & $Resolved.BenchExe --array-size $ArraySize | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  [FAIL] Benchmark exited with error code $LASTEXITCODE." -ForegroundColor Red
+        $exitCode = Start-StreamBenchProcess -FilePath $Resolved.BenchExe -Arguments @('--array-size', $ArraySize)
+        if ($exitCode -ne 0) {
+            Write-Host "  [FAIL] Benchmark exited with error code $exitCode." -ForegroundColor Red
         }
-        return $LASTEXITCODE
+        return $exitCode
     }
 
     Write-Host '  [OK] Using dotnet run (dev mode)' -ForegroundColor Green
@@ -458,8 +480,7 @@ function Invoke-StreamBenchMemoryLaunch {
             [Parameter(Mandatory)] [string]$RequestedArraySize
         )
 
-        & dotnet run --project "$ProjectPath" -- "--$Mode" --exe "$ExePath" --array-size "$RequestedArraySize" | Out-Host
-        return $LASTEXITCODE
+        return (Start-StreamBenchProcess -FilePath 'dotnet' -Arguments @('run', '--project', $ProjectPath, '--', "--$Mode", '--exe', $ExePath, '--array-size', $RequestedArraySize))
     }
 
     if ($Resolved.HasCpu) {
@@ -529,8 +550,7 @@ function Invoke-StreamBenchAiLaunch {
                 Select-Object -First 1
 
             if ($appExe) {
-                & $appExe.FullName @appArgs | Out-Host
-                return $LASTEXITCODE
+                return (Start-StreamBenchProcess -FilePath $appExe.FullName -Arguments $appArgs)
             }
         }
 
@@ -543,8 +563,7 @@ function Invoke-StreamBenchAiLaunch {
             return 1
         }
 
-        & dotnet $dll.FullName @appArgs | Out-Host
-        return $LASTEXITCODE
+        return (Start-StreamBenchProcess -FilePath 'dotnet' -Arguments (@($dll.FullName) + $appArgs))
     }
 
     Write-Host "  [OK] Found $($Resolved.BenchName)" -ForegroundColor Green
@@ -560,8 +579,7 @@ function Invoke-StreamBenchAiLaunch {
         $exeArgs += '--ai-no-download'
     }
 
-    & $Resolved.BenchExe @exeArgs | Out-Host
-    return $LASTEXITCODE
+    return (Start-StreamBenchProcess -FilePath $Resolved.BenchExe -Arguments $exeArgs)
 }
 
 function Invoke-StreamBenchLauncher {
