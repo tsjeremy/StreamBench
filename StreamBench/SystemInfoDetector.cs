@@ -369,9 +369,14 @@ $mems | ConvertTo-Json -Depth 1
             int mb = IntProp(item, "mb");
             if (mb <= 0) continue;
             string type = MemTypeFromSmbiosId(IntProp(item, "tid"));
+            int speed = IntProp(item, "spd");
+            // JEDEC LPDDR5X starts at 6400 MT/s; some BIOS/firmware report
+            // LPDDR5X modules with the LPDDR5 SMBIOS type code (0x23).
+            if (type == "LPDDR5" && speed >= 6400)
+                type = "LPDDR5X";
             modules.Add(MakeModule(
                 StrProp(item, "loc"), mb, type, "DIMM",
-                IntProp(item, "spd"), IntProp(item, "cspd"),
+                speed, IntProp(item, "cspd"),
                 StrProp(item, "mfr"), StrProp(item, "part")));
         }
 #pragma warning restore IDISP004

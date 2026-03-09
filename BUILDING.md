@@ -1,10 +1,8 @@
 # Building StreamBench from Source
 
-This guide covers building StreamBench from source. If you just want to run benchmarks, see the [pre-built binaries](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23) — no build required.
+This guide covers building StreamBench from source. If you just want to run benchmarks, see the [pre-built binaries](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24) — no build required.
 
 ## Build from Source
-
-### Quick Start
 
 ### Prerequisites
 
@@ -75,6 +73,19 @@ dotnet run --project StreamBench -- --gpu --array-size 100M
 dotnet run --project StreamBench -- --cpu --range 50M:200M:50M
 ```
 
+### 5. Run AI benchmark from source
+
+```powershell
+# AI support is compile-time opt-in for source builds
+dotnet run --project StreamBench -p:EnableAI=true -- --ai
+
+# Narrow to a specific device or model if you want a faster validation pass
+dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-device gpu --ai-model phi-3.5-mini
+```
+
+> `dotnet run --project StreamBench -- --ai` uses the default non-AI build and will skip AI.
+> Use `-p:EnableAI=true` for source builds, or run a published `*_ai` executable.
+
 ### StreamBench CLI options
 
 ```
@@ -93,6 +104,8 @@ AI Inference Benchmark (requires Microsoft AI Foundry Local):
 --ai-device LIST         Comma-separated devices: cpu, gpu, npu (default: all)
 --ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)
 ```
+
+When building from source, AI options are only compiled in when you pass `-p:EnableAI=true`.
 
 ---
 
@@ -285,13 +298,14 @@ Both versions report four kernels:
 | **Add** | `c[i] = a[i] + b[i]` | 3 × 8 = 24 bytes (2 reads + 1 write) |
 | **Triad** | `a[i] = b[i] + scalar × c[i]` | 3 × 8 = 24 bytes |
 
-The key metric is **Best Rate MB/s** — this is the peak sustained memory bandwidth your system achieves.
+The key metric is **Best Rate** — this is the peak sustained memory bandwidth your system achieves.
+The unit is automatically shown as **GB/s** when any kernel exceeds 1000 MB/s, otherwise **MB/s**.
 
 ### CSV Output
 
 Results are automatically saved to CSV files:
-*   CPU: `stream_results_<size>M.csv`
-*   GPU: `stream_gpu_results_<size>M.csv`
+*   CPU: `stream_cpu_results_<size>M.csv`
+*   GPU: `stream_gpu_<device>_results_<size>M.csv`
 *   Range testing: `stream_range_results_<start>M_to_<end>M_step_<step>M.csv`
 
 ### JSON Output
@@ -308,8 +322,6 @@ JSON files include:
 *   **Config**: array size, bytes per element, total memory used, iterations
 *   **Results**: best rate (MB/s), avg/min/max time for Copy, Scale, Add, Triad
 *   **Timestamp**: ISO 8601 format for tracking when benchmarks were run
-
----
 
 ---
 
