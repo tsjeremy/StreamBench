@@ -781,6 +781,20 @@ public static class AiBenchmarkRunner
         ConsoleOutput.WriteMarkup($"[bold cyan]Starting Microsoft AI Foundry Local service...[/]");
         ConsoleOutput.WriteMarkup($"[dim]  Service URL: {serviceUrl}[/]");
 
+        var targetDevices = ParseDeviceFilter(devices).ToList();
+        var sharedPassDevices = targetDevices.ToList();
+
+        // Quick mode (--quick-ai): cached models only, skip shared pass, 1 model per device.
+        // Apply this before catalog bootstrap so a clean machine does not trigger a download
+        // that the quick path will immediately refuse to use.
+        if (quickMode)
+        {
+            noDownload = true;
+            sharedOnly = false; // we want per-device, not shared
+            TraceLog.DiagnosticInfo("Quick mode: noDownload=true, skipping shared pass");
+            ConsoleOutput.WriteMarkup("[dim]  Quick mode: using cached models only, 1 model per device.[/]");
+        }
+
         List<FoundryModel> allModels = [];
         try
         {
@@ -835,18 +849,6 @@ public static class AiBenchmarkRunner
 
             // Log a summary of device types available in the catalog
             LogCatalogDeviceTypes(allModels);
-
-            var targetDevices = ParseDeviceFilter(devices).ToList();
-            var sharedPassDevices = targetDevices.ToList();
-
-            // Quick mode (--quick-ai): cached models only, skip shared pass, 1 model per device.
-            if (quickMode)
-            {
-                noDownload = true;
-                sharedOnly = false; // we want per-device, not shared
-                TraceLog.DiagnosticInfo("Quick mode: noDownload=true, skipping shared pass");
-                ConsoleOutput.WriteMarkup("[dim]  Quick mode: using cached models only, 1 model per device.[/]");
-            }
 
             TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, sharedOnly: {sharedOnly}, quickMode: {quickMode}");
 
@@ -1414,7 +1416,8 @@ public static class AiBenchmarkRunner
         var loadSw = Stopwatch.StartNew();
         if (!await LoadModelAsync(cli, model.Id, noDownload, device: deviceLabel))
         {
-            ConsoleOutput.WriteMarkup($"[red]  Failed to load {model.Id}[/]");
+            if (!noDownload)
+                ConsoleOutput.WriteMarkup($"[red]  Failed to load {model.Id}[/]");
             return null;
         }
         loadSw.Stop();

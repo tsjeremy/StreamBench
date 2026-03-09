@@ -257,8 +257,8 @@ public static class ConsoleOutput
         if (sys.CpuBaseMhz > 0)
         {
             string freq = sys.CpuMaxMhz.HasValue && sys.CpuMaxMhz.Value != sys.CpuBaseMhz
-                ? $"[white]{sys.CpuBaseMhz} MHz (max: {sys.CpuMaxMhz} MHz)[/]"
-                : $"[white]{sys.CpuBaseMhz} MHz[/]";
+                ? $"[white]{sys.CpuBaseMhz} MHz (boost: {sys.CpuMaxMhz} MHz)[/]"
+                : $"[white]{sys.CpuBaseMhz} MHz (base)[/]";
             table.AddRow("[cyan]CPU Frequency[/]", freq);
         }
 

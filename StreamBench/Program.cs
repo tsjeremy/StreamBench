@@ -503,9 +503,18 @@ async Task<int> RunAiBenchmarkAsync(
     if (allResults.Count == 0)
     {
         ConsoleOutput.WriteMarkup("[yellow][WARN][/] No AI benchmark results were produced.");
-        ConsoleOutput.WriteMarkup("[dim]  Ensure Microsoft AI Foundry Local is installed:[/]");
-        ConsoleOutput.WriteMarkup("[dim]  Windows: winget install Microsoft.FoundryLocal[/]");
-        ConsoleOutput.WriteMarkup("[dim]  macOS:   brew install foundrylocal[/]");
+        if (noDownload || quickMode)
+        {
+            ConsoleOutput.WriteMarkup("[dim]  Cached-only mode was enabled, but no requested model was available in the local Foundry cache.[/]");
+            ConsoleOutput.WriteMarkup("[dim]  Re-run without --quick-ai / --ai-no-download, or pre-download a model first:[/]");
+            ConsoleOutput.WriteMarkup("[dim]  foundry model run phi-3.5-mini[/]");
+        }
+        else
+        {
+            ConsoleOutput.WriteMarkup("[dim]  Ensure Microsoft AI Foundry Local is installed:[/]");
+            ConsoleOutput.WriteMarkup("[dim]  Windows: winget install Microsoft.FoundryLocal[/]");
+            ConsoleOutput.WriteMarkup("[dim]  macOS:   brew install foundrylocal[/]");
+        }
         if (aiSession is not null) await aiSession.StopAsync();
         return 1;
     }

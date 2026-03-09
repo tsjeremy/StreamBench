@@ -36,14 +36,14 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24).
 No compiler, .NET SDK, or build tools needed — just download and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
 so you only need a single download. The benchmarks still run as native C code for
 maximum performance — StreamBench extracts them automatically on first run.
 
-> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.23_win_standalone.zip`)
+> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.24_win_standalone.zip`)
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
@@ -73,8 +73,8 @@ flowchart TD
 
 ### Windows — Standalone ZIP (recommended)
 
-1. Go to the **[v5.10.23 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23)**
-2. Download **`StreamBench_v5.10.23_win_standalone.zip`**
+1. Go to the **[v5.10.24 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24)**
+2. Download **`StreamBench_v5.10.24_win_standalone.zip`**
 3. Extract to any folder and run the recommended Windows entrypoint:
 
 ```cmd
@@ -103,7 +103,7 @@ Optional manual / advanced path:
 
 ### Windows — Individual exe download
 
-1. Go to the **[v5.10.23 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23)**
+1. Go to the **[v5.10.24 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24)**
 2. Download the exe for your architecture:
 
 | File | Description |
@@ -135,12 +135,12 @@ Optional manual / advanced path:
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.23/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.24/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.23 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23)**
+1. Go to the **[v5.10.24 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24)**
 2. Download **`StreamBench_osx-arm64`** (ARM64) or **`StreamBench_osx-x64`** (x64)
 3. Run it:
 
@@ -153,13 +153,13 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.23/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.24/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 ### Using the launcher scripts (alternative)
 
 The launcher files are available as separate downloads on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.23).
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24).
 
 - **`setup.ps1`**: optional first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and Foundry Local (all silent via winget; standalone mode auto-detected)
 - **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass and lets you choose memory-only or memory + AI
@@ -430,6 +430,9 @@ The results depend on your memory type, number of channels, and frequency:
 
 > **Tip:** If your results are significantly below these ranges, check that all memory channels are
 > populated, XMP/EXPO profiles are enabled in BIOS, and the system is plugged in (not on battery).
+> Laptops on balanced/battery-saver power plans may achieve 40–60% of the listed ranges.
+> Also note that Windows may report LPDDR5X as "LPDDR5" in system info — check your memory speed
+> (MT/s) to identify the actual type.
 
 ---
 
