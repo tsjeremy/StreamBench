@@ -28,7 +28,7 @@ internal sealed class DirectOpenAiChatClient : IChatClient, IDisposable
     {
         _baseUrl = baseUrl.TrimEnd('/');
         _defaultModel = model;
-        _http = new HttpClient { BaseAddress = new Uri(_baseUrl), Timeout = TimeSpan.FromMinutes(5) };
+        _http = new HttpClient { BaseAddress = new Uri(_baseUrl), Timeout = TimeSpan.FromMinutes(10) };
     }
 
     public ChatClientMetadata Metadata => new("DirectOpenAI", new Uri(_baseUrl));

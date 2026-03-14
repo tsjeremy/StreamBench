@@ -275,7 +275,7 @@ internal sealed class FoundryAiBackend : IAiBackend
             TraceLog.AiProcessTimeout($"{cli} {arguments}", timeoutMs);
             try { process.Kill(entireProcessTree: true); }
             catch (Exception ex) { TraceLog.DiagnosticInfo($"Process kill failed: {ex.Message}"); }
-            await Task.WhenAny(waitForExitTask, Task.Delay(2_000));
+            await Task.WhenAny(waitForExitTask, Task.Delay(5_000));
 
             string command = $"{cli} {arguments}";
             string timedOutStdout = await ReadTextWithTimeoutAsync(stdoutTask, 500, command, "stdout");
@@ -318,6 +318,7 @@ internal sealed class FoundryAiBackend : IAiBackend
         }
 
         TraceLog.AiServiceStarting();
+        ConsoleOutput.WriteMarkup("[dim]  Starting Foundry Local service (this may take up to 60 s on first run)...[/]");
         var (startExit, startOut, startErr) = await RunFoundryAsync(cli, "service start", 60_000);
 
         var serviceUrl = ExtractServiceUrl(startOut + "\n" + startErr);
@@ -399,28 +400,54 @@ internal sealed class FoundryAiBackend : IAiBackend
         var sw = Stopwatch.StartNew();
         var models = new List<FoundryModel>();
 
-        var (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list --json", firstRunTimeoutMs);
-        if (exitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
+        // First-run EP downloads can take minutes — show a heartbeat so the user
+        // knows we haven't frozen.
+        using var heartbeatCts = new CancellationTokenSource();
+        var heartbeatTask = Task.Run(async () =>
         {
-            var jsonModels = TryParseModelListJson(stdout);
-            if (jsonModels.Count > 0)
+            try
             {
-                TraceLog.AiCatalogLoaded(jsonModels.Count, sw.ElapsedMilliseconds);
-                return jsonModels;
+                await Task.Delay(15_000, heartbeatCts.Token);
+                while (!heartbeatCts.Token.IsCancellationRequested)
+                {
+                    ConsoleOutput.WriteMarkup(
+                        $"[dim]  ⏳ Still loading model catalog... ({sw.Elapsed.TotalSeconds:F0}s elapsed)[/]");
+                    await Task.Delay(15_000, heartbeatCts.Token);
+                }
             }
-            TraceLog.DiagnosticInfo("JSON model list parse returned 0 models; falling back to text format");
-        }
+            catch (OperationCanceledException) { }
+        });
 
-        (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list", firstRunTimeoutMs);
-        if (exitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
+        try
         {
-            models = ParseModelListText(stdout);
-            TraceLog.AiCatalogLoaded(models.Count, sw.ElapsedMilliseconds);
+            var (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list --json", firstRunTimeoutMs);
+            if (exitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
+            {
+                var jsonModels = TryParseModelListJson(stdout);
+                if (jsonModels.Count > 0)
+                {
+                    TraceLog.AiCatalogLoaded(jsonModels.Count, sw.ElapsedMilliseconds);
+                    return jsonModels;
+                }
+                TraceLog.DiagnosticInfo("JSON model list parse returned 0 models; falling back to text format");
+            }
+
+            (exitCode, stdout, _) = await RunFoundryAsync(cli, "model list", firstRunTimeoutMs);
+            if (exitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
+            {
+                models = ParseModelListText(stdout);
+                TraceLog.AiCatalogLoaded(models.Count, sw.ElapsedMilliseconds);
+                return models;
+            }
+
+            TraceLog.AiCatalogUnavailable($"model list failed (exit={exitCode})");
             return models;
         }
-
-        TraceLog.AiCatalogUnavailable($"model list failed (exit={exitCode})");
-        return models;
+        finally
+        {
+            heartbeatCts.Cancel();
+            try { await heartbeatTask; } catch (OperationCanceledException) { }
+        }
     }
 
     private static List<FoundryModel> TryParseModelListJson(string json)
@@ -561,9 +588,10 @@ internal sealed class FoundryAiBackend : IAiBackend
     // ── Model load/unload/download ─────────────────────────────────────────
 
     private static async Task<bool> LoadFoundryModelAsync(
-        string cli, string modelId, bool noDownload = false, int timeoutMs = 300_000, string device = "")
+        string cli, string modelId, bool noDownload = false, int timeoutMs = 600_000, string device = "")
     {
         TraceLog.AiModelLoading(modelId, device);
+        ConsoleOutput.WriteMarkup($"[dim]  Loading model {modelId} (may take several minutes for large models)...[/]");
         var loadSw = Stopwatch.StartNew();
 
         var (exitCode, stdout, stderr) = await RunFoundryAsync(cli, $"model load \"{modelId}\"", timeoutMs);
@@ -693,7 +721,7 @@ internal sealed class FoundryAiBackend : IAiBackend
             {
                 TraceLog.AiProcessTimeout($"model download {modelId}", timeoutMs);
                 try { process.Kill(entireProcessTree: true); } catch { }
-                await Task.WhenAny(processTask, Task.Delay(2_000));
+                await Task.WhenAny(processTask, Task.Delay(5_000));
                 break;
             }
         }

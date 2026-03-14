@@ -2,6 +2,34 @@
 
 Revisions as of Sat, Mar 14, 2026
 
+  UX improvements for long-running AI operations
+
+  - Added inference heartbeat messages: periodic "Inference in progress..."
+    status updates every 30 s during long AI inference calls so the user
+    knows the process hasn't frozen.
+
+  - Increased HTTP client timeout from 5 min to 10 min for local AI
+    inference (DirectOpenAiChatClient) to accommodate slow NPU/CPU
+    models on first run.
+
+  - Foundry Local backend: added progress message during service start,
+    added heartbeat during model catalog loading (first-run EP downloads
+    can take several minutes), increased model load timeout from 5 min
+    to 10 min for large models, and increased process kill grace period
+    from 2 s to 5 s for reliable cleanup.
+
+  - LM Studio backend: increased server start timeout from 30 s to 60 s
+    (first-run startup can be slow), increased model load timeout from
+    2 min to 5 min for parity with Foundry, and added progress messages
+    during model loading.
+
+  - AiBenchmarkRunner: added progress messages during catalog queries
+    and auto-load attempts for better feedback on first-run setup.
+
+  - run_stream.ps1: changed AI source build verbosity from quiet (-v:q)
+    to minimal (-v:m) and added "Building..." message so users see
+    progress during compilation.
+
   Multi-backend AI support: Foundry Local + LM Studio
 
   - Added pluggable AI backend architecture (IAiBackend, AiBackendFactory,

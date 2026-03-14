@@ -881,7 +881,8 @@ function Invoke-StreamBenchAiLaunch {
 
     if ($Resolved.LaunchType -eq 'source') {
         Write-Host '  [OK] Using dotnet build + app run (source mode)' -ForegroundColor Green
-        $buildOutput = & dotnet build "$($Resolved.Csproj)" -p:EnableAI=true --nologo -v:q 2>&1
+        Write-Host '  Building StreamBench with AI support (this may take a minute)...' -ForegroundColor DarkGray
+        $buildOutput = & dotnet build "$($Resolved.Csproj)" -p:EnableAI=true --nologo -v:m 2>&1
         if ($LASTEXITCODE -ne 0) {
             $buildOutput | ForEach-Object { Write-Host $_ }
             return $LASTEXITCODE

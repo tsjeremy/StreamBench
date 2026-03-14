@@ -178,6 +178,7 @@ public static class AiBenchmarkRunner
             }
             else
             {
+                ConsoleOutput.WriteMarkup("[dim]  Querying model catalog from backend...[/]");
                 allModels = await backend.ListModelsAsync(cancellationToken);
 
                 // LM Studio: if no models loaded, suggest loading one
@@ -188,6 +189,7 @@ public static class AiBenchmarkRunner
                     ConsoleOutput.WriteMarkup("[dim]  Or use: lms load phi-3.5-mini[/]");
 
                     // Try auto-loading recommended model
+                    ConsoleOutput.WriteMarkup("[dim]  Attempting to auto-load phi-3.5-mini (this may take several minutes)...[/]");
                     var loaded = await backend.LoadModelAsync("phi-3.5-mini", cancellationToken);
                     if (loaded is not null)
                     {
@@ -906,7 +908,19 @@ public static class AiBenchmarkRunner
                 MaxOutputTokens = maxOutputTokens
             };
 
-            var response = await chatClient.GetResponseAsync(messages, options, ct);
+            // Run inference with a heartbeat so the user knows we're still alive
+            using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var heartbeatTask = ShowInferenceHeartbeatAsync(deviceLabel, sw, heartbeatCts.Token);
+            ChatResponse response;
+            try
+            {
+                response = await chatClient.GetResponseAsync(messages, options, ct);
+            }
+            finally
+            {
+                heartbeatCts.Cancel();
+                try { await heartbeatTask; } catch (OperationCanceledException) { }
+            }
             sw.Stop();
 
             double responseSec = sw.Elapsed.TotalSeconds;
@@ -1686,6 +1700,32 @@ public static class AiBenchmarkRunner
     /// <summary>Rough token count estimate: ~4 chars per token on average.</summary>
     private static int EstimateTokens(string text) =>
         Math.Max(1, text.Length / 4);
+
+    // ── Inference heartbeat ───────────────────────────────────────────────
+
+    /// <summary>
+    /// Prints periodic "still waiting" messages during long inference calls so the
+    /// user knows the process hasn't frozen.  First message appears after 30 s,
+    /// then every 30 s thereafter.
+    /// </summary>
+    private static async Task ShowInferenceHeartbeatAsync(
+        string deviceLabel, Stopwatch sw, CancellationToken ct)
+    {
+        const int initialDelaySec = 30;
+        const int intervalSec = 30;
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(initialDelaySec), ct);
+            while (!ct.IsCancellationRequested)
+            {
+                int elapsed = (int)sw.Elapsed.TotalSeconds;
+                ConsoleOutput.WriteMarkup(
+                    $"[dim]  ⏳ Inference in progress on {deviceLabel}... ({elapsed}s elapsed)[/]");
+                await Task.Delay(TimeSpan.FromSeconds(intervalSec), ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
 
     // ── Spinner helper ────────────────────────────────────────────────────
 

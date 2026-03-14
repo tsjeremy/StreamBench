@@ -83,9 +83,9 @@ internal sealed class LmStudioAiBackend : IAiBackend
 
         TraceLog.LmStudioServerStarting(DefaultPort);
         TraceLog.AiServiceStarting();
-        ConsoleOutput.WriteMarkup("[dim]  Starting LM Studio server...[/]");
+        ConsoleOutput.WriteMarkup("[dim]  Starting LM Studio server (may take up to 60 s)...[/]");
 
-        var (exitCode, stdout, stderr) = await RunLmsAsync(_cli, "server start", 30_000);
+        var (exitCode, stdout, stderr) = await RunLmsAsync(_cli, "server start", 60_000);
 
         // Wait briefly for server to become ready
         _serviceUrl ??= DefaultEndpoint;
@@ -220,7 +220,8 @@ internal sealed class LmStudioAiBackend : IAiBackend
         }
 
         var sw = Stopwatch.StartNew();
-        var (exitCode, stdout, stderr) = await RunLmsAsync(_cli, $"load \"{modelIdOrAlias}\"", 120_000);
+        ConsoleOutput.WriteMarkup($"[dim]  Loading model {modelIdOrAlias} via LM Studio CLI (may take several minutes)...[/]");
+        var (exitCode, stdout, stderr) = await RunLmsAsync(_cli, $"load \"{modelIdOrAlias}\"", 300_000);
         sw.Stop();
 
         if (exitCode == 0)
