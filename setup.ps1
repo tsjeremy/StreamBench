@@ -287,7 +287,7 @@ if ($hasSource) {
         }
     }
 } else {
-    Write-Host '  [3/7] MSVC Build Tools — [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
+    Write-Host '  [3/7] MSVC Build Tools -- [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
 }
 Write-Host ''
 
@@ -298,7 +298,7 @@ if ($hasSource) {
     Write-Host '  [4/7] Running dotnet restore...' -ForegroundColor Cyan
 
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-        Write-Host '  [SKIP] dotnet not available — install .NET 10 SDK first.' -ForegroundColor Yellow
+        Write-Host '  [SKIP] dotnet not available -- install .NET 10 SDK first.' -ForegroundColor Yellow
     } else {
         dotnet restore "$csproj" --nologo
         $restoreBase = $LASTEXITCODE
@@ -323,11 +323,11 @@ if ($hasSource) {
         if ($LASTEXITCODE -eq 0) {
             Write-Host '  [OK] AI package restore succeeded.' -ForegroundColor Green
         } else {
-            Write-Host '  [!] AI package restore failed (non-fatal — AI benchmark is optional).' -ForegroundColor Yellow
+            Write-Host '  [!] AI package restore failed (non-fatal -- AI benchmark is optional).' -ForegroundColor Yellow
         }
     }
 } else {
-    Write-Host '  [4/7] dotnet restore — [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
+    Write-Host '  [4/7] dotnet restore -- [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
 }
 Write-Host ''
 
@@ -338,7 +338,7 @@ Write-Host '  [5/7] Checking GPU driver / OpenCL availability...' -ForegroundCol
 
 $openclDll = Join-Path $env:SystemRoot 'System32\OpenCL.dll'
 if (Test-Path $openclDll) {
-    Write-Host '  [OK] OpenCL.dll found — GPU benchmark should work.' -ForegroundColor Green
+    Write-Host '  [OK] OpenCL.dll found -- GPU benchmark should work.' -ForegroundColor Green
 } else {
     Write-Host '  [!] OpenCL.dll not found in System32.' -ForegroundColor Yellow
     Write-Host '      GPU benchmark requires an OpenCL-capable GPU with up-to-date drivers.' -ForegroundColor Yellow
@@ -346,7 +346,7 @@ if (Test-Path $openclDll) {
     Write-Host '        NVIDIA : https://www.nvidia.com/drivers' -ForegroundColor Yellow
     Write-Host '        AMD    : https://www.amd.com/en/support' -ForegroundColor Yellow
     Write-Host '        Intel  : https://www.intel.com/content/www/us/en/download-center' -ForegroundColor Yellow
-    Write-Host '      (GPU benchmark is optional — CPU benchmark will still work.)' -ForegroundColor DarkGray
+    Write-Host '      (GPU benchmark is optional -- CPU benchmark will still work.)' -ForegroundColor DarkGray
 }
 Write-Host ''
 
@@ -475,7 +475,7 @@ $setupLmStudio  = $aiChoice -in @('2', '3')
 
 if ($setupFoundry) {
     Write-Host ''
-    Write-Host '  ── Foundry Local Setup ──' -ForegroundColor Cyan
+    Write-Host '  -- Foundry Local Setup --' -ForegroundColor Cyan
     if ($foundryOk) {
         Write-Host '  [OK] Microsoft Foundry Local CLI is installed.' -ForegroundColor Green
         try {
@@ -583,7 +583,7 @@ if ($setupFoundry) {
                     }
                 }
             } else {
-                Write-Host '  [!] Foundry install may have failed (non-fatal — AI is optional).' -ForegroundColor Yellow
+                Write-Host '  [!] Foundry install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
                 Write-Host '      Install manually: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
             }
         } else {
@@ -597,7 +597,7 @@ if ($setupFoundry) {
 
 if ($setupLmStudio) {
     Write-Host ''
-    Write-Host '  ── LM Studio Setup ──' -ForegroundColor Cyan
+    Write-Host '  -- LM Studio Setup --' -ForegroundColor Cyan
     if ($lmsOk) {
         Write-Host "  [OK] LM Studio CLI found at: $lmsCmd" -ForegroundColor Green
 
@@ -672,7 +672,7 @@ if ($setupLmStudio) {
                         Write-Host '      Open LM Studio once to register the CLI, then re-run setup.' -ForegroundColor DarkGray
                     }
                 } else {
-                    Write-Host '  [!] LM Studio install may have failed (non-fatal — AI is optional).' -ForegroundColor Yellow
+                    Write-Host '  [!] LM Studio install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
                     Write-Host '      Install manually: winget install ElementLabs.LMStudio' -ForegroundColor Yellow
                     Write-Host '      Or download from https://lmstudio.ai' -ForegroundColor DarkGray
                 }
@@ -692,7 +692,7 @@ if ($setupLmStudio) {
                     if (Test-Path $lmsCheck) { $lmsOk = $true; $lmsCmd = $lmsCheck }
                     elseif (Get-Command lms -ErrorAction SilentlyContinue) { $lmsOk = $true; $lmsCmd = 'lms' }
                 } else {
-                    Write-Host '  [!] LM Studio install may have failed (non-fatal — AI is optional).' -ForegroundColor Yellow
+                    Write-Host '  [!] LM Studio install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
                     Write-Host '      Install manually: brew install --cask lm-studio' -ForegroundColor Yellow
                 }
             } else {

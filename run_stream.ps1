@@ -431,14 +431,14 @@ function Show-StreamBenchLauncherHeader {
 
 function Test-StreamBenchTcpEndpoint {
     param(
-        [Parameter(Mandatory)] [string]$Host,
+        [Parameter(Mandatory)] [string]$Hostname,
         [Parameter(Mandatory)] [int]$Port
     )
 
     try {
         $client = [System.Net.Sockets.TcpClient]::new()
         try {
-            $connectTask = $client.ConnectAsync($Host, $Port)
+            $connectTask = $client.ConnectAsync($Hostname, $Port)
             if (-not $connectTask.Wait(1000)) {
                 return $false
             }
@@ -461,7 +461,7 @@ function Test-StreamBenchAiBackendAvailable {
         }
         'lmstudio' {
             if ([bool](Get-Command lms -ErrorAction SilentlyContinue)) { return $true }
-            if (Test-StreamBenchTcpEndpoint -Host '127.0.0.1' -Port 1234) { return $true }
+            if (Test-StreamBenchTcpEndpoint -Hostname '127.0.0.1' -Port 1234) { return $true }
             # Check well-known CLI paths (matches LmStudioAiBackend.cs FindLmsCli)
             if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
                 $lmsPaths = @(
@@ -538,7 +538,7 @@ function Ensure-StreamBenchPrerequisites {
 
     $setupScript = Join-Path $ScriptDir 'setup.ps1'
     if (Test-Path $setupScript) {
-        Write-Host '  [!] Missing prerequisites detected — running setup.ps1...' -ForegroundColor Yellow
+        Write-Host '  [!] Missing prerequisites detected -- running setup.ps1...' -ForegroundColor Yellow
         Write-Host ''
         & $setupScript
         if ($LASTEXITCODE -ne 0) {
