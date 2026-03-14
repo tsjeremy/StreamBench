@@ -210,7 +210,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
         TraceLog.AiModelLoading(modelIdOrAlias, "");
         TraceLog.LmStudioModelLoading(modelIdOrAlias);
 
-        // If the model is already loaded(via /v1/models), return immediately
+        // If the model is already loaded (via /v1/models), return immediately
         var loadedModels = await ListModelsAsync(ct);
         var match = loadedModels.FirstOrDefault(m =>
             m.Id.Contains(modelIdOrAlias, StringComparison.OrdinalIgnoreCase) ||
@@ -222,32 +222,77 @@ internal sealed class LmStudioAiBackend : IAiBackend
             return match.Id;
         }
 
-        // Try loading via CLI
         if (_cli is null)
         {
             TraceLog.DiagnosticInfo($"Cannot load model {modelIdOrAlias}: no CLI available");
             return null;
         }
 
+        // Use `lms ls` to find an exact model key on disk — avoids interactive prompts
+        string loadKey = modelIdOrAlias;
+        var (lsExit, lsOut, _) = await RunLmsAsync(_cli, "ls", 15_000);
+        if (lsExit == 0 && !string.IsNullOrWhiteSpace(lsOut))
+        {
+            var onDisk = ParseLmsLsOutput(lsOut);
+            var diskMatch = onDisk.FirstOrDefault(m =>
+                m.Id.Contains(modelIdOrAlias, StringComparison.OrdinalIgnoreCase) ||
+                m.Alias.Contains(modelIdOrAlias, StringComparison.OrdinalIgnoreCase));
+
+            if (diskMatch is not null)
+            {
+                loadKey = diskMatch.Id; // exact key, no interactive prompt
+                TraceLog.DiagnosticInfo($"Resolved '{modelIdOrAlias}' to exact key '{loadKey}' from lms ls");
+            }
+            else if (onDisk.Count > 0)
+            {
+                // No match for requested alias but there are other chat models
+                loadKey = onDisk[0].Id;
+                TraceLog.DiagnosticInfo($"Model '{modelIdOrAlias}' not found on disk; using '{loadKey}' instead");
+            }
+            else
+            {
+                // No chat models on disk — try downloading
+                TraceLog.DiagnosticInfo($"No chat models on disk; attempting download of {modelIdOrAlias}");
+                ConsoleOutput.WriteMarkup($"[dim]  No chat models found on disk. Downloading {modelIdOrAlias} (this may take several minutes)...[/]");
+                var (dlExit, _, dlErr) = await RunLmsAsync(_cli, $"get \"{modelIdOrAlias}\" --yes", 600_000);
+                if (dlExit != 0)
+                {
+                    TraceLog.Warn($"Failed to download model: {dlErr}");
+                    return null;
+                }
+
+                // Re-scan to get exact key
+                var (lsExit2, lsOut2, _) = await RunLmsAsync(_cli, "ls", 15_000);
+                if (lsExit2 == 0 && !string.IsNullOrWhiteSpace(lsOut2))
+                {
+                    var downloaded = ParseLmsLsOutput(lsOut2);
+                    var dlMatch = downloaded.FirstOrDefault(m =>
+                        m.Id.Contains(modelIdOrAlias, StringComparison.OrdinalIgnoreCase) ||
+                        m.Alias.Contains(modelIdOrAlias, StringComparison.OrdinalIgnoreCase));
+                    loadKey = dlMatch?.Id ?? modelIdOrAlias;
+                }
+            }
+        }
+
         var sw = Stopwatch.StartNew();
-        ConsoleOutput.WriteMarkup($"[dim]  Loading model {modelIdOrAlias} via LM Studio CLI (may take several minutes)...[/]");
-        var (exitCode, stdout, stderr) = await RunLmsAsync(_cli, $"load \"{modelIdOrAlias}\"", 300_000);
+        ConsoleOutput.WriteMarkup($"[dim]  Loading model {loadKey} via LM Studio CLI (may take several minutes)...[/]");
+        var (exitCode, stdout, stderr) = await RunLmsAsync(_cli, $"load \"{loadKey}\"", 300_000);
         sw.Stop();
 
         if (exitCode == 0)
         {
-            TraceLog.AiModelLoaded(modelIdOrAlias, sw.ElapsedMilliseconds);
-            TraceLog.LmStudioModelLoaded(modelIdOrAlias, sw.ElapsedMilliseconds);
+            TraceLog.AiModelLoaded(loadKey, sw.ElapsedMilliseconds);
+            TraceLog.LmStudioModelLoaded(loadKey, sw.ElapsedMilliseconds);
             // Re-query to get the actual model ID
             loadedModels = await ListModelsAsync(ct);
             match = loadedModels.FirstOrDefault(m =>
-                m.Id.Contains(modelIdOrAlias, StringComparison.OrdinalIgnoreCase) ||
-                m.Alias.Contains(modelIdOrAlias, StringComparison.OrdinalIgnoreCase));
-            return match?.Id ?? modelIdOrAlias;
+                m.Id.Contains(loadKey, StringComparison.OrdinalIgnoreCase) ||
+                m.Alias.Contains(loadKey, StringComparison.OrdinalIgnoreCase));
+            return match?.Id ?? loadKey;
         }
 
-        TraceLog.AiModelLoadFailed(modelIdOrAlias, stderr, "LmStudioAiBackend.cs", 0);
-        TraceLog.LmStudioModelLoadFailed(modelIdOrAlias, stderr);
+        TraceLog.AiModelLoadFailed(loadKey, stderr, "LmStudioAiBackend.cs", 0);
+        TraceLog.LmStudioModelLoadFailed(loadKey, stderr);
         return null;
     }
 
@@ -430,15 +475,39 @@ internal sealed class LmStudioAiBackend : IAiBackend
     private List<AiModelInfo> ParseLmsLsOutput(string output)
     {
         var models = new List<AiModelInfo>();
+        bool inEmbeddingSection = false;
+
         foreach (var line in output.Split('\n'))
         {
             string trimmed = line.Trim();
             if (string.IsNullOrEmpty(trimmed)) continue;
-            if (trimmed.StartsWith("─") || trimmed.StartsWith("-") || trimmed.StartsWith("=")) continue;
-            if (trimmed.Contains("PATH", StringComparison.OrdinalIgnoreCase) &&
-                trimmed.Contains("SIZE", StringComparison.OrdinalIgnoreCase)) continue;
 
-            // lms ls typically outputs model paths like: "user/model-name-q4_k_m.gguf"
+            // Skip decorative lines
+            if (trimmed.StartsWith("─") || trimmed.StartsWith("-") || trimmed.StartsWith("=")) continue;
+
+            // Skip summary lines like "You have N models..."
+            if (trimmed.StartsWith("You have ", StringComparison.OrdinalIgnoreCase)) continue;
+
+            // Detect section headers: "LLM", "EMBEDDING", column headers
+            string upper = trimmed.ToUpperInvariant();
+            if (upper.StartsWith("EMBEDDING"))
+            {
+                inEmbeddingSection = true;
+                continue;
+            }
+            if (upper.StartsWith("LLM"))
+            {
+                inEmbeddingSection = false;
+                continue;
+            }
+
+            // Skip column header lines (PARAMS, ARCH, SIZE, PATH, etc.)
+            if (upper.Contains("PARAMS") && (upper.Contains("ARCH") || upper.Contains("SIZE"))) continue;
+
+            // Skip everything in the EMBEDDING section
+            if (inEmbeddingSection) continue;
+
+            // First token is the model key
             string id = trimmed.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? trimmed;
             if (id.Length < 3) continue;
             if (IsNonChatModel(id)) continue;
