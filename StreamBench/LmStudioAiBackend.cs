@@ -157,6 +157,13 @@ internal sealed class LmStudioAiBackend : IAiBackend
                     // Skip non-chat models (embedding, rerank, vision-only, TTS, etc.)
                     if (IsNonChatModel(id)) continue;
 
+                    // Check the "type" field if present — some LM Studio versions
+                    // annotate embedding vs text-generation models.
+                    string? modelType = model.TryGetProperty("type", out var tp) ? tp.GetString() : null;
+                    if (modelType is not null
+                        && modelType.Contains("embedding", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
                     string alias = ExtractAlias(id);
                     models.Add(new AiModelInfo(
                         Id: id,
@@ -474,10 +481,22 @@ internal sealed class LmStudioAiBackend : IAiBackend
 
     /// <summary>
     /// Returns true if the model ID indicates a non-chat model (embedding, rerank, TTS,
-    /// whisper, vision-encoder-only, etc.) that cannot handle /v1/chat/completions.
+    /// whisper, vision-encoder-only, etc.) or a virtual/system entry that cannot handle
+    /// /v1/chat/completions.
     /// </summary>
     private static bool IsNonChatModel(string modelId)
     {
+        // Very short IDs are likely virtual/system entries, not real models
+        if (modelId.Length < 4) return true;
+
+        // Known LM Studio virtual model / persona names
+        ReadOnlySpan<string> systemNames = ["You", "Assistant", "System", "Default"];
+        foreach (var name in systemNames)
+        {
+            if (modelId.Equals(name, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
         // Common non-chat model indicators in LM Studio model IDs
         ReadOnlySpan<string> markers =
         [

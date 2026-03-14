@@ -181,12 +181,12 @@ public static class AiBenchmarkRunner
                 ConsoleOutput.WriteMarkup("[dim]  Querying model catalog from backend...[/]");
                 allModels = await backend.ListModelsAsync(cancellationToken);
 
-                // LM Studio: if no models loaded, suggest loading one
+                // LM Studio: if no chat models available, suggest loading one
                 if (allModels.Count == 0)
                 {
-                    ConsoleOutput.WriteMarkup("[yellow][INFO][/] No models currently loaded in LM Studio.");
-                    ConsoleOutput.WriteMarkup("[dim]  Please open LM Studio and load a model (e.g. phi-3.5-mini).[/]");
-                    ConsoleOutput.WriteMarkup("[dim]  Or use: lms load phi-3.5-mini[/]");
+                    ConsoleOutput.WriteMarkup("[yellow][INFO][/] No chat/instruct models found in LM Studio.");
+                    ConsoleOutput.WriteMarkup("[dim]  Embedding and non-chat models are not supported for AI benchmark.[/]");
+                    ConsoleOutput.WriteMarkup("[dim]  Please download a chat model in LM Studio (e.g. phi-3.5-mini, llama, qwen).[/]");
 
                     // Try auto-loading recommended model
                     ConsoleOutput.WriteMarkup("[dim]  Attempting to auto-load phi-3.5-mini (this may take several minutes)...[/]");
@@ -201,8 +201,9 @@ public static class AiBenchmarkRunner
             if (allModels.Count == 0)
             {
                 TraceLog.AiCatalogUnavailable("No models found in catalog after retry and bootstrap");
-                ConsoleOutput.WriteMarkup($"[yellow][WARN][/] No models found in {backend.Name} catalog.");
-                ConsoleOutput.WriteMarkup($"[dim]  For {backend.Name}: ensure a model is loaded and the service is running.[/]");
+                ConsoleOutput.WriteMarkup($"[yellow][WARN][/] No chat models found in {backend.Name} catalog.");
+                ConsoleOutput.WriteMarkup($"[dim]  Embedding/rerank models cannot be used for AI benchmark.[/]");
+                ConsoleOutput.WriteMarkup($"[dim]  Please download a chat/instruct model (e.g. phi-3.5-mini, llama, qwen).[/]");
                 await backend.StopAsync(cancellationToken);
                 return (new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults), null);
             }
