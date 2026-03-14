@@ -6,8 +6,7 @@
 
 A cross-platform **memory bandwidth benchmark** with both **CPU** and **GPU** versions, based on the
 industry-standard [STREAM benchmark](http://www.cs.virginia.edu/stream/ref.html) by John D. McCalpin.
-Also includes an **AI inference benchmark** using [Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)
-to measure LLM response time and tokens/second on CPU, GPU, and NPU.
+Also includes an **AI inference benchmark** supporting [Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/) and [LM Studio](https://lmstudio.ai) to measure LLM response time and tokens/second on CPU, GPU, and NPU.
 
 ## Architecture
 
@@ -26,7 +25,7 @@ displays color-formatted results, saves files, and runs the AI inference benchma
                                         | JSON on stdout
                         <- display colored table, save .csv / .json
 
-  User -> StreamBench (.NET 10) --ai -> Foundry Local CLI + REST API
+  User -> StreamBench (.NET 10) --ai -> AI Backend (Foundry Local or LM Studio)
                                         | runs SLM on CPU / GPU / NPU
                         <- display inference timing, tokens/sec, save .json
 ```
@@ -36,14 +35,14 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.25).
 No compiler, .NET SDK, or build tools needed — just download and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
 so you only need a single download. The benchmarks still run as native C code for
 maximum performance — StreamBench extracts them automatically on first run.
 
-> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.24_win_standalone.zip`)
+> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.25_win_standalone.zip`)
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
@@ -73,8 +72,8 @@ flowchart TD
 
 ### Windows — Standalone ZIP (recommended)
 
-1. Go to the **[v5.10.24 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24)**
-2. Download **`StreamBench_v5.10.24_win_standalone.zip`**
+1. Go to the **[v5.10.25 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.25)**
+2. Download **`StreamBench_v5.10.25_win_standalone.zip`**
 3. Extract to any folder and run the recommended Windows entrypoint:
 
 ```cmd
@@ -85,6 +84,15 @@ This opens a simple launcher where you can choose:
 
 - **Memory benchmark only**
 - **Memory benchmark + AI benchmark**
+
+If you choose AI mode, the launcher also prompts for the backend:
+
+- **Auto-detect**
+- **LM Studio**
+- **Foundry Local**
+
+Each launcher-driven run also writes a full CLI transcript beside the launcher,
+for example `StreamBench_cli_20260314_221646.log`.
 
 If prerequisites are missing, the launcher automatically runs `setup.ps1` first.
 
@@ -103,7 +111,7 @@ Optional manual / advanced path:
 
 ### Windows — Individual exe download
 
-1. Go to the **[v5.10.24 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24)**
+1. Go to the **[v5.10.25 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.25)**
 2. Download the exe for your architecture:
 
 | File | Description |
@@ -122,7 +130,7 @@ Optional manual / advanced path:
 # GPU benchmark
 .\StreamBench_win_x64.exe --gpu
 
-# AI inference benchmark (requires AI-enabled exe + Foundry Local)
+# AI inference benchmark (requires AI-enabled exe + Foundry Local or LM Studio)
 # The _ai binary auto-runs memory (CPU/GPU) + AI (CPU/GPU/NPU) with no flags needed:
 .\StreamBench_win_x64_ai.exe
 
@@ -130,17 +138,17 @@ Optional manual / advanced path:
 .\StreamBench_win_x64_ai.exe --ai --ai-device cpu,gpu
 ```
 
-> **ARM64 Windows users** (Snapdragon/Qualcomm): Use `*_arm64*` variants instead.
+> **ARM64 Windows users:** Use `*_arm64*` variants instead.
 
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.24/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.25/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.24 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24)**
+1. Go to the **[v5.10.25 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.25)**
 2. Download **`StreamBench_osx-arm64`** (ARM64) or **`StreamBench_osx-x64`** (x64)
 3. Run it:
 
@@ -153,17 +161,17 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.24/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.25/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 ### Using the launcher scripts (alternative)
 
 The launcher files are available as separate downloads on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24).
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.25).
 
-- **`setup.ps1`**: optional first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and Foundry Local (all silent via winget; standalone mode auto-detected)
-- **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass and lets you choose memory-only or memory + AI
-- **`run_stream.ps1`**: unified PowerShell launcher for Windows, macOS, and Linux — **auto-runs `setup.ps1`** on Windows if prerequisites are missing
+- **`setup.ps1`**: optional first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and AI backends (Foundry Local and/or LM Studio) — all silent via winget; standalone mode auto-detected
+- **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass, lets you choose memory-only or memory + AI, prompts for AI backend when needed, and saves a full CLI transcript
+- **`run_stream.ps1`**: unified PowerShell launcher for Windows, macOS, and Linux — **auto-runs `setup.ps1`** on Windows if prerequisites are missing and saves a full CLI transcript
 - **`run_stream_ai.cmd`**: Windows compatibility shortcut that preselects AI mode and automatically uses PowerShell bypass
 - **`run_stream_ai.ps1`**: compatibility shortcut that forwards into the unified launcher with AI mode preselected
 
@@ -200,10 +208,17 @@ $env:STREAMBENCH_ARRAY_SIZE = "100000000"
 $env:STREAMBENCH_LAUNCH_MODE = "ai"
 
 # Optional AI launcher overrides (applied when AI mode is selected)
+$env:STREAMBENCH_AI_BACKEND = "lmstudio"  # auto, lmstudio, foundry
 $env:STREAMBENCH_AI_MODEL = "phi-4-mini"
 $env:STREAMBENCH_AI_DEVICES = "cpu,npu"   # if unset, all detected devices are used
 $env:STREAMBENCH_AI_NO_DOWNLOAD = "1"     # cached models only
 ```
+
+When running from source (`StreamBench.csproj`) instead of a standalone package,
+the launcher expects local native backends (`stream_cpu_*`, `stream_gpu_*`) for
+the memory benchmark. If they are not built yet, the launcher now warns clearly
+and continues with **AI-only mode** so local backend validation can still run.
+Q3 still requires at least one saved `stream_*_results_*.json` file.
 
 ### Standalone C backend binaries (advanced)
 
@@ -226,9 +241,12 @@ release page for users who want to run them directly without the StreamBench fro
 
 ## AI Inference Benchmark (`--ai`)
 
-StreamBench includes an AI inference benchmark powered by
-**[Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)**,
-which runs small language models (SLMs) directly on-device with hardware acceleration.
+StreamBench includes an AI inference benchmark supporting two backends:
+
+- **[Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)** — runs SLMs with hardware-specific optimization (CPU, GPU, NPU) on Windows and macOS
+- **[LM Studio](https://lmstudio.ai)** — cross-platform (Windows, macOS, Linux) GPU/CPU inference via llama.cpp
+
+Both backends expose OpenAI-compatible REST APIs. StreamBench uses a lightweight `DirectOpenAiChatClient` (custom `IChatClient` implementation) to avoid compatibility issues with SDK response parsing from local backends.
 
 ### What it measures
 
@@ -246,7 +264,10 @@ sustained inference throughput across CPU, GPU, and NPU.
 
 ### Prerequisites
 
-Microsoft AI Foundry Local must be installed on the target machine:
+Install at least one AI backend. The `setup.ps1` script auto-installs these when
+you choose the AI benchmark, but you can also install them manually:
+
+**Microsoft Foundry Local (Windows/macOS):**
 
 ```powershell
 # Windows
@@ -255,9 +276,22 @@ winget install Microsoft.FoundryLocal
 
 ```bash
 # macOS
-brew tap microsoft/foundrylocal
-brew install foundrylocal
+brew tap microsoft/foundrylocal && brew install foundrylocal
 ```
+
+**LM Studio (Windows/macOS/Linux):**
+
+```powershell
+# Windows
+winget install ElementLabs.LMStudio
+```
+
+```bash
+# macOS
+brew install --cask lm-studio
+```
+
+Then open LM Studio and download a model (e.g. phi-3.5-mini-instruct GGUF).
 
 ### Running the AI benchmark
 
@@ -275,6 +309,16 @@ brew install foundrylocal
 
 # Use a specific model
 .\StreamBench.exe --ai --ai-model phi-3.5-mini
+
+# Select AI backend explicitly
+.\StreamBench.exe --ai --ai-backend lmstudio
+.\StreamBench.exe --ai --ai-backend foundry
+
+# Run AI only (skip default CPU/GPU memory passes)
+.\StreamBench.exe --ai-only
+
+# Auto-detect best available backend (default)
+.\StreamBench.exe --ai --ai-backend auto
 
 # Quick mode — cached models only, skip shared pass, 1 model/device (CI/automated)
 .\StreamBench.exe --ai --quick-ai
@@ -294,6 +338,10 @@ relation questions (Q3 and future Q4/Q5...) on each selected AI device.
 All relation questions use the same question output style and the same
 latency/tokens-per-second reporting method.
 
+When Q3 runs, the main `ai_inference_benchmark_*.json` file now embeds
+`ai_relation_summary` so Q1/Q2/Q3 live together in one artifact, while
+`ai_relation_summary_*.json` is still saved separately for direct inspection.
+
 When benchmarking multiple devices together, StreamBench chooses shared model aliases
 by this order:
 
@@ -310,9 +358,9 @@ falling back to per-device defaults.
 If no alias covers all selected devices, StreamBench automatically falls back to
 the best partial coverage and then runs best-per-device comparison pass.
 
-If NPU model load fails during automatic multi-device comparison, or no NPU
-models exist in the catalog, StreamBench removes NPU from the shared pass and
-continues with CPU/GPU.
+If GPU or NPU models are not available in the current backend catalog,
+StreamBench removes those devices from the active pass automatically and
+continues with the devices that do have compatible models.
 
 For single-device runs, StreamBench uses device-specific priority lists and prefers
 cached models first to reduce download/startup time.
@@ -339,6 +387,38 @@ cached models first to reduce download/startup time.
 │ Q2 (warm)             │       —  │        2.891 │     2.891 │  51.6  │
 ╰───────────────────────┴──────────┴──────────────┴───────────┴────────╯
 ```
+
+### Example output — LM Studio (GPU)
+
+```
+══════════════════════════════════════════════════════════════
+  AI Inference Benchmark — LM Studio
+══════════════════════════════════════════════════════════════
+  Q1 (cold): Hello World!
+  Q2 (warm): How to calculate memory bandwidth on different memory?
+
+── AI Benchmark: GPU (lmstudio-community/phi-3.5-mini-instruct-GGUF) ──
+
+╭──────────────────────────────────────────────────────────╮
+│                     Model Info                           │
+├────────────────────────┬─────────────────────────────────┤
+│ Device                 │ GPU                             │
+│ Model ID               │ phi-3.5-mini-instruct-GGUF      │
+│ Alias                  │ phi-3.5-mini                    │
+│ Execution Provider     │ llama.cpp                       │
+╰────────────────────────┴─────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────────────────────╮
+│                         Inference Timing                                │
+├────────────────────────┬───────────────┬─────────────┬────────┬─────────┤
+│ Run                    │ Model Load (s)│ Response (s)│Total(s)│ Tok/sec │
+├────────────────────────┼───────────────┼─────────────┼────────┼─────────┤
+│ Q1 (cold, incl. load)  │         3.210 │       0.892 │  4.102 │    48.3 │
+│ Q2 (warm)              │             — │       1.756 │  1.756 │    52.1 │
+╰────────────────────────┴───────────────┴─────────────┴────────┴─────────╯
+```
+
+> LM Studio runs a single GPU pass (no device targeting). Use `--ai-backend lmstudio` to select it explicitly.
 
 ### Key metrics
 

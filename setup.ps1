@@ -13,7 +13,7 @@
 #   4. (Source mode only) Runs "dotnet restore" for base + AI packages
 #   5. Checks GPU driver / OpenCL availability for GPU benchmark
 #   6. (Optional) Checks / installs PowerShell 7
-#   7. (Optional) Installs Microsoft Foundry Local for AI benchmark
+#   7. (Optional) Installs AI backends (Microsoft Foundry Local and/or LM Studio)
 #
 # Usage:
 #   .\setup.ps1
@@ -287,7 +287,7 @@ if ($hasSource) {
         }
     }
 } else {
-    Write-Host '  [3/7] MSVC Build Tools — [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
+    Write-Host '  [3/7] MSVC Build Tools -- [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
 }
 Write-Host ''
 
@@ -298,7 +298,7 @@ if ($hasSource) {
     Write-Host '  [4/7] Running dotnet restore...' -ForegroundColor Cyan
 
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-        Write-Host '  [SKIP] dotnet not available — install .NET 10 SDK first.' -ForegroundColor Yellow
+        Write-Host '  [SKIP] dotnet not available -- install .NET 10 SDK first.' -ForegroundColor Yellow
     } else {
         dotnet restore "$csproj" --nologo
         $restoreBase = $LASTEXITCODE
@@ -323,11 +323,11 @@ if ($hasSource) {
         if ($LASTEXITCODE -eq 0) {
             Write-Host '  [OK] AI package restore succeeded.' -ForegroundColor Green
         } else {
-            Write-Host '  [!] AI package restore failed (non-fatal — AI benchmark is optional).' -ForegroundColor Yellow
+            Write-Host '  [!] AI package restore failed (non-fatal -- AI benchmark is optional).' -ForegroundColor Yellow
         }
     }
 } else {
-    Write-Host '  [4/7] dotnet restore — [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
+    Write-Host '  [4/7] dotnet restore -- [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
 }
 Write-Host ''
 
@@ -338,7 +338,7 @@ Write-Host '  [5/7] Checking GPU driver / OpenCL availability...' -ForegroundCol
 
 $openclDll = Join-Path $env:SystemRoot 'System32\OpenCL.dll'
 if (Test-Path $openclDll) {
-    Write-Host '  [OK] OpenCL.dll found — GPU benchmark should work.' -ForegroundColor Green
+    Write-Host '  [OK] OpenCL.dll found -- GPU benchmark should work.' -ForegroundColor Green
 } else {
     Write-Host '  [!] OpenCL.dll not found in System32.' -ForegroundColor Yellow
     Write-Host '      GPU benchmark requires an OpenCL-capable GPU with up-to-date drivers.' -ForegroundColor Yellow
@@ -346,7 +346,7 @@ if (Test-Path $openclDll) {
     Write-Host '        NVIDIA : https://www.nvidia.com/drivers' -ForegroundColor Yellow
     Write-Host '        AMD    : https://www.amd.com/en/support' -ForegroundColor Yellow
     Write-Host '        Intel  : https://www.intel.com/content/www/us/en/download-center' -ForegroundColor Yellow
-    Write-Host '      (GPU benchmark is optional — CPU benchmark will still work.)' -ForegroundColor DarkGray
+    Write-Host '      (GPU benchmark is optional -- CPU benchmark will still work.)' -ForegroundColor DarkGray
 }
 Write-Host ''
 
@@ -378,213 +378,357 @@ if (Get-Command pwsh -ErrorAction SilentlyContinue) {
 Write-Host ''
 
 # ------------------------------------------------------------------
-#  7. Microsoft Foundry Local (for AI benchmark)
+#  7. AI Backend Setup (Foundry Local and/or LM Studio)
 # ------------------------------------------------------------------
-Write-Host '  [7/7] Checking Microsoft Foundry Local (AI benchmark)...' -ForegroundColor Cyan
+Write-Host '  [7/7] Setting up AI backend (AI benchmark)...' -ForegroundColor Cyan
+
+# ── Detect available backends ──
 
 # Refresh PATH before checking — catches installs done in other sessions
 $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
             [System.Environment]::GetEnvironmentVariable('PATH', 'User')
 
-$foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
-             [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
+# Foundry detection (Windows / macOS)
+$foundryOk = $false
+$foundryCmd = $null
+if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+    $foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
+                 [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
 
-# MSIX alias fallback: probe well-known WindowsApps path if not on PATH yet
-if (-not $foundryOk) {
-    $msixDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
-    foreach ($name in @('foundry.exe', 'foundrylocal.exe')) {
-        $fullPath = Join-Path $msixDir $name
-        if (Test-Path $fullPath) {
-            $foundryOk = $true
-            break
+    # MSIX alias fallback: probe well-known WindowsApps path if not on PATH yet
+    if (-not $foundryOk) {
+        $msixDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+        foreach ($name in @('foundry.exe', 'foundrylocal.exe')) {
+            $fullPath = Join-Path $msixDir $name
+            if (Test-Path $fullPath) {
+                $foundryOk = $true
+                break
+            }
+        }
+        if ($foundryOk -and ($env:PATH -notlike "*$msixDir*")) {
+            $env:PATH = "$msixDir;$env:PATH"
         }
     }
     if ($foundryOk) {
-        # Ensure WindowsApps is on PATH for this session
-        if ($env:PATH -notlike "*$msixDir*") {
-            $env:PATH = "$msixDir;$env:PATH"
+        $foundryCmd = if (Get-Command foundry -ErrorAction SilentlyContinue) { 'foundry' } else { 'foundrylocal' }
+    }
+}
+
+# LM Studio detection (cross-platform)
+$lmsOk = $false
+$lmsCmd = $null
+if (Get-Command lms -ErrorAction SilentlyContinue) {
+    $lmsOk = $true
+    $lmsCmd = 'lms'
+} else {
+    # Probe well-known LM Studio CLI paths
+    $lmsPaths = @()
+    if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+        $lmsPaths += Join-Path $env:USERPROFILE '.lmstudio\bin\lms.exe'
+        $lmsPaths += Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\resources\app\.webpack\lms.exe'
+        $lmsPaths += Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\resources\bin\lms.exe'
+        $lmsPaths += Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\lms.exe'
+    } elseif ($IsMacOS) {
+        $lmsPaths += Join-Path $HOME '.lmstudio/bin/lms'
+        $lmsPaths += '/usr/local/bin/lms'
+    } else {
+        $lmsPaths += Join-Path $HOME '.lmstudio/bin/lms'
+    }
+    foreach ($p in $lmsPaths) {
+        if (Test-Path $p) {
+            $lmsOk = $true
+            $lmsCmd = $p
+            break
         }
     }
 }
 
-if ($foundryOk) {
-    Write-Host '  [OK] Microsoft Foundry Local CLI is installed.' -ForegroundColor Green
-    # Validate service actually works
-    $foundryCmd = if (Get-Command foundry -ErrorAction SilentlyContinue) { 'foundry' } else { 'foundrylocal' }
-    try {
-        $statusOutput = & $foundryCmd service status 2>&1
-        $statusStr = ($statusOutput | Out-String)
-        if ($statusStr -match 'running') {
-            Write-Host '  [OK] Foundry Local service is running.' -ForegroundColor Green
-        } else {
-            Write-Host '  [!] Foundry Local CLI found but service not running.' -ForegroundColor Yellow
-            Write-Host "      Start it with: $foundryCmd service start" -ForegroundColor Yellow
-        }
-    } catch {
-        Write-Host '  [!] Foundry Local CLI found but service check failed.' -ForegroundColor Yellow
-        Write-Host "      Try: $foundryCmd service start" -ForegroundColor Yellow
-    }
+# Report what's detected
+Write-Host ''
+if ($foundryOk) { Write-Host '  [OK] Microsoft Foundry Local is installed.' -ForegroundColor Green }
+else            { Write-Host '  [--] Microsoft Foundry Local not found.' -ForegroundColor DarkGray }
+if ($lmsOk)     { Write-Host '  [OK] LM Studio is installed.' -ForegroundColor Green }
+else            { Write-Host '  [--] LM Studio not found.' -ForegroundColor DarkGray }
+Write-Host ''
 
-    # Check if any models are already cached (fast local-only check)
-    try {
-        $cacheOutput = & $foundryCmd cache list 2>&1 | Out-String
-        $hasCachedModels = ($cacheOutput -match 'phi-|qwen|deepseek|gpt-')
-        if ($hasCachedModels) {
-            Write-Host '  [OK] AI models are cached and ready.' -ForegroundColor Green
-        } else {
-            # No models cached — on first run, 'foundry model list' downloads
-            # execution providers (EPs) for your hardware, which can take several
-            # minutes.  Show progress so the user knows it is not hung.
-            Write-Host '  [!] No AI models cached yet.' -ForegroundColor Yellow
-            Write-Host '      First-time setup: downloading execution providers for your hardware...' -ForegroundColor Cyan
-            Write-Host '      (This is a one-time download and may take several minutes.)' -ForegroundColor Yellow
-            $epStart = Get-Date
-            Write-Host "      Started: $($epStart.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-            # Run with timeout (5 min) to prevent indefinite hangs
-            $epJob = Start-Job -ScriptBlock { param($cmd) & $cmd model list 2>&1 } -ArgumentList $foundryCmd
-            $epTimedOut = $false
-            while ($epJob.State -eq 'Running') {
-                $waited = [int]((Get-Date) - $epStart).TotalSeconds
-                if ($waited -ge 300) { $epTimedOut = $true; break }
-                Write-Host '.' -NoNewline -ForegroundColor Cyan
-                Start-Sleep -Seconds 5
-            }
-            Write-Host ''
-            if ($epTimedOut) {
-                Write-Host '      [!] EP download timed out after 5 min (non-fatal). Stopping...' -ForegroundColor Yellow
-                $epJob | Stop-Job -PassThru | Remove-Job -Force
+# ── Ask user which backend to set up ──
+
+Write-Host '  Select AI backend for StreamBench:' -ForegroundColor Cyan
+Write-Host '    [1] Microsoft Foundry Local  (Windows/macOS, NPU/GPU/CPU support)' -ForegroundColor White
+Write-Host '    [2] LM Studio               (Windows/macOS/Linux, GPU/CPU)' -ForegroundColor White
+Write-Host '    [3] Both' -ForegroundColor White
+Write-Host '    [4] Skip AI setup' -ForegroundColor DarkGray
+Write-Host ''
+
+$aiChoice = Read-Host '  Enter choice (1-4)'
+if ([string]::IsNullOrWhiteSpace($aiChoice)) {
+    if ($foundryOk -and $lmsOk) { $aiChoice = '3' }
+    elseif ($foundryOk)         { $aiChoice = '1' }
+    elseif ($lmsOk)             { $aiChoice = '2' }
+    else                        { $aiChoice = '3' }
+}
+
+$setupFoundry   = $aiChoice -in @('1', '3')
+$setupLmStudio  = $aiChoice -in @('2', '3')
+
+# ── Foundry Local Setup ──
+
+if ($setupFoundry) {
+    Write-Host ''
+    Write-Host '  -- Foundry Local Setup --' -ForegroundColor Cyan
+    if ($foundryOk) {
+        Write-Host '  [OK] Microsoft Foundry Local CLI is installed.' -ForegroundColor Green
+        try {
+            $statusOutput = & $foundryCmd service status 2>&1
+            $statusStr = ($statusOutput | Out-String)
+            if ($statusStr -match 'running') {
+                Write-Host '  [OK] Foundry Local service is running.' -ForegroundColor Green
             } else {
-                # Suppress catalog dump — only the EP download matters here
-                Receive-Job $epJob | Out-Null
-                Remove-Job $epJob -Force
+                Write-Host '  [!] Foundry Local CLI found but service not running.' -ForegroundColor Yellow
+                Write-Host '      It will start automatically when needed.' -ForegroundColor DarkGray
             }
-            $epSec = [int]((Get-Date) - $epStart).TotalSeconds
-            Write-Host "      Execution providers ready in ${epSec}s." -ForegroundColor DarkGray
-            Write-Host ''
-            Write-Host '  Downloading default AI model (phi-3.5-mini)...' -ForegroundColor Cyan
-            Write-Host '      (This may take several minutes on first run.)' -ForegroundColor Yellow
-            $dlStart = Get-Date
-            Write-Host "      Started: $($dlStart.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-            # Run with timeout (10 min) to prevent indefinite hangs
-            $dlJob = Start-Job -ScriptBlock { param($cmd) & $cmd model download phi-3.5-mini 2>&1 } -ArgumentList $foundryCmd
-            $dlTimedOut = $false
-            while ($dlJob.State -eq 'Running') {
-                $waited = [int]((Get-Date) - $dlStart).TotalSeconds
-                if ($waited -ge 600) { $dlTimedOut = $true; break }
-                Write-Host '.' -NoNewline -ForegroundColor Cyan
-                Start-Sleep -Seconds 5
-            }
-            Write-Host ''
-            if ($dlTimedOut) {
-                Write-Host "      [!] Model download timed out after 10 min (non-fatal). Stopping..." -ForegroundColor Yellow
-                $dlJob | Stop-Job -PassThru | Remove-Job -Force
-                $dlSec = 600
-            } else {
-                $dlOutput = Receive-Job $dlJob 2>&1 | Out-String
-                Remove-Job $dlJob -Force
-                $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
-            }
-            if ($LASTEXITCODE -eq 0) {
-                Write-Host "  [OK] Default model (phi-3.5-mini) downloaded in ${dlSec}s." -ForegroundColor Green
-            } else {
-                Write-Host "  [!] Model download failed after ${dlSec}s (non-fatal). Try manually: foundry model run phi-3.5-mini" -ForegroundColor Yellow
-            }
+        } catch {
+            Write-Host '  [!] Could not check Foundry Local service status.' -ForegroundColor Yellow
         }
-    } catch {
-        Write-Host '  [!] Could not check model cache (non-fatal).' -ForegroundColor Yellow
-    }
-} else {
-    Write-Host '  [!] Foundry Local not found (required for AI benchmark).' -ForegroundColor Yellow
-    if ($hasWinget) {
-        Write-Host '  Installing Microsoft Foundry Local via winget...' -ForegroundColor Yellow
-        winget install Microsoft.FoundryLocal --accept-package-agreements --accept-source-agreements --silent
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host '  [OK] Foundry Local installed.' -ForegroundColor Green
-            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
-                        [System.Environment]::GetEnvironmentVariable('PATH', 'User')
-            # Probe MSIX alias in well-known WindowsApps path
-            $foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
-                         [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
-            if (-not $foundryOk) {
-                $msixDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
-                foreach ($name in @('foundry.exe', 'foundrylocal.exe')) {
-                    $fullPath = Join-Path $msixDir $name
-                    if (Test-Path $fullPath) {
-                        $foundryOk = $true
-                        if ($env:PATH -notlike "*$msixDir*") {
-                            $env:PATH = "$msixDir;$env:PATH"
-                        }
-                        break
+
+        # Check for cached models
+        try {
+            $cacheOutput = & $foundryCmd cache list 2>&1 | Out-String
+            $hasCachedModels = ($cacheOutput -match 'phi-|qwen|deepseek|gpt-')
+            if ($hasCachedModels) {
+                Write-Host '  [OK] AI models are cached and ready.' -ForegroundColor Green
+            } else {
+                Write-Host '  No cached AI models found. Bootstrapping catalog & default model...' -ForegroundColor Yellow
+
+                # Download execution providers (first-time, up to 5 min)
+                Write-Host '  Downloading execution providers (first run only)...' -ForegroundColor Cyan
+                $epStart = Get-Date
+                $epJob = Start-Job -ScriptBlock { param($cmd) & $cmd model list 2>&1 } -ArgumentList $foundryCmd
+                while ($epJob.State -eq 'Running') {
+                    if ([int]((Get-Date) - $epStart).TotalSeconds -ge 300) { break }
+                    Write-Host '.' -NoNewline -ForegroundColor Cyan
+                    Start-Sleep -Seconds 5
+                }
+                Write-Host ''
+                if ($epJob.State -eq 'Running') {
+                    Write-Host '  [!] EP download timed out (non-fatal).' -ForegroundColor Yellow
+                    $epJob | Stop-Job -PassThru | Remove-Job -Force
+                } else {
+                    Remove-Job $epJob -Force
+                    $epSec = [int]((Get-Date) - $epStart).TotalSeconds
+                    Write-Host "  Execution providers ready in ${epSec}s." -ForegroundColor DarkGray
+                }
+
+                # Download default model phi-3.5-mini (up to 10 min)
+                Write-Host '  Downloading default AI model (phi-3.5-mini)...' -ForegroundColor Cyan
+                Write-Host '  (This may take several minutes on first run.)' -ForegroundColor Yellow
+                $dlStart = Get-Date
+                $dlJob = Start-Job -ScriptBlock { param($cmd) & $cmd model download phi-3.5-mini 2>&1 } -ArgumentList $foundryCmd
+                while ($dlJob.State -eq 'Running') {
+                    if ([int]((Get-Date) - $dlStart).TotalSeconds -ge 600) { break }
+                    Write-Host '.' -NoNewline -ForegroundColor Cyan
+                    Start-Sleep -Seconds 5
+                }
+                Write-Host ''
+                if ($dlJob.State -eq 'Running') {
+                    Write-Host '  [!] Model download timed out after 10 min (non-fatal).' -ForegroundColor Yellow
+                    $dlJob | Stop-Job -PassThru | Remove-Job -Force
+                } else {
+                    $dlOutput = Receive-Job $dlJob 2>&1 | Out-String
+                    Remove-Job $dlJob -Force
+                    $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "  [OK] Default model (phi-3.5-mini) downloaded in ${dlSec}s." -ForegroundColor Green
+                    } else {
+                        Write-Host "  [!] Model download may have issues (non-fatal). Try: foundry model run phi-3.5-mini" -ForegroundColor Yellow
                     }
                 }
             }
-            if (-not $foundryOk) {
-                Write-Host '  [!] Foundry Local installed but CLI not yet on PATH.' -ForegroundColor Yellow
-                Write-Host '      Please restart your terminal/PowerShell session, then re-run setup.ps1.' -ForegroundColor Yellow
-            } else {
-                # CLI is reachable — first-run EP download + default model
-                $foundryCmd = if (Get-Command foundry -ErrorAction SilentlyContinue) { 'foundry' } else { 'foundrylocal' }
-                Write-Host '      First-time setup: downloading execution providers for your hardware...' -ForegroundColor Cyan
-                Write-Host '      (This is a one-time download and may take several minutes.)' -ForegroundColor Yellow
-                $epStart2 = Get-Date
-                Write-Host "      Started: $($epStart2.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-                # Run with timeout (5 min) to prevent indefinite hangs
-                $epJob2 = Start-Job -ScriptBlock { param($cmd) & $cmd model list 2>&1 } -ArgumentList $foundryCmd
-                $epTimedOut2 = $false
-                while ($epJob2.State -eq 'Running') {
-                    $waited2 = [int]((Get-Date) - $epStart2).TotalSeconds
-                    if ($waited2 -ge 300) { $epTimedOut2 = $true; break }
-                    Write-Host '.' -NoNewline -ForegroundColor Cyan
-                    Start-Sleep -Seconds 5
-                }
-                Write-Host ''
-                if ($epTimedOut2) {
-                    Write-Host '      [!] EP download timed out after 5 min (non-fatal). Stopping...' -ForegroundColor Yellow
-                    $epJob2 | Stop-Job -PassThru | Remove-Job -Force
-                } else {
-                    # Suppress catalog dump — only the EP download matters here
-                    Receive-Job $epJob2 | Out-Null
-                    Remove-Job $epJob2 -Force
-                }
-                $epSec2 = [int]((Get-Date) - $epStart2).TotalSeconds
-                Write-Host "      Execution providers ready in ${epSec2}s." -ForegroundColor DarkGray
-                Write-Host ''
-                Write-Host '  Downloading default AI model (phi-3.5-mini)...' -ForegroundColor Cyan
-                Write-Host '      (This may take several minutes on first run.)' -ForegroundColor Yellow
-                $dlStart2 = Get-Date
-                Write-Host "      Started: $($dlStart2.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-                # Run with timeout (10 min) to prevent indefinite hangs
-                $dlJob2 = Start-Job -ScriptBlock { param($cmd) & $cmd model download phi-3.5-mini 2>&1 } -ArgumentList $foundryCmd
-                $dlTimedOut2 = $false
-                while ($dlJob2.State -eq 'Running') {
-                    $waited2 = [int]((Get-Date) - $dlStart2).TotalSeconds
-                    if ($waited2 -ge 600) { $dlTimedOut2 = $true; break }
-                    Write-Host '.' -NoNewline -ForegroundColor Cyan
-                    Start-Sleep -Seconds 5
-                }
-                Write-Host ''
-                if ($dlTimedOut2) {
-                    Write-Host "      [!] Model download timed out after 10 min (non-fatal). Stopping..." -ForegroundColor Yellow
-                    $dlJob2 | Stop-Job -PassThru | Remove-Job -Force
-                    $dlSec2 = 600
-                } else {
-                    $dlOutput2 = Receive-Job $dlJob2 2>&1 | Out-String
-                    Remove-Job $dlJob2 -Force
-                    $dlSec2 = [int]((Get-Date) - $dlStart2).TotalSeconds
-                }
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host "  [OK] Default model (phi-3.5-mini) downloaded in ${dlSec2}s." -ForegroundColor Green
-                } else {
-                    Write-Host "  [!] Model download failed after ${dlSec2}s (non-fatal). Try: foundry model run phi-3.5-mini" -ForegroundColor Yellow
-                }
-            }
-        } else {
-            Write-Host '  [!] Installation may have failed (non-fatal — AI benchmark is optional).' -ForegroundColor Yellow
-            Write-Host '      Install manually: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+        } catch {
+            Write-Host '  [!] Could not check cached models (non-fatal).' -ForegroundColor Yellow
         }
     } else {
-        Write-Host '  Install manually: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+        # Foundry not installed — attempt install
+        if ($hasWinget) {
+            Write-Host '  Installing Microsoft Foundry Local via winget...' -ForegroundColor Yellow
+            winget install Microsoft.FoundryLocal --accept-package-agreements --accept-source-agreements --silent
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host '  [OK] Foundry Local installed.' -ForegroundColor Green
+                $msixDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+                $foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
+                             [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
+                if (-not $foundryOk) {
+                    foreach ($name in @('foundry.exe', 'foundrylocal.exe')) {
+                        if (Test-Path (Join-Path $msixDir $name)) { $foundryOk = $true; break }
+                    }
+                    if ($foundryOk -and ($env:PATH -notlike "*$msixDir*")) {
+                        $env:PATH = "$msixDir;$env:PATH"
+                    }
+                }
+                if ($foundryOk) {
+                    $foundryCmd = if (Get-Command foundry -ErrorAction SilentlyContinue) { 'foundry' } else { 'foundrylocal' }
+                    Write-Host '  Bootstrapping execution providers...' -ForegroundColor Cyan
+                    $epStart2 = Get-Date
+                    $epJob2 = Start-Job -ScriptBlock { param($cmd) & $cmd model list 2>&1 } -ArgumentList $foundryCmd
+                    while ($epJob2.State -eq 'Running') {
+                        if ([int]((Get-Date) - $epStart2).TotalSeconds -ge 300) { break }
+                        Write-Host '.' -NoNewline -ForegroundColor Cyan
+                        Start-Sleep -Seconds 5
+                    }
+                    Write-Host ''
+                    if ($epJob2.State -eq 'Running') {
+                        $epJob2 | Stop-Job -PassThru | Remove-Job -Force
+                    } else {
+                        Remove-Job $epJob2 -Force
+                    }
+                }
+            } else {
+                Write-Host '  [!] Foundry install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
+                Write-Host '      Install manually: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host '  [!] winget not available. Install Foundry manually:' -ForegroundColor Yellow
+            Write-Host '      winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+        }
     }
+}
+
+# ── LM Studio Setup ──
+
+if ($setupLmStudio) {
+    Write-Host ''
+    Write-Host '  -- LM Studio Setup --' -ForegroundColor Cyan
+    if ($lmsOk) {
+        Write-Host "  [OK] LM Studio CLI found at: $lmsCmd" -ForegroundColor Green
+
+        # Check if server is running by probing the default port
+        $lmsRunning = $false
+        try {
+            $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:1234/v1/models' -TimeoutSec 3 -ErrorAction Stop
+            $lmsRunning = $true
+            Write-Host '  [OK] LM Studio server is running on port 1234.' -ForegroundColor Green
+        } catch {
+            Write-Host '  [--] LM Studio server is not running (will start automatically when needed).' -ForegroundColor DarkGray
+        }
+
+        # Check loaded models
+        if ($lmsRunning) {
+            try {
+                $models = ($resp.Content | ConvertFrom-Json).data
+                if ($models.Count -gt 0) {
+                    Write-Host "  [OK] $($models.Count) model(s) loaded in LM Studio:" -ForegroundColor Green
+                    foreach ($m in $models) {
+                        Write-Host "       - $($m.id)" -ForegroundColor DarkGray
+                    }
+                } else {
+                    Write-Host '  [!] No models loaded. Load a model in LM Studio before running AI benchmark.' -ForegroundColor Yellow
+                    Write-Host '      Popular models: phi-3.5-mini-instruct, qwen2.5-0.5b, gemma-2b (GGUF format)' -ForegroundColor DarkGray
+                }
+            } catch {
+                Write-Host '  [!] Could not query loaded models.' -ForegroundColor Yellow
+            }
+        }
+    } else {
+        # LM Studio not installed — attempt auto-install
+        if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+            if ($hasWinget) {
+                Write-Host '  Installing LM Studio via winget...' -ForegroundColor Yellow
+                winget install ElementLabs.LMStudio --accept-package-agreements --accept-source-agreements --silent
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host '  [OK] LM Studio installed.' -ForegroundColor Green
+
+                    # Refresh PATH from registry so newly-installed commands are visible
+                    $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
+                    $userPath    = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+                    $env:PATH    = "$machinePath;$userPath"
+
+                    # Re-detect lms CLI after install
+                    $lmsOk = [bool](Get-Command lms -ErrorAction SilentlyContinue)
+                    if (-not $lmsOk) {
+                        $lmsWellKnown = @(
+                            (Join-Path $env:USERPROFILE '.lmstudio\bin\lms.exe'),
+                            (Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\resources\app\.webpack\lms.exe'),
+                            (Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\resources\bin\lms.exe'),
+                            (Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\lms.exe')
+                        )
+                        foreach ($p in $lmsWellKnown) {
+                            if (Test-Path $p) {
+                                $lmsOk = $true
+                                $lmsCmd = $p
+                                $lmsDir = Split-Path $p -Parent
+                                if ($env:PATH -notlike "*$lmsDir*") {
+                                    $env:PATH = "$lmsDir;$env:PATH"
+                                }
+                                break
+                            }
+                        }
+                    } else {
+                        $lmsCmd = 'lms'
+                    }
+                    if ($lmsOk) {
+                        Write-Host "  [OK] LM Studio CLI available at: $lmsCmd" -ForegroundColor Green
+                    } else {
+                        Write-Host '  [!] LM Studio installed but CLI not found on PATH.' -ForegroundColor Yellow
+                        Write-Host '      Open LM Studio once to register the CLI, then re-run setup.' -ForegroundColor DarkGray
+                    }
+                } else {
+                    Write-Host '  [!] LM Studio install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
+                    Write-Host '      Install manually: winget install ElementLabs.LMStudio' -ForegroundColor Yellow
+                    Write-Host '      Or download from https://lmstudio.ai' -ForegroundColor DarkGray
+                }
+            } else {
+                Write-Host '  [!] winget not available. Install LM Studio manually:' -ForegroundColor Yellow
+                Write-Host '      winget install ElementLabs.LMStudio' -ForegroundColor Yellow
+                Write-Host '      Or download from https://lmstudio.ai' -ForegroundColor DarkGray
+            }
+        } elseif ($IsMacOS) {
+            if (Get-Command brew -ErrorAction SilentlyContinue) {
+                Write-Host '  Installing LM Studio via Homebrew...' -ForegroundColor Yellow
+                brew install --cask lm-studio
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host '  [OK] LM Studio installed.' -ForegroundColor Green
+                    # Re-detect
+                    $lmsCheck = Join-Path $HOME '.lmstudio/bin/lms'
+                    if (Test-Path $lmsCheck) { $lmsOk = $true; $lmsCmd = $lmsCheck }
+                    elseif (Get-Command lms -ErrorAction SilentlyContinue) { $lmsOk = $true; $lmsCmd = 'lms' }
+                } else {
+                    Write-Host '  [!] LM Studio install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
+                    Write-Host '      Install manually: brew install --cask lm-studio' -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host '  [!] Homebrew not available. Install LM Studio manually:' -ForegroundColor Yellow
+                Write-Host '      brew install --cask lm-studio' -ForegroundColor Yellow
+                Write-Host '      Or download from https://lmstudio.ai' -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Host '  [!] Automatic LM Studio install is not supported on Linux.' -ForegroundColor Yellow
+            Write-Host '      Download AppImage from https://lmstudio.ai' -ForegroundColor DarkGray
+        }
+        if ($lmsOk) {
+            Write-Host ''
+            Write-Host '  After opening LM Studio, download a model (e.g. phi-3.5-mini-instruct, qwen2.5-0.5b, or gemma-2b in GGUF format).' -ForegroundColor DarkGray
+        }
+    }
+}
+
+# ── Save AI backend config ──
+
+if ($aiChoice -ne '4') {
+    $configBackend = switch ($aiChoice) {
+        '1' { 'Foundry' }
+        '2' { 'LmStudio' }
+        '3' { 'Auto' }
+        default { 'Auto' }
+    }
+    $configPath = Join-Path (Get-Location) 'streambench_ai_config.json'
+    $configObj = @{ Backend = $configBackend } | ConvertTo-Json
+    Set-Content -Path $configPath -Value $configObj -Encoding UTF8
+    Write-Host ''
+    Write-Host "  [OK] AI backend preference saved to streambench_ai_config.json ($configBackend)" -ForegroundColor Green
+}
+
+if ($aiChoice -eq '4') {
+    Write-Host '  Skipping AI setup. Use --ai-backend to configure later.' -ForegroundColor DarkGray
 }
 Write-Host ''
 

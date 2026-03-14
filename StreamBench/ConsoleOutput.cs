@@ -472,7 +472,8 @@ public static class ConsoleOutput
         infoTable.AddRow("[cyan]Device[/]",             $"[bold white]{r.DeviceType}[/]");
         infoTable.AddRow("[cyan]Model ID[/]",            $"[white]{r.ModelId}[/]");
         infoTable.AddRow("[cyan]Alias[/]",               $"[white]{r.ModelAlias}[/]");
-        infoTable.AddRow("[cyan]Execution Provider[/]",  $"[white]{r.ExecutionProvider}[/]");
+        if (!string.IsNullOrWhiteSpace(r.ExecutionProvider))
+            infoTable.AddRow("[cyan]Execution Provider[/]",  $"[white]{r.ExecutionProvider}[/]");
         infoTable.AddRow("[cyan]Timestamp[/]",           $"[dim]{r.Timestamp}[/]");
         infoTable.Render();
 
@@ -526,19 +527,7 @@ public static class ConsoleOutput
             .ToList()
             ?? [];
 
-        // Pass 1: Shared model comparison
-        if (twoPassResult.SharedResults.Count > 0)
-        {
-            Console.WriteLine();
-            WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-            WriteMarkup("[bold cyan]  Pass 1 — Shared Model Device Comparison[/]");
-            WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-            Console.WriteLine();
-
-            PrintAiComparisonTable(twoPassResult.SharedResults);
-        }
-
-        // Pass 2: Best-per-device performance
+        // Best-per-device first: shows peak throughput each device can achieve
         if (twoPassResult.BestPerDeviceResults.Count > 0)
         {
             // Check if any model actually differs from the shared pass
@@ -552,13 +541,27 @@ public static class ConsoleOutput
 
             Console.WriteLine();
             WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-            WriteMarkup("[bold cyan]  Pass 2 — Best-Per-Device Performance[/]");
+            WriteMarkup("[bold cyan]  Best-Per-Device Performance (fastest model per device)[/]");
             WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-            if (!hasDifferentModels)
-                WriteMarkup("[dim]  (All devices used the same model as Pass 1)[/]");
+            if (!hasDifferentModels && twoPassResult.SharedResults.Count > 0)
+                WriteMarkup("[dim]  (All devices used the same model as the shared comparison)[/]");
+            else if (hasDifferentModels)
+                WriteMarkup("[dim]  Note: Different models per device — not a direct device comparison.[/]");
             Console.WriteLine();
 
             PrintAiComparisonTable(twoPassResult.BestPerDeviceResults);
+        }
+
+        // Shared model last: the fair apples-to-apples device comparison (final result)
+        if (twoPassResult.SharedResults.Count > 0)
+        {
+            Console.WriteLine();
+            WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+            WriteMarkup("[bold cyan]  Shared Model Device Comparison (same model, fair comparison)[/]");
+            WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+            Console.WriteLine();
+
+            PrintAiComparisonTable(twoPassResult.SharedResults);
         }
 
         // Relation analysis questions (Q3+): timing + answer preview

@@ -27,6 +27,7 @@ using StreamBench;
 using StreamBench.Models;
 
 Console.OutputEncoding = Encoding.UTF8;
+CliLog.InitializeFromEnvironment();
 
 // ── Global unhandled exception handler ─────────────────────────────────
 AppDomain.CurrentDomain.UnhandledException += (_, e) =>
@@ -62,6 +63,7 @@ catch (Exception ex)
 TraceLog.AppExiting(finalExitCode);
 if (finalExitCode != 0)
     ConsoleOutput.WriteMarkup($"[dim]  Trace log: {TraceLog.LogPath}[/]");
+CliLog.Shutdown();
 return finalExitCode;
 
 // ── Main logic wrapped in a function for top-level error handling ──────
@@ -79,12 +81,16 @@ async Task<int> RunMainAsync(string[] args)
     bool   aiSharedOnly = false;   // --ai-shared-only (skip best-per-device pass)
     bool   aiNoDownload = false;   // --ai-no-download (cached models only)
     bool   aiQuick     = false;   // --quick-ai / --ai-quick (CI: skip shared, cached only, 1 model/device)
+    bool   aiOnly      = false;   // --ai-only (skip default CPU/GPU passes)
     string? aiModel   = null;    // --ai-model ALIAS
     string? aiDevices = null;    // --ai-device cpu,gpu,npu (comma-separated)
+    string? aiBackend = null;    // --ai-backend foundry|lmstudio|auto
     long?  arraySize  = null;
     bool   noSave     = false;
     string? outputDir = null;
     string? exePath   = null;
+    string? cpuExePath = null;
+    string? gpuExePath = null;
     int?   gpuDevice  = null;    // specific GPU device index (null = all)
     long   rangeStart = 0, rangeEnd = 0, rangeStep = 50_000_000;
 
@@ -97,6 +103,7 @@ async Task<int> RunMainAsync(string[] args)
                 case "--cpu":   wantCpu = true; modeSet = true; break;
                 case "--gpu":   wantGpu = true; modeSet = true; break;
                 case "--ai":    wantAi  = true; break;
+                case "--ai-only": wantAi = true; aiOnly = true; break;
                 case "--ai-shared-only": aiSharedOnly = true; break;
                 case "--ai-no-download": aiNoDownload = true; break;
                 case "--quick-ai": case "--ai-quick": aiQuick = true; break;
@@ -110,7 +117,11 @@ async Task<int> RunMainAsync(string[] args)
                     aiDevices = args[++i];
                     break;
 
-                case "--array-size" when i + 1 < args.Length:
+                case "--ai-backend" when i + 1 < args.Length:
+                    aiBackend = args[++i];
+                    break;
+
+                case "--array-size"when i + 1 < args.Length:
                     arraySize = ParseSize(args[++i]);
                     break;
 
@@ -120,6 +131,14 @@ async Task<int> RunMainAsync(string[] args)
 
                 case "--exe" when i + 1 < args.Length:
                     exePath = args[++i];
+                    break;
+
+                case "--cpu-exe" when i + 1 < args.Length:
+                    cpuExePath = args[++i];
+                    break;
+
+                case "--gpu-exe" when i + 1 < args.Length:
+                    gpuExePath = args[++i];
                     break;
 
                 case "--gpu-device" when i + 1 < args.Length:
@@ -149,13 +168,34 @@ async Task<int> RunMainAsync(string[] args)
     }
 
     // Keep these flags referenced in non-AI builds to avoid dead-code warnings.
+#if ENABLE_AI
+    var aiOptions = AiExecutionOptions.FromCli(
+        aiDevices,
+        aiModel,
+        aiSharedOnly,
+        aiNoDownload,
+        aiQuick,
+        aiBackend);
+
+    if (!wantAi && aiOptions.HasExplicitSelection)
+        wantAi = true;
+#else
     _ = aiSharedOnly;
     _ = aiNoDownload;
     _ = aiQuick;
 
     // If user provided AI-specific options, enable AI mode automatically.
-    if (!wantAi && (!string.IsNullOrWhiteSpace(aiModel) || !string.IsNullOrWhiteSpace(aiDevices)))
+    if (!wantAi
+        && (!string.IsNullOrWhiteSpace(aiModel)
+            || !string.IsNullOrWhiteSpace(aiDevices)
+            || !string.IsNullOrWhiteSpace(aiBackend)
+            || aiSharedOnly
+            || aiNoDownload
+            || aiQuick))
+    {
         wantAi = true;
+    }
+#endif
 
 #if ENABLE_AI
     // Auto-enable AI when the binary name contains "_ai" and user didn't explicitly set flags
@@ -168,7 +208,7 @@ async Task<int> RunMainAsync(string[] args)
 #endif
 
     // Default: run both CPU and GPU when user didn't specify
-    if (!modeSet)
+    if (!modeSet && !aiOnly)
     {
         wantCpu = true;
         wantGpu = true;
@@ -195,14 +235,14 @@ async Task<int> RunMainAsync(string[] args)
 
     if (wantCpu)
     {
-        exitCode = await RunBenchmarkAsync(isGpu: false, exePath, arraySize,
+        exitCode = await RunBenchmarkAsync(isGpu: false, cpuExePath ?? exePath, arraySize,
             rangeStart, rangeEnd, rangeStep, noSave, outputDir);
         if (wantGpu) Console.WriteLine();
     }
 
     if (wantGpu)
     {
-        int gpuCode = await RunGpuBenchmarksAsync(exePath, arraySize,
+        int gpuCode = await RunGpuBenchmarksAsync(gpuExePath ?? exePath, arraySize,
             rangeStart, rangeEnd, rangeStep, noSave, outputDir, gpuDevice);
         if (gpuCode != 0) exitCode = gpuCode;
     }
@@ -212,8 +252,9 @@ async Task<int> RunMainAsync(string[] args)
 #if ENABLE_AI
         if (wantCpu || wantGpu) Console.WriteLine();
         int aiCode = await RunAiBenchmarkAsync(
-            aiDevices, aiModel, noSave, outputDir,
-            aiSharedOnly, aiNoDownload, aiQuick,
+            aiOptions,
+            noSave,
+            outputDir,
             savedMemoryJsonPaths);
         if (aiCode != 0)
         {
@@ -461,38 +502,32 @@ async Task<int> RunMainAsync(string[] args)
 // ── AI inference benchmark ─────────────────────────────────────────────
 #if ENABLE_AI
 async Task<int> RunAiBenchmarkAsync(
-    string? deviceArg, string? modelAlias, bool noSave, string? outputDir,
-    bool sharedOnly, bool noDownload, bool quickMode = false,
+    AiExecutionOptions aiOptions,
+    bool noSave,
+    string? outputDir,
     IReadOnlyCollection<string>? memoryJsonPaths = null)
 {
-    // Parse comma-separated device list (e.g. "cpu,gpu,npu" or "npu")
-    IEnumerable<string>? deviceFilter = null;
-    if (!string.IsNullOrWhiteSpace(deviceArg))
-    {
-        deviceFilter = deviceArg
-            .Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries)
-            .Select(d => d.Trim());
-    }
-
     ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-    ConsoleOutput.WriteMarkup("[bold cyan]  AI Inference Benchmark — Foundry Local[/]");
+    ConsoleOutput.WriteMarkup($"[bold cyan]  AI Inference Benchmark — {aiOptions.BackendLabel}[/]");
     ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
     ConsoleOutput.WriteMarkup($"[dim]  Q1 (cold): {AiBenchmarkRunner.Q1}[/]");
     ConsoleOutput.WriteMarkup($"[dim]  Q2 (warm): {AiBenchmarkRunner.Q2}[/]");
+    ConsoleOutput.WriteMarkup($"[dim]  Q3 (relation): {AiBenchmarkRunner.Q3Label}[/]");
 
     AiBenchmarkTwoPassResult twoPassResult;
     AiBenchmarkRunner.AiSession? aiSession = null;
     try
     {
-        (twoPassResult, aiSession) = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias, sharedOnly, noDownload, quickMode);
+        (twoPassResult, aiSession) = await AiBenchmarkRunner.RunAsync(aiOptions);
     }
     catch (Exception ex)
     {
         var diag = DiagnosticHelper.LogException(ex);
         ConsoleOutput.WriteMarkup($"[red][FAIL][/] AI benchmark failed: {ex.Message}");
         ConsoleOutput.WriteMarkup($"[dim]  {diag}[/]");
-        ConsoleOutput.WriteMarkup("[dim]  Ensure Microsoft AI Foundry Local is installed:[/]");
-        ConsoleOutput.WriteMarkup("[dim]  Windows: winget install Microsoft.FoundryLocal[/]");
+        ConsoleOutput.WriteMarkup("[dim]  Ensure an AI backend is installed:[/]");
+        ConsoleOutput.WriteMarkup("[dim]  Foundry: winget install Microsoft.FoundryLocal[/]");
+        ConsoleOutput.WriteMarkup("[dim]  LM Studio: https://lmstudio.ai[/]");
         return 1;
     }
 
@@ -503,17 +538,25 @@ async Task<int> RunAiBenchmarkAsync(
     if (allResults.Count == 0)
     {
         ConsoleOutput.WriteMarkup("[yellow][WARN][/] No AI benchmark results were produced.");
-        if (noDownload || quickMode)
+        if (aiOptions.NoDownload || aiOptions.QuickMode)
         {
-            ConsoleOutput.WriteMarkup("[dim]  Cached-only mode was enabled, but no requested model was available in the local Foundry cache.[/]");
+            ConsoleOutput.WriteMarkup($"[dim]  Cached-only mode was enabled, but no requested model was available in the local {(aiSession?.BackendName ?? aiOptions.BackendLabel)} cache.[/]");
             ConsoleOutput.WriteMarkup("[dim]  Re-run without --quick-ai / --ai-no-download, or pre-download a model first:[/]");
             ConsoleOutput.WriteMarkup("[dim]  foundry model run phi-3.5-mini[/]");
         }
+        else if (aiOptions.DeviceFilter.Count == 1 && aiOptions.DeviceFilter[0].Equals("NPU", StringComparison.OrdinalIgnoreCase))
+        {
+            ConsoleOutput.WriteMarkup("[dim]  All NPU models failed to load. Possible causes:[/]");
+            ConsoleOutput.WriteMarkup("[dim]  • NPU driver may not be installed or may need updating[/]");
+            ConsoleOutput.WriteMarkup("[dim]  • Foundry Local NPU execution provider may not support this NPU hardware yet[/]");
+            ConsoleOutput.WriteMarkup("[dim]  Try: foundry --version  and check for Foundry/driver updates[/]");
+            ConsoleOutput.WriteMarkup("[dim]  Or run without --ai-device npu to benchmark CPU/GPU instead[/]");
+        }
         else
         {
-            ConsoleOutput.WriteMarkup("[dim]  Ensure Microsoft AI Foundry Local is installed:[/]");
-            ConsoleOutput.WriteMarkup("[dim]  Windows: winget install Microsoft.FoundryLocal[/]");
-            ConsoleOutput.WriteMarkup("[dim]  macOS:   brew install foundrylocal[/]");
+            ConsoleOutput.WriteMarkup("[dim]  Ensure an AI backend is installed:[/]");
+            ConsoleOutput.WriteMarkup("[dim]  Foundry: winget install Microsoft.FoundryLocal[/]");
+            ConsoleOutput.WriteMarkup("[dim]  LM Studio: https://lmstudio.ai[/]");
         }
         if (aiSession is not null) await aiSession.StopAsync();
         return 1;
@@ -521,14 +564,6 @@ async Task<int> RunAiBenchmarkAsync(
 
     foreach (var r in allResults.DistinctBy(r => (r.DeviceType, r.ModelId)))
         ConsoleOutput.PrintAiResult(r);
-
-    if (!noSave)
-    {
-        ConsoleOutput.WriteMarkup("[bold white]Saving AI benchmark results...[/]");
-        var jsonPath = ResultSaver.SaveAiJson(twoPassResult, outputDir);
-        if (jsonPath is not null) ConsoleOutput.PrintFileSaved(jsonPath);
-        Console.WriteLine();
-    }
 
     AiLocalRelationSummaryResult? relationSummary = null;
 
@@ -560,10 +595,9 @@ async Task<int> RunAiBenchmarkAsync(
         try
         {
             relationSummary = await AiBenchmarkRunner.RunLocalRelationSummaryAsync(
-                summaryDir, modelAlias, deviceFilter,
-                existingCli: aiSession?.Cli,
-                existingServiceUrl: aiSession?.ServiceUrl,
-                existingCatalog: aiSession?.Catalog,
+                summaryDir,
+                aiOptions,
+                existingSession: aiSession,
                 existingAiResults: twoPassResult);
         }
         catch (Exception ex)
@@ -587,6 +621,14 @@ async Task<int> RunAiBenchmarkAsync(
             if (summaryPath is not null) ConsoleOutput.PrintFileSaved(summaryPath);
             Console.WriteLine();
         }
+    }
+
+    if (!noSave)
+    {
+        ConsoleOutput.WriteMarkup("[bold white]Saving AI benchmark results...[/]");
+        var jsonPath = ResultSaver.SaveAiJson(twoPassResult, relationSummary, outputDir);
+        if (jsonPath is not null) ConsoleOutput.PrintFileSaved(jsonPath);
+        Console.WriteLine();
     }
 
     if (!noSave)
@@ -636,14 +678,18 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--no-save[/]                Don't write CSV/JSON files");
     ConsoleOutput.WriteMarkup("  [cyan]--output-dir[/] DIR         Directory for output files (default: current dir)");
     ConsoleOutput.WriteMarkup("  [cyan]--exe[/] PATH               Explicit path to the C backend executable");
+    ConsoleOutput.WriteMarkup("  [cyan]--cpu-exe[/] PATH           Explicit CPU backend path (advanced)");
+    ConsoleOutput.WriteMarkup("  [cyan]--gpu-exe[/] PATH           Explicit GPU backend path (advanced)");
     Console.WriteLine();
-    ConsoleOutput.WriteMarkup("[bold white]AI Inference Benchmark (Foundry Local):[/]");
+    ConsoleOutput.WriteMarkup("[bold white]AI Inference Benchmark:[/]");
     ConsoleOutput.WriteMarkup("  [cyan]--ai[/]                     Run AI inference benchmark on all available devices");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-only[/]                Run AI inference only without default CPU/GPU memory passes");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-shared-only[/]         Skip best-per-device pass (shared model comparison only)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-no-download[/]         Only use cached models (skip downloads for fast repeat runs)");
     ConsoleOutput.WriteMarkup("  [cyan]--quick-ai[/]               Fast CI mode: cached models only, 1 model per device");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-backend[/] TYPE        AI backend: auto (default), foundry, lmstudio");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Diagnostics:[/]");

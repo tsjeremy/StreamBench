@@ -1,5 +1,119 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sat, Mar 15, 2026
+
+  LM Studio integration fixes and AI output improvements
+
+  - Fixed LM Studio model filtering: embedding models (e.g.
+    text-embedding-nomic-embed-text-v1.5) and virtual/system entries
+    (e.g. "You", "Assistant") returned by /v1/models are now excluded
+    from the AI benchmark candidate list.  Also added defense-in-depth
+    filtering in FindBestModel and FindRelationSummaryModel.
+
+  - Fixed LM Studio auto-load hanging: lms load with a fuzzy model
+    name could enter interactive mode waiting for user selection.  Now
+    resolves exact model keys via lms ls before loading.  If no chat
+    models exist on disk, downloads one with lms get --yes.
+
+  - Improved ParseLmsLsOutput to handle LM Studio v0.4+ sectioned
+    output (LLM vs EMBEDDING sections) and skip non-chat models.
+
+  - Reordered AI benchmark summary output: best-per-device results
+    now display first, followed by the shared-model device comparison
+    as the final result for clear apples-to-apples comparison.  Added
+    subtitle notes when different models are used per device.
+
+  - Removed silicon partner specific naming from code and docs.
+
+  Fact-check fixes for AI benchmark accuracy
+
+  - Fixed LPDDR5/LPDDR5X theoretical bandwidth calculation:
+    EstimateTheoreticalMemoryBandwidth() was summing SMBIOS
+    data_width_bits across all modules (8 x 64 = 512-bit = 614.4 GB/s).
+    SMBIOS reports per-entry width including both x16 sub-channels,
+    doubling the actual physical channel width.  Per JEDEC spec, LPDDR5X
+    channels are x32.  Now halves the SMBIOS width for LPDDR5/LPDDR5X,
+    giving the correct 256-bit = 307.2 GB/s for typical 8-channel
+    LPDDR5X mobile configurations.
+
+  - Fixed Q3 relation summary context: the data summary passed to the
+    AI model previously reported "AI JSON files: 0" (because AI results
+    are saved after Q3 runs).  The model interpreted this as no AI data
+    existing, even though current-session AI samples were included in
+    the device aggregates.  Now the context explicitly states when AI
+    data comes from the current session vs. on-disk files.
+
+  - Improved prompt token estimation: when the backend does not report
+    input token counts (common with Foundry Local), prompt_tokens was
+    left at 0.  Now estimates prompt tokens using the same ~4 chars/token
+    heuristic used for completion tokens.
+
+  - Added LPDDR5X bus-width note to the Q3 data summary formula line
+    so the AI model understands the JEDEC sub-channel correction.
+
+-------------------------------------------------------------------------
+
+Revisions as of Sat, Mar 14, 2026
+
+  UX improvements for long-running AI operations
+
+  - Added inference heartbeat messages: periodic "Inference in progress..."
+    status updates every 30 s during long AI inference calls so the user
+    knows the process hasn't frozen.
+
+  - Increased HTTP client timeout from 5 min to 10 min for local AI
+    inference (DirectOpenAiChatClient) to accommodate slow NPU/CPU
+    models on first run.
+
+  - Foundry Local backend: added progress message during service start,
+    added heartbeat during model catalog loading (first-run EP downloads
+    can take several minutes), increased model load timeout from 5 min
+    to 10 min for large models, and increased process kill grace period
+    from 2 s to 5 s for reliable cleanup.
+
+  - LM Studio backend: increased server start timeout from 30 s to 60 s
+    (first-run startup can be slow), increased model load timeout from
+    2 min to 5 min for parity with Foundry, and added progress messages
+    during model loading.
+
+  - AiBenchmarkRunner: added progress messages during catalog queries
+    and auto-load attempts for better feedback on first-run setup.
+
+  - run_stream.ps1: changed AI source build verbosity from quiet (-v:q)
+    to minimal (-v:m) and added "Building..." message so users see
+    progress during compilation.
+
+  Multi-backend AI support: Foundry Local + LM Studio
+
+  - Added pluggable AI backend architecture (IAiBackend, AiBackendFactory,
+    AiBackendConfig) supporting both Microsoft Foundry Local and LM Studio
+    through a unified interface.
+
+  - New --ai-backend CLI flag: choose "foundry", "lmstudio", or "auto"
+    (default). Auto-detection prefers Foundry on Windows, LM Studio
+    on macOS/Linux.
+
+  - Replaced OpenAI .NET SDK with DirectOpenAiChatClient (custom
+    IChatClient via HttpClient) to fix SDK response-parsing failures
+    with local backends that return empty tool_calls arrays.
+
+  - New AI execution options: --ai-only, --ai-shared-only,
+    --ai-no-download, --quick-ai for CI and fast validation scenarios.
+
+  - Added CliLog: console-to-file tee logging when STREAMBENCH_CLI_LOG
+    environment variable is set.
+
+  - Updated setup.ps1 with interactive backend selection menu
+    (Foundry, LM Studio, Both, Skip) and cross-platform LM Studio
+    CLI detection.
+
+  - Updated run_stream.ps1 with AI backend selection support.
+
+  - Verified end-to-end: Foundry Local (CPU, Q1/Q2/Q3), LM Studio
+    (GPU, Q1/Q2/Q3), and auto-detect mode all pass on Windows.
+
+-------------------------------------------------------------------------
+
 Revisions as of Sun, Mar 08, 2026
 
 Version 5.10.23 of stream.c, stream_gpu.c, and StreamBench released.

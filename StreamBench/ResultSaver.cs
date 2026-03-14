@@ -107,10 +107,12 @@ public static class ResultSaver
 
     /// <summary>
     /// Saves all AI inference benchmark results to a single JSON file.
+    /// When available, embeds the relation summary so Q1/Q2/Q3 live together.
     /// Returns the path written, or null on failure.
     /// </summary>
     public static string? SaveAiJson(
         AiBenchmarkTwoPassResult twoPassResult,
+        AiLocalRelationSummaryResult? relationSummary = null,
         string? outputDir = null)
     {
         var allResults = twoPassResult.SharedResults
@@ -124,7 +126,12 @@ public static class ResultSaver
 
         try
         {
-            string json = JsonSerializer.Serialize(twoPassResult, PrettyJson);
+            var root = JsonSerializer.SerializeToNode(twoPassResult, PrettyJson) as JsonObject
+                ?? new JsonObject();
+            if (relationSummary is not null)
+                root["ai_relation_summary"] = JsonSerializer.SerializeToNode(relationSummary, PrettyJson);
+
+            string json = root.ToJsonString(PrettyJson);
             File.WriteAllText(filename, json,
                 new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             TraceLog.FileSaved(filename);

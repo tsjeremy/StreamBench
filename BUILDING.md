@@ -1,6 +1,6 @@
 # Building StreamBench from Source
 
-This guide covers building StreamBench from source. If you just want to run benchmarks, see the [pre-built binaries](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24) — no build required.
+This guide covers building StreamBench from source. If you just want to run benchmarks, see the [pre-built binaries](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.25) — no build required.
 
 ## Build from Source
 
@@ -19,14 +19,15 @@ If you're setting up a fresh Windows machine for source builds and `--ai`, run:
 # .NET SDK (build + dotnet run)
 winget install Microsoft.DotNet.SDK.10
 
-# AI benchmark backend
-winget install Microsoft.FoundryLocal
+# AI benchmark backend (choose one or both)
+winget install Microsoft.FoundryLocal    # Foundry Local (Windows, NPU/GPU/CPU)
+winget install ElementLabs.LMStudio      # LM Studio (cross-platform, GPU/CPU)
 
 # Windows ARM64 only: install x64 .NET runtime for mixed-arch dependencies
 winget install --id Microsoft.DotNet.Runtime.10 --architecture x64
 ```
 
-> **Windows ARM64 note (Snapdragon/Qualcomm):** StreamBench now auto-uses `win-x64`
+> **Windows ARM64 note:** StreamBench now auto-uses `win-x64`
 > for local `dotnet run` on ARM64 Windows. You only need the x64 runtime install command above.
 
 ### New macOS setup
@@ -38,9 +39,14 @@ brew install --cask dotnet-sdk
 # OpenMP support for CPU benchmark multi-threading
 brew install libomp
 
-# AI benchmark backend (Foundry Local)
+# AI benchmark backend (choose one or both)
+# Option A: Foundry Local
 brew tap microsoft/foundrylocal
 brew install foundrylocal
+
+# Option B: LM Studio (cross-platform)
+brew install --cask lm-studio
+# Then open LM Studio and download a model (e.g. phi-3.5-mini-instruct GGUF)
 ```
 
 ### 1. Build everything
@@ -54,6 +60,12 @@ pwsh ./build_all_macos.ps1   # or build_all_linux.ps1
 .\build_all_windows.ps1
 # -> produces stream_cpu_win_x64.exe, stream_gpu_win_x64.exe, and builds StreamBench/
 ```
+
+For source-mode launcher runs (`run_stream.cmd` / `run_stream.ps1` against the
+repo checkout), these native `stream_cpu_*` / `stream_gpu_*` binaries are what
+enable the memory benchmark and Q3 relation summary. If they are missing, the
+launcher now warns and falls back to AI-only mode so local backend validation
+can still continue.
 
 ### 2. Run (CPU benchmark)
 
@@ -81,6 +93,10 @@ dotnet run --project StreamBench -p:EnableAI=true -- --ai
 
 # Narrow to a specific device or model if you want a faster validation pass
 dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-device gpu --ai-model phi-3.5-mini
+
+# Use a specific AI backend
+dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend lmstudio
+dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend foundry
 ```
 
 > `dotnet run --project StreamBench -- --ai` uses the default non-AI build and will skip AI.
@@ -99,10 +115,15 @@ dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-device gpu --ai-m
 --exe PATH               Explicit path to the C backend executable
 --help                   Show help
 
-AI Inference Benchmark (requires Microsoft AI Foundry Local):
+AI Inference Benchmark:
 --ai                     Add AI inference benchmark (memory benchmarks still run by default)
+--ai-only                Run AI inference only without default CPU/GPU memory passes
+--ai-backend TYPE        AI backend: auto (default), foundry, lmstudio
 --ai-device LIST         Comma-separated devices: cpu, gpu, npu (default: all)
 --ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)
+--ai-shared-only         Skip best-per-device pass (shared model comparison only)
+--ai-no-download         Only use cached models (skip downloads for fast repeat runs)
+--quick-ai               Fast CI mode: cached models only, 1 model per device
 ```
 
 When building from source, AI options are only compiled in when you pass `-p:EnableAI=true`.
@@ -165,7 +186,7 @@ It sets up the compiler paths automatically.
 
 > **Tip:** Right-click it and choose **"Pin to taskbar"** for quick access next time.
 >
-> **ARM64 users** (e.g., Snapdragon/Qualcomm laptops): Search for
+> **ARM64 users** (e.g., ARM64 Windows laptops): Search for
 > **"ARM64 Native Tools Command Prompt"** instead.
 
 You'll see a prompt like:
@@ -384,7 +405,19 @@ StreamBench/ (.NET 10 frontend)
 ├── ResultSaver.cs            # JSON / CSV saving
 ├── SystemInfoDetector.cs     # Cross-platform hardware detection
 ├── EmbeddedBackends.cs       # Self-contained binary extraction
-├── AiBenchmarkRunner.cs      # AI inference benchmark (Microsoft.AI.Foundry.Local)
+├── IAiBackend.cs             # AI backend abstraction (Foundry Local, LM Studio)
+├── AiBackendConfig.cs        # Persisted AI backend preferences (streambench_ai_config.json)
+├── AiBackendFactory.cs       # Platform-aware backend auto-detection and creation
+├── AiExecutionOptions.cs     # Typed CLI argument parsing for AI options
+├── FoundryAiBackend.cs       # Foundry Local backend (Windows/macOS, CPU/GPU/NPU)
+├── LmStudioAiBackend.cs      # LM Studio backend (cross-platform, GPU/CPU)
+├── DirectOpenAiChatClient.cs # Lightweight IChatClient for local OpenAI-compatible APIs
+├── AiBenchmarkRunner.cs      # AI inference benchmark orchestrator (two-pass strategy)
+├── CliLog.cs                 # Console-to-file tee logging (STREAMBENCH_CLI_LOG env var)
+├── TraceLog.cs               # Structured diagnostic file logging
+├── DiagnosticHelper.cs       # Logging facade with caller info attributes
+├── VersionInfo.cs            # Centralized version management
+├── SleepPreventer.cs         # Prevent system sleep during long benchmarks
 └── Models/
     ├── BenchmarkResult.cs          # STREAM benchmark result model
     └── AiInferenceBenchmarkResult.cs  # AI benchmark result model
