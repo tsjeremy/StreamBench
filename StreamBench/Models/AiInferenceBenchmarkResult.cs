@@ -33,7 +33,8 @@ public record AiDeviceBenchmarkResult(
     [property: JsonPropertyName("question2")]           string Question2,
     [property: JsonPropertyName("run2")]                AiInferenceRun Run2,
     [property: JsonPropertyName("timestamp")]           string Timestamp,
-    [property: JsonPropertyName("benchmark_pass")]      string BenchmarkPass = "shared"
+    [property: JsonPropertyName("benchmark_pass")]      string BenchmarkPass = "shared",
+    [property: JsonPropertyName("backend_name")]       string BackendName = "unknown"
 );
 
 /// <summary>
@@ -94,5 +95,6 @@ public record AiLocalRelationSummaryResult(
     [property: JsonPropertyName("questions")]                    IReadOnlyList<AiRelationQuestionAnswer> Questions,
     [property: JsonPropertyName("timestamp")]                    string Timestamp,
     [property: JsonPropertyName("summary_device_type")]          string? SummaryDeviceType = null,
-    [property: JsonPropertyName("models")]                       IReadOnlyList<AiRelationModelSelection>? Models = null
+    [property: JsonPropertyName("models")]                       IReadOnlyList<AiRelationModelSelection>? Models = null,
+    [property: JsonPropertyName("backend_name")]                 string? BackendName = null
 );

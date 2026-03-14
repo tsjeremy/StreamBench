@@ -59,6 +59,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
         if (_serviceUrl is not null && IsServerRunning(_serviceUrl))
         {
             TraceLog.DiagnosticInfo($"LM Studio server already running at {_serviceUrl}");
+            TraceLog.LmStudioServerAlreadyRunning(_serviceUrl);
             return _serviceUrl;
         }
 
@@ -67,6 +68,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
         {
             _serviceUrl = DefaultEndpoint;
             TraceLog.DiagnosticInfo($"LM Studio server already running at {_serviceUrl}");
+            TraceLog.LmStudioServerAlreadyRunning(_serviceUrl);
             return _serviceUrl;
         }
 
@@ -75,9 +77,11 @@ internal sealed class LmStudioAiBackend : IAiBackend
         if (_cli is null)
         {
             TraceLog.DiagnosticInfo("LM Studio CLI not found and server not running");
+            TraceLog.LmStudioCliNotFound();
             return null;
         }
 
+        TraceLog.LmStudioServerStarting(DefaultPort);
         TraceLog.AiServiceStarting();
         ConsoleOutput.WriteMarkup("[dim]  Starting LM Studio server...[/]");
 
@@ -92,6 +96,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
                 _ownedServer = true;
                 TraceLog.AiServiceStarted();
                 TraceLog.DiagnosticInfo($"LM Studio server started at {_serviceUrl}");
+                TraceLog.LmStudioServerStarted(_serviceUrl);
                 return _serviceUrl;
             }
             await Task.Delay(1_000, ct);
@@ -104,6 +109,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
             _serviceUrl = url;
             _ownedServer = true;
             TraceLog.AiServiceStarted();
+            TraceLog.LmStudioServerStarted(_serviceUrl);
             return _serviceUrl;
         }
 
@@ -121,6 +127,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
             TraceLog.AiServiceStopping();
             await RunLmsAsync(_cli, "server stop", 10_000);
             TraceLog.AiServiceStopped();
+            TraceLog.LmStudioServerStopped();
         }
         catch (Exception ex)
         {
@@ -162,12 +169,14 @@ internal sealed class LmStudioAiBackend : IAiBackend
             if (models.Count > 0)
             {
                 TraceLog.AiCatalogLoaded(models.Count, 0);
+                TraceLog.DiagnosticInfo($"LM Studio model catalog loaded via REST API ({models.Count} models)");
+                TraceLog.LmStudioModelListed(models.Count);
                 return models;
             }
         }
         catch (Exception ex)
         {
-            TraceLog.DiagnosticInfo($"LM Studio /v1/models query failed: {ex.Message}");
+            TraceLog.Warn($"LM Studio REST API query failed: {ex.Message}");
         }
 
         // Strategy 2: Try CLI ls command
@@ -178,6 +187,8 @@ internal sealed class LmStudioAiBackend : IAiBackend
             {
                 models = ParseLmsLsOutput(stdout);
                 TraceLog.AiCatalogLoaded(models.Count, 0);
+                TraceLog.LmStudioModelListed(models.Count);
+                TraceLog.DiagnosticInfo($"LM Studio model catalog loaded via CLI fallback ({models.Count} models)");
             }
         }
 
@@ -187,8 +198,9 @@ internal sealed class LmStudioAiBackend : IAiBackend
     public async Task<string?> LoadModelAsync(string modelIdOrAlias, CancellationToken ct = default)
     {
         TraceLog.AiModelLoading(modelIdOrAlias, "");
+        TraceLog.LmStudioModelLoading(modelIdOrAlias);
 
-        // If the model is already loaded (via /v1/models), return immediately
+        // If the model is already loaded(via /v1/models), return immediately
         var loadedModels = await ListModelsAsync(ct);
         var match = loadedModels.FirstOrDefault(m =>
             m.Id.Contains(modelIdOrAlias, StringComparison.OrdinalIgnoreCase) ||
@@ -214,6 +226,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
         if (exitCode == 0)
         {
             TraceLog.AiModelLoaded(modelIdOrAlias, sw.ElapsedMilliseconds);
+            TraceLog.LmStudioModelLoaded(modelIdOrAlias, sw.ElapsedMilliseconds);
             // Re-query to get the actual model ID
             loadedModels = await ListModelsAsync(ct);
             match = loadedModels.FirstOrDefault(m =>
@@ -223,6 +236,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
         }
 
         TraceLog.AiModelLoadFailed(modelIdOrAlias, stderr, "LmStudioAiBackend.cs", 0);
+        TraceLog.LmStudioModelLoadFailed(modelIdOrAlias, stderr);
         return null;
     }
 
@@ -237,6 +251,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
         catch (Exception ex)
         {
             DiagnosticHelper.LogWarning($"LM Studio model unload failed for {modelId}: {ex.Message}");
+            TraceLog.Warn($"LM Studio model unload failed: {modelId} — {ex.Message}");
         }
     }
 
@@ -244,6 +259,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
     {
         // LM Studio doesn't have CLI-based download like Foundry.
         // Users must download models through the LM Studio GUI.
+        TraceLog.AiModelDownloadSkipped(modelIdOrAlias, "LM Studio requires manual download via GUI");
         ConsoleOutput.WriteMarkup(
             $"[yellow][INFO][/] LM Studio requires manual model download through the GUI.");
         ConsoleOutput.WriteMarkup(
@@ -297,6 +313,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
         }
 
         TraceLog.DiagnosticInfo("LM Studio CLI (lms) not found");
+        TraceLog.LmStudioCliNotFound();
         return null;
     }
 
@@ -317,6 +334,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
             if (p.ExitCode == 0)
             {
                 TraceLog.DiagnosticInfo($"LM Studio CLI found: {nameOrPath}");
+                TraceLog.LmStudioCliFound(nameOrPath);
                 return nameOrPath;
             }
         }

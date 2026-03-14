@@ -12,6 +12,12 @@ internal static class AiBackendFactory
     /// </summary>
     internal static IAiBackend Create(AiBackendConfig config)
     {
+        if (config.Backend is AiBackendType.Foundry or AiBackendType.LmStudio)
+        {
+            var name = config.Backend == AiBackendType.Foundry ? "Foundry Local" : "LM Studio";
+            TraceLog.AiBackendSelected(name, "User selected via --ai-backend");
+        }
+
         return config.Backend switch
         {
             AiBackendType.Foundry => CreateFoundry(config),
@@ -34,6 +40,7 @@ internal static class AiBackendFactory
             if (foundry.IsAvailable())
             {
                 TraceLog.DiagnosticInfo("Auto-detected: Foundry Local");
+                TraceLog.AiBackendAutoDetect("Foundry Local", "Foundry CLI found on PATH");
                 ConsoleOutput.WriteMarkup("[dim]  Auto-detected AI backend: [white]Foundry Local[/][/]");
                 return foundry;
             }
@@ -44,6 +51,7 @@ internal static class AiBackendFactory
         if (lmStudio.IsAvailable())
         {
             TraceLog.DiagnosticInfo("Auto-detected: LM Studio");
+            TraceLog.AiBackendAutoDetect("LM Studio", "LM Studio CLI found");
             ConsoleOutput.WriteMarkup("[dim]  Auto-detected AI backend: [white]LM Studio[/][/]");
             return lmStudio;
         }
@@ -53,10 +61,12 @@ internal static class AiBackendFactory
         if (OperatingSystem.IsWindows())
         {
             TraceLog.DiagnosticInfo("No AI backend detected; defaulting to Foundry (Windows)");
+            TraceLog.AiBackendAutoDetect("Foundry Local (default)", "No backend found, defaulting for Windows");
             return CreateFoundry(config);
         }
 
         TraceLog.DiagnosticInfo("No AI backend detected; defaulting to LM Studio");
+        TraceLog.AiBackendAutoDetect("LM Studio (default)", "No backend found, defaulting for non-Windows");
         return CreateLmStudio(config);
     }
 

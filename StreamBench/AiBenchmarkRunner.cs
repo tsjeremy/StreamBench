@@ -74,6 +74,7 @@ public static class AiBenchmarkRunner
     internal sealed class AiSession
     {
         public IAiBackend Backend { get; init; } = null!;
+        public string BackendName { get; init; } = "AI";
         public string ServiceUrl { get; set; } = "";
         public List<AiModelInfo> Catalog { get; init; } = [];
 
@@ -186,7 +187,7 @@ public static class AiBenchmarkRunner
             if (allModels.Count == 0)
             {
                 TraceLog.AiCatalogUnavailable("No models found in catalog after retry and bootstrap");
-                ConsoleOutput.WriteMarkup("[yellow][WARN][/] No models found in catalog.");
+                ConsoleOutput.WriteMarkup($"[yellow][WARN][/] No models found in {backend.Name} catalog.");
                 ConsoleOutput.WriteMarkup($"[dim]  For {backend.Name}: ensure a model is loaded and the service is running.[/]");
                 await backend.StopAsync(cancellationToken);
                 return (new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults), null);
@@ -217,7 +218,7 @@ public static class AiBenchmarkRunner
                         TraceLog.NpuHardwareDetected(npuHwInfo);
                         ConsoleOutput.WriteMarkup(
                             $"[yellow][WARN][/] NPU hardware detected ([white]{npuHwInfo}[/]) but no compatible AI models found in catalog.");
-                        ConsoleOutput.WriteMarkup("[dim]  Try updating your AI backend or loading a compatible model.[/]");
+                        ConsoleOutput.WriteMarkup($"[dim]  Try updating {backend.Name} or loading a compatible model.[/]");
                     }
                     else
                     {
@@ -505,7 +506,7 @@ public static class AiBenchmarkRunner
 
         // Return session so caller can reuse it for relation summary and stop it when done.
         // Service is NOT stopped here — caller is responsible for calling session.StopAsync().
-        var session = new AiSession { Backend = backend, ServiceUrl = serviceUrl, Catalog = allModels };
+        var session = new AiSession { Backend = backend, BackendName = backend.Name, ServiceUrl = serviceUrl, Catalog = allModels };
         return (new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults), session);
     }
 
@@ -748,7 +749,8 @@ public static class AiBenchmarkRunner
                 Questions: answers,
                 Timestamp: DateTime.UtcNow.ToString("O"),
                 SummaryDeviceType: summaryDeviceType,
-                Models: selectedModels);
+                Models: selectedModels,
+                BackendName: backend.Name);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -818,7 +820,8 @@ public static class AiBenchmarkRunner
                 Run1:              run1,
                 Question2:         Q2,
                 Run2:              run2,
-                Timestamp:         DateTime.UtcNow.ToString("O"));
+                Timestamp:         DateTime.UtcNow.ToString("O"),
+                BackendName:       backend.Name);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -861,6 +864,8 @@ public static class AiBenchmarkRunner
             int completionTokens = (int)(response.Usage?.OutputTokenCount ?? EstimateTokens(content));
             int promptTokens = (int)(response.Usage?.InputTokenCount ?? 0);
             double tokensPerSec = responseSec > 0 ? completionTokens / responseSec : 0;
+            if (response.Usage?.OutputTokenCount is null)
+                TraceLog.DiagnosticInfo($"Token count estimated (backend did not report usage): ~{completionTokens} tokens");
             string preview = content.Length > 200 ? content[..200] + "…" : content;
 
             TraceLog.AiInferenceCompleted(sw.ElapsedMilliseconds, completionTokens);

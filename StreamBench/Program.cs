@@ -481,10 +481,6 @@ async Task<int> RunAiBenchmarkAsync(
     }
 
     ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-    ConsoleOutput.WriteMarkup("[bold cyan]  AI Inference Benchmark — Foundry Local[/]");
-    ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-    ConsoleOutput.WriteMarkup($"[dim]  Q1 (cold): {AiBenchmarkRunner.Q1}[/]");
-    ConsoleOutput.WriteMarkup($"[dim]  Q2 (warm): {AiBenchmarkRunner.Q2}[/]");
 
     AiBackendType backendType = AiBackendType.Auto;
     if (!string.IsNullOrWhiteSpace(aiBackend))
@@ -497,6 +493,17 @@ async Task<int> RunAiBenchmarkAsync(
             _ => AiBackendType.Auto,
         };
     }
+
+    string backendLabel = backendType switch
+    {
+        AiBackendType.Foundry => "Foundry Local",
+        AiBackendType.LmStudio => "LM Studio",
+        _ => "AI"
+    };
+    ConsoleOutput.WriteMarkup($"[bold cyan]  AI Inference Benchmark — {backendLabel}[/]");
+    ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
+    ConsoleOutput.WriteMarkup($"[dim]  Q1 (cold): {AiBenchmarkRunner.Q1}[/]");
+    ConsoleOutput.WriteMarkup($"[dim]  Q2 (warm): {AiBenchmarkRunner.Q2}[/]");
 
     AiBenchmarkTwoPassResult twoPassResult;
     AiBenchmarkRunner.AiSession? aiSession = null;
@@ -524,15 +531,15 @@ async Task<int> RunAiBenchmarkAsync(
         ConsoleOutput.WriteMarkup("[yellow][WARN][/] No AI benchmark results were produced.");
         if (noDownload || quickMode)
         {
-            ConsoleOutput.WriteMarkup("[dim]  Cached-only mode was enabled, but no requested model was available in the local Foundry cache.[/]");
+            ConsoleOutput.WriteMarkup($"[dim]  Cached-only mode was enabled, but no requested model was available in the local {(aiSession?.BackendName ?? backendLabel)} cache.[/]");
             ConsoleOutput.WriteMarkup("[dim]  Re-run without --quick-ai / --ai-no-download, or pre-download a model first:[/]");
             ConsoleOutput.WriteMarkup("[dim]  foundry model run phi-3.5-mini[/]");
         }
         else
         {
-            ConsoleOutput.WriteMarkup("[dim]  Ensure Microsoft AI Foundry Local is installed:[/]");
-            ConsoleOutput.WriteMarkup("[dim]  Windows: winget install Microsoft.FoundryLocal[/]");
-            ConsoleOutput.WriteMarkup("[dim]  macOS:   brew install foundrylocal[/]");
+            ConsoleOutput.WriteMarkup("[dim]  Ensure an AI backend is installed:[/]");
+            ConsoleOutput.WriteMarkup("[dim]  Foundry: winget install Microsoft.FoundryLocal[/]");
+            ConsoleOutput.WriteMarkup("[dim]  LM Studio: https://lmstudio.ai[/]");
         }
         if (aiSession is not null) await aiSession.StopAsync();
         return 1;

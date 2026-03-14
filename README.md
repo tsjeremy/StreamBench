@@ -364,6 +364,38 @@ cached models first to reduce download/startup time.
 ╰───────────────────────┴──────────┴──────────────┴───────────┴────────╯
 ```
 
+### Example output — LM Studio (GPU)
+
+```
+══════════════════════════════════════════════════════════════
+  AI Inference Benchmark — LM Studio
+══════════════════════════════════════════════════════════════
+  Q1 (cold): Hello World!
+  Q2 (warm): How to calculate memory bandwidth on different memory?
+
+── AI Benchmark: GPU (lmstudio-community/phi-3.5-mini-instruct-GGUF) ──
+
+╭──────────────────────────────────────────────────────────╮
+│                     Model Info                           │
+├────────────────────────┬─────────────────────────────────┤
+│ Device                 │ GPU                             │
+│ Model ID               │ phi-3.5-mini-instruct-GGUF      │
+│ Alias                  │ phi-3.5-mini                    │
+│ Execution Provider     │ llama.cpp                       │
+╰────────────────────────┴─────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────────────────────╮
+│                         Inference Timing                                │
+├────────────────────────┬───────────────┬─────────────┬────────┬─────────┤
+│ Run                    │ Model Load (s)│ Response (s)│Total(s)│ Tok/sec │
+├────────────────────────┼───────────────┼─────────────┼────────┼─────────┤
+│ Q1 (cold, incl. load)  │         3.210 │       0.892 │  4.102 │    48.3 │
+│ Q2 (warm)              │             — │       1.756 │  1.756 │    52.1 │
+╰────────────────────────┴───────────────┴─────────────┴────────┴─────────╯
+```
+
+> LM Studio runs a single GPU pass (no device targeting). Use `--ai-backend lmstudio` to select it explicitly.
+
 ### Key metrics
 
 ```mermaid

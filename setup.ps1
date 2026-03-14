@@ -620,7 +620,7 @@ if ($setupLmStudio) {
                     }
                 } else {
                     Write-Host '  [!] No models loaded. Load a model in LM Studio before running AI benchmark.' -ForegroundColor Yellow
-                    Write-Host '      Recommended: phi-3.5-mini-instruct (GGUF)' -ForegroundColor DarkGray
+                    Write-Host '      Popular models: phi-3.5-mini-instruct, qwen2.5-0.5b, gemma-2b (GGUF format)' -ForegroundColor DarkGray
                 }
             } catch {
                 Write-Host '  [!] Could not query loaded models.' -ForegroundColor Yellow
@@ -639,7 +639,7 @@ if ($setupLmStudio) {
             Write-Host '    Download AppImage from https://lmstudio.ai' -ForegroundColor White
         }
         Write-Host ''
-        Write-Host '  After installing, open LM Studio and download a model (e.g. phi-3.5-mini-instruct GGUF).' -ForegroundColor DarkGray
+        Write-Host '  After installing, open LM Studio and download a model (e.g. phi-3.5-mini-instruct, qwen2.5-0.5b, or gemma-2b in GGUF format).' -ForegroundColor DarkGray
         Write-Host '  Then run this setup script again, or just use: StreamBench --ai --ai-backend lmstudio' -ForegroundColor DarkGray
     }
 }
