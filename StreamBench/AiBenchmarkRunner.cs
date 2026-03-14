@@ -29,12 +29,17 @@ public static class AiBenchmarkRunner
     // ── Benchmark prompts ─────────────────────────────────────────────────
     public const string Q1 = "Hello World!";
     public const string Q2 = "How to calculate memory bandwidth on different memory?";
+    public const string Q3Label = "Summarize local memory bandwidth and AI benchmark results from saved JSON files.";
+    public const string Q3 = "Based on all local JSON files in this folder (including files from other devices), summarize memory bandwidth and AI benchmark relationship, highlight the best combined profile and also try to explain the % from memory bandwidth benchmark result vs. the theoretical bandwidth calculation of the memory on the device.";
     public static readonly string[] RelationQuestions =
     [
         Q1,
         Q2,
-        "Based on all local JSON files in this folder (including files from other devices), summarize memory bandwidth and AI benchmark relationship, highlight the best combined profile and also try to explain the % from memory bandwidth benchmark result vs. the theoretical bandwidth calculation of the memory on the device."
+        Q3
     ];
+
+    private const int Q1MaxOutputTokens = 128;
+    private const int DetailedAnswerMaxOutputTokens = 1024;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -86,6 +91,20 @@ public static class AiBenchmarkRunner
     /// When sharedOnly is true, the best-per-device pass is skipped.
     /// When noDownload is true, only already-cached models are used.
     /// </summary>
+    internal static Task<(AiBenchmarkTwoPassResult Result, AiSession? Session)> RunAsync(
+        AiExecutionOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        return RunAsync(
+            options.DevicesOrDefault,
+            options.ModelAlias,
+            options.SharedOnly,
+            options.NoDownload,
+            options.QuickMode,
+            options.BackendType,
+            cancellationToken);
+    }
+
     internal static async Task<(AiBenchmarkTwoPassResult Result, AiSession? Session)> RunAsync(
         IEnumerable<string>? devices = null,
         string? modelAlias = null,
@@ -191,35 +210,49 @@ public static class AiBenchmarkRunner
 
             TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, sharedOnly: {sharedOnly}, quickMode: {quickMode}");
 
-            // Drop NPU from shared pass if no NPU models exist in the catalog —
-            // avoids wasting time trying every shared alias on a device that has no EP.
+            // Drop target devices that have no compatible models in the catalog —
+            // avoids wasting time trying shared aliases for devices the backend cannot run.
             // Only relevant for backends that support device targeting.
             if (backend.SupportsDeviceTargeting)
             {
-                bool npuTargeted = sharedPassDevices.Any(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
-                bool npuModelsExist = allModels.Any(m => m.DeviceType.Equals("NPU", StringComparison.OrdinalIgnoreCase));
-                if (npuTargeted && !npuModelsExist)
-                {
-                    sharedPassDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
-                    targetDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
-                    TraceLog.DiagnosticInfo("NPU removed from target devices — no NPU models in catalog");
+                var catalogDeviceTypes = allModels
+                    .Select(m => NormalizeDeviceType(m.DeviceType, null))
+                    .Where(d => !string.IsNullOrWhiteSpace(d))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-                    // Probe for NPU hardware to provide a better diagnostic message
-                    var npuHwInfo = SystemInfoDetector.DetectNpuHardware();
-                    if (npuHwInfo is not null)
+                foreach (var deviceType in targetDevices.ToList())
+                {
+                    if (catalogDeviceTypes.Contains(deviceType))
+                        continue;
+
+                    sharedPassDevices.RemoveAll(d => d.Equals(deviceType, StringComparison.OrdinalIgnoreCase));
+                    targetDevices.RemoveAll(d => d.Equals(deviceType, StringComparison.OrdinalIgnoreCase));
+                    TraceLog.DiagnosticInfo($"{deviceType} removed from target devices — no compatible models in catalog");
+
+                    if (deviceType.Equals("NPU", StringComparison.OrdinalIgnoreCase))
                     {
-                        TraceLog.NpuHardwareDetected(npuHwInfo);
-                        ConsoleOutput.WriteMarkup(
-                            $"[yellow][WARN][/] NPU hardware detected ([white]{npuHwInfo}[/]) but no compatible AI models found in catalog.");
-                        ConsoleOutput.WriteMarkup($"[dim]  Try updating {backend.Name} or loading a compatible model.[/]");
+                        // Probe for NPU hardware to provide a better diagnostic message
+                        var npuHwInfo = SystemInfoDetector.DetectNpuHardware();
+                        if (npuHwInfo is not null)
+                        {
+                            TraceLog.NpuHardwareDetected(npuHwInfo);
+                            ConsoleOutput.WriteMarkup(
+                                $"[yellow][WARN][/] NPU hardware detected ([white]{npuHwInfo}[/]) but no compatible AI models found in catalog.");
+                            ConsoleOutput.WriteMarkup($"[dim]  Try updating {backend.Name} or loading a compatible model.[/]");
+                        }
+                        else
+                        {
+                            TraceLog.NpuHardwareNotDetected();
+                            ConsoleOutput.WriteMarkup(
+                                "[yellow][INFO][/] No NPU hardware detected — skipping NPU benchmark.");
+                            ConsoleOutput.WriteMarkup(
+                                "[dim]  NPU benchmarks require Intel Core Ultra (AI Boost) or Qualcomm Snapdragon X (Hexagon NPU).[/]");
+                        }
                     }
                     else
                     {
-                        TraceLog.NpuHardwareNotDetected();
                         ConsoleOutput.WriteMarkup(
-                            "[yellow][INFO][/] No NPU hardware detected — skipping NPU benchmark.");
-                        ConsoleOutput.WriteMarkup(
-                            "[dim]  NPU benchmarks require Intel Core Ultra (AI Boost) or Qualcomm Snapdragon X (Hexagon NPU).[/]");
+                            $"[yellow][INFO][/] No compatible [white]{deviceType}[/] models found in {backend.Name} catalog — skipping {deviceType} benchmark.");
                     }
                 }
             }
@@ -513,11 +546,9 @@ public static class AiBenchmarkRunner
     /// </summary>
     internal static async Task<AiLocalRelationSummaryResult?> RunLocalRelationSummaryAsync(
         string directoryPath,
-        string? modelAlias = null,
-        IEnumerable<string>? devices = null,
+        AiExecutionOptions options,
         AiSession? existingSession = null,
         AiBenchmarkTwoPassResult? existingAiResults = null,
-        AiBackendType backendType = AiBackendType.Auto,
         CancellationToken cancellationToken = default)
     {
         using var _sleep = SleepPreventer.Acquire();
@@ -525,7 +556,7 @@ public static class AiBenchmarkRunner
         string sourceDir = Path.GetFullPath(
             string.IsNullOrWhiteSpace(directoryPath) ? "." : directoryPath);
 
-        var dataset = ReadLocalRelationDataset(sourceDir);
+        var dataset = ReadLocalRelationDataset(sourceDir, existingAiResults);
         if (dataset.MemorySamples.Count == 0)
         {
             ConsoleOutput.WriteMarkup("[yellow][WARN][/] No STREAM result JSON files found for local relation summary.");
@@ -534,7 +565,7 @@ public static class AiBenchmarkRunner
 
         if (dataset.AiSamples.Count == 0)
         {
-            ConsoleOutput.WriteMarkup("[yellow][WARN][/] No AI benchmark JSON files found for local relation summary.");
+            ConsoleOutput.WriteMarkup("[yellow][WARN][/] No AI benchmark data found for local relation summary.");
             return null;
         }
 
@@ -558,8 +589,8 @@ public static class AiBenchmarkRunner
         else
         {
             var config = AiBackendConfig.Load();
-            if (backendType != AiBackendType.Auto)
-                config = config with { Backend = backendType };
+            if (options.BackendType != AiBackendType.Auto)
+                config = config with { Backend = options.BackendType };
             backend = AiBackendFactory.Create(config);
 
             if (!backend.IsAvailable())
@@ -581,7 +612,8 @@ public static class AiBenchmarkRunner
 
         ConsoleOutput.WriteMarkup("[bold cyan]Running local-AI relation summary from saved JSON files...[/]");
         ConsoleOutput.WriteMarkup($"[dim]  Source folder: {sourceDir}[/]");
-        ConsoleOutput.WriteMarkup($"[dim]  Files: {dataset.MemoryFileCount} memory JSON, {dataset.AiFileCount} AI JSON[/]");
+        string aiSourceNote = existingAiResults is null ? "" : " (+ current run)";
+        ConsoleOutput.WriteMarkup($"[dim]  Files: {dataset.MemoryFileCount} memory JSON, {dataset.AiFileCount} AI JSON{aiSourceNote}[/]");
 
         try
         {
@@ -591,16 +623,18 @@ public static class AiBenchmarkRunner
                 return null;
             }
 
-            bool strictAlias = !string.IsNullOrWhiteSpace(modelAlias);
-            var targetDevices = ParseDeviceFilter(devices);
+            bool strictAlias = !string.IsNullOrWhiteSpace(options.ModelAlias);
+            var targetDevices = ParseDeviceFilter(options.DevicesOrDefault);
             TraceLog.DiagnosticInfo(
                 $"Relation summary target devices: {string.Join(", ", targetDevices)}");
 
             var answers = new List<AiRelationQuestionAnswer>();
             var selectedModels = new List<AiRelationModelSelection>();
+            var existingResultsByDevice = BuildRelationSeedResults(existingAiResults);
 
             foreach (var deviceType in targetDevices)
             {
+                existingResultsByDevice.TryGetValue(deviceType, out var existingResult);
                 var triedModelIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 bool deviceSucceeded = false;
 
@@ -609,8 +643,14 @@ public static class AiBenchmarkRunner
                 const int maxRetries = 2;
                 for (int attempt = 0; attempt < maxRetries && !deviceSucceeded; attempt++)
                 {
-                    var model = FindBestModel(backend, allModels, deviceType, modelAlias, strictAlias,
-                        excludeIds: triedModelIds);
+                    var model = FindRelationSummaryModel(
+                        backend,
+                        allModels,
+                        deviceType,
+                        existingResult,
+                        options.ModelAlias,
+                        strictAlias,
+                        triedModelIds);
                     if (model is null)
                     {
                         if (attempt == 0)
@@ -639,26 +679,19 @@ public static class AiBenchmarkRunner
                             string question = RelationQuestions[i];
 
                             // Reuse Q1/Q2 from existing AI benchmark results if available
-                            if (i < 2 && existingAiResults is not null)
+                            if (i < 2
+                                && existingResult is not null
+                                && model.Id.Equals(existingResult.ModelId, StringComparison.OrdinalIgnoreCase))
                             {
-                                var existingResult = existingAiResults.SharedResults
-                                    .Concat(existingAiResults.BestPerDeviceResults)
-                                    .FirstOrDefault(r =>
-                                        r.DeviceType.Equals(deviceType, StringComparison.OrdinalIgnoreCase)
-                                        && r.ModelAlias.Equals(model.Alias, StringComparison.OrdinalIgnoreCase));
-
-                                if (existingResult is not null)
-                                {
-                                    var existingRun = i == 0 ? existingResult.Run1 : existingResult.Run2;
-                                    ConsoleOutput.WriteMarkup($"[dim]  {deviceType} Q{i + 1}: reusing from AI benchmark[/]");
-                                    deviceAnswers.Add(new AiRelationQuestionAnswer(
-                                        Index: i + 1,
-                                        Question: question,
-                                        Answer: existingRun.ResponseText.Trim(),
-                                        DeviceType: deviceType,
-                                        Run: existingRun));
-                                    continue;
-                                }
+                                var existingRun = i == 0 ? existingResult.Run1 : existingResult.Run2;
+                                ConsoleOutput.WriteMarkup($"[dim]  {deviceType} Q{i + 1}: reusing from AI benchmark[/]");
+                                deviceAnswers.Add(new AiRelationQuestionAnswer(
+                                    Index: i + 1,
+                                    Question: question,
+                                    Answer: existingRun.ResponseText.Trim(),
+                                    DeviceType: deviceType,
+                                    Run: existingRun));
+                                continue;
                             }
 
                             string prompt = i switch
@@ -673,6 +706,7 @@ public static class AiBenchmarkRunner
                                 serviceUrl, model.Id, prompt,
                                 modelLoadSec: 0,
                                 deviceLabel: deviceType,
+                                maxOutputTokens: i == 0 ? Q1MaxOutputTokens : DetailedAnswerMaxOutputTokens,
                                 ct: cancellationToken);
 
                             if (run is null)
@@ -784,7 +818,7 @@ public static class AiBenchmarkRunner
             // Q1: first inference (cold — model just loaded)
             ConsoleOutput.WriteMarkup($"[dim]  Q1: {Q1}[/]");
             var run1 = await RunInferenceAsync(
-                serviceUrl, loadedId, Q1, modelLoadSec, deviceLabel, ct);
+                serviceUrl, loadedId, Q1, modelLoadSec, deviceLabel, Q1MaxOutputTokens, ct);
 
             if (run1 is null)
             {
@@ -795,7 +829,7 @@ public static class AiBenchmarkRunner
             // Q2: second inference (warm — model already in memory)
             ConsoleOutput.WriteMarkup($"[dim]  Q2: {Q2}[/]");
             var run2 = await RunInferenceAsync(
-                serviceUrl, loadedId, Q2, modelLoadSec: 0, deviceLabel, ct);
+                serviceUrl, loadedId, Q2, modelLoadSec: 0, deviceLabel: deviceLabel, maxOutputTokens: DetailedAnswerMaxOutputTokens, ct: ct);
 
             if (run2 is null)
             {
@@ -833,6 +867,7 @@ public static class AiBenchmarkRunner
     private static async Task<AiInferenceRun?> RunInferenceAsync(
         string serviceUrl, string modelId, string prompt,
         double modelLoadSec, string deviceLabel = "unknown",
+        int maxOutputTokens = DetailedAnswerMaxOutputTokens,
         CancellationToken ct = default)
     {
         string promptPreview = prompt.Length > 60 ? prompt[..60] + "…" : prompt;
@@ -848,7 +883,12 @@ public static class AiBenchmarkRunner
                 new(ChatRole.User, prompt)
             };
 
-            var response = await chatClient.GetResponseAsync(messages, cancellationToken: ct);
+            var options = new ChatOptions
+            {
+                MaxOutputTokens = maxOutputTokens
+            };
+
+            var response = await chatClient.GetResponseAsync(messages, options, ct);
             sw.Stop();
 
             double responseSec = sw.Elapsed.TotalSeconds;
@@ -1112,7 +1152,9 @@ public static class AiBenchmarkRunner
         List<MemorySample> MemorySamples,
         List<AiSample> AiSamples);
 
-    private static LocalRelationDataset ReadLocalRelationDataset(string directoryPath)
+    private static LocalRelationDataset ReadLocalRelationDataset(
+        string directoryPath,
+        AiBenchmarkTwoPassResult? existingAiResults = null)
     {
         int memoryFileCount = 0;
         int aiFileCount = 0;
@@ -1147,6 +1189,9 @@ public static class AiBenchmarkRunner
         {
             DiagnosticHelper.LogWarning($"Error enumerating JSON files in {directoryPath}: {ex.Message}");
         }
+
+        if (existingAiResults is not null)
+            AppendAiSamples(existingAiResults, aiSamples);
 
         TraceLog.AiRelationDatasetLoaded(memoryFileCount, aiFileCount, memorySamples.Count, aiSamples.Count);
         return new LocalRelationDataset(memoryFileCount, aiFileCount, memorySamples, aiSamples);
@@ -1282,6 +1327,34 @@ public static class AiBenchmarkRunner
         string modelAlias = TryGetString(entry, "model_alias") ?? "unknown";
         string timestamp = TryGetString(entry, "timestamp") ?? "";
         aiSamples.Add(new AiSample(deviceType, warmTok.Value, modelAlias, timestamp));
+    }
+
+    private static void AppendAiSamples(
+        AiBenchmarkTwoPassResult existingAiResults,
+        List<AiSample> aiSamples)
+    {
+        var coveredDevices = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var result in existingAiResults.BestPerDeviceResults)
+        {
+            coveredDevices.Add(result.DeviceType);
+            aiSamples.Add(new AiSample(
+                NormalizeDeviceType(result.DeviceType, null),
+                result.Run2.TokensPerSecond > 0 ? result.Run2.TokensPerSecond : result.Run1.TokensPerSecond,
+                result.ModelAlias,
+                result.Timestamp));
+        }
+
+        foreach (var result in existingAiResults.SharedResults)
+        {
+            if (coveredDevices.Contains(result.DeviceType))
+                continue;
+
+            aiSamples.Add(new AiSample(
+                NormalizeDeviceType(result.DeviceType, null),
+                result.Run2.TokensPerSecond > 0 ? result.Run2.TokensPerSecond : result.Run1.TokensPerSecond,
+                result.ModelAlias,
+                result.Timestamp));
+        }
     }
 
     private static List<AiRelationDeviceAggregate> BuildDeviceAggregates(
@@ -1532,6 +1605,64 @@ public static class AiBenchmarkRunner
             .ToList();
 
         return list.Count > 0 ? list : [..all];
+    }
+
+    private static Dictionary<string, AiDeviceBenchmarkResult> BuildRelationSeedResults(
+        AiBenchmarkTwoPassResult? existingAiResults)
+    {
+        var results = new Dictionary<string, AiDeviceBenchmarkResult>(StringComparer.OrdinalIgnoreCase);
+        if (existingAiResults is null)
+            return results;
+
+        foreach (var result in existingAiResults.BestPerDeviceResults)
+            results[result.DeviceType] = result;
+
+        foreach (var result in existingAiResults.SharedResults)
+            results.TryAdd(result.DeviceType, result);
+
+        return results;
+    }
+
+    private static AiModelInfo? FindRelationSummaryModel(
+        IAiBackend backend,
+        IReadOnlyList<AiModelInfo> allModels,
+        string deviceLabel,
+        AiDeviceBenchmarkResult? existingResult,
+        string? aliasHint,
+        bool strictAlias,
+        IReadOnlySet<string>? excludeIds = null)
+    {
+        var candidates = allModels
+            .Where(m => m.DeviceType.Equals(deviceLabel, StringComparison.OrdinalIgnoreCase))
+            .Where(m => excludeIds is null || !excludeIds.Contains(m.Id))
+            .ToList();
+        if (candidates.Count == 0)
+            return null;
+
+        if (existingResult is not null)
+        {
+            var exactMatch = candidates.FirstOrDefault(m =>
+                m.Id.Equals(existingResult.ModelId, StringComparison.OrdinalIgnoreCase));
+            if (exactMatch is not null)
+            {
+                TraceLog.DiagnosticInfo($"Relation summary reusing exact model for {deviceLabel}: {exactMatch.Id}");
+                return exactMatch;
+            }
+
+            var aliasMatch = candidates
+                .Where(m => m.Alias.Equals(existingResult.ModelAlias, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(m => m.IsCached)
+                .ThenBy(m => RankExecutionProvider(m.Id, m.ExecutionProvider))
+                .ThenBy(m => m.FileSizeMb > 0 ? m.FileSizeMb : double.MaxValue)
+                .FirstOrDefault();
+            if (aliasMatch is not null)
+            {
+                TraceLog.DiagnosticInfo($"Relation summary falling back to alias match for {deviceLabel}: {aliasMatch.Id}");
+                return aliasMatch;
+            }
+        }
+
+        return FindBestModel(backend, allModels, deviceLabel, aliasHint, strictAlias, excludeIds);
     }
 
     /// <summary>Rough token count estimate: ~4 chars per token on average.</summary>

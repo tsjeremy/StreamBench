@@ -85,6 +85,15 @@ This opens a simple launcher where you can choose:
 - **Memory benchmark only**
 - **Memory benchmark + AI benchmark**
 
+If you choose AI mode, the launcher also prompts for the backend:
+
+- **Auto-detect**
+- **LM Studio**
+- **Foundry Local**
+
+Each launcher-driven run also writes a full CLI transcript beside the launcher,
+for example `StreamBench_cli_20260314_221646.log`.
+
 If prerequisites are missing, the launcher automatically runs `setup.ps1` first.
 
 Optional manual / advanced path:
@@ -161,8 +170,8 @@ The launcher files are available as separate downloads on the
 [release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24).
 
 - **`setup.ps1`**: optional first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and Foundry Local (all silent via winget; standalone mode auto-detected)
-- **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass and lets you choose memory-only or memory + AI
-- **`run_stream.ps1`**: unified PowerShell launcher for Windows, macOS, and Linux — **auto-runs `setup.ps1`** on Windows if prerequisites are missing
+- **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass, lets you choose memory-only or memory + AI, prompts for AI backend when needed, and saves a full CLI transcript
+- **`run_stream.ps1`**: unified PowerShell launcher for Windows, macOS, and Linux — **auto-runs `setup.ps1`** on Windows if prerequisites are missing and saves a full CLI transcript
 - **`run_stream_ai.cmd`**: Windows compatibility shortcut that preselects AI mode and automatically uses PowerShell bypass
 - **`run_stream_ai.ps1`**: compatibility shortcut that forwards into the unified launcher with AI mode preselected
 
@@ -199,10 +208,17 @@ $env:STREAMBENCH_ARRAY_SIZE = "100000000"
 $env:STREAMBENCH_LAUNCH_MODE = "ai"
 
 # Optional AI launcher overrides (applied when AI mode is selected)
+$env:STREAMBENCH_AI_BACKEND = "lmstudio"  # auto, lmstudio, foundry
 $env:STREAMBENCH_AI_MODEL = "phi-4-mini"
 $env:STREAMBENCH_AI_DEVICES = "cpu,npu"   # if unset, all detected devices are used
 $env:STREAMBENCH_AI_NO_DOWNLOAD = "1"     # cached models only
 ```
+
+When running from source (`StreamBench.csproj`) instead of a standalone package,
+the launcher expects local native backends (`stream_cpu_*`, `stream_gpu_*`) for
+the memory benchmark. If they are not built yet, the launcher now warns clearly
+and continues with **AI-only mode** so local backend validation can still run.
+Q3 still requires at least one saved `stream_*_results_*.json` file.
 
 ### Standalone C backend binaries (advanced)
 
@@ -297,6 +313,9 @@ Then open LM Studio and download a model (e.g. phi-3.5-mini-instruct GGUF).
 .\StreamBench.exe --ai --ai-backend lmstudio
 .\StreamBench.exe --ai --ai-backend foundry
 
+# Run AI only (skip default CPU/GPU memory passes)
+.\StreamBench.exe --ai-only
+
 # Auto-detect best available backend (default)
 .\StreamBench.exe --ai --ai-backend auto
 
@@ -318,6 +337,10 @@ relation questions (Q3 and future Q4/Q5...) on each selected AI device.
 All relation questions use the same question output style and the same
 latency/tokens-per-second reporting method.
 
+When Q3 runs, the main `ai_inference_benchmark_*.json` file now embeds
+`ai_relation_summary` so Q1/Q2/Q3 live together in one artifact, while
+`ai_relation_summary_*.json` is still saved separately for direct inspection.
+
 When benchmarking multiple devices together, StreamBench chooses shared model aliases
 by this order:
 
@@ -334,9 +357,9 @@ falling back to per-device defaults.
 If no alias covers all selected devices, StreamBench automatically falls back to
 the best partial coverage and then runs best-per-device comparison pass.
 
-If NPU model load fails during automatic multi-device comparison, or no NPU
-models exist in the catalog, StreamBench removes NPU from the shared pass and
-continues with CPU/GPU.
+If GPU or NPU models are not available in the current backend catalog,
+StreamBench removes those devices from the active pass automatically and
+continues with the devices that do have compatible models.
 
 For single-device runs, StreamBench uses device-specific priority lists and prefers
 cached models first to reduce download/startup time.

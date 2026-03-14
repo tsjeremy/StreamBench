@@ -11,6 +11,7 @@
 # Advanced overrides:
 #   $env:STREAMBENCH_LAUNCH_MODE = 'memory' | 'ai'
 #   $env:STREAMBENCH_ARRAY_SIZE
+#   $env:STREAMBENCH_AI_BACKEND = 'auto' | 'lmstudio' | 'foundry'
 #   $env:STREAMBENCH_AI_MODEL
 #   $env:STREAMBENCH_AI_DEVICES
 #   $env:STREAMBENCH_AI_NO_DOWNLOAD = '1'
@@ -22,6 +23,143 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 # Ensure UTF-8 output for Unicode spinner/box-drawing characters
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
+
+$script:StreamBenchCliLogWriter = $null
+$script:StreamBenchCliLogPath = $null
+
+function Open-StreamBenchCliLogWriter {
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [switch]$Append
+    )
+
+    $mode = if ($Append) { [System.IO.FileMode]::Append } else { [System.IO.FileMode]::Create }
+    $stream = [System.IO.FileStream]::new(
+        $Path,
+        $mode,
+        [System.IO.FileAccess]::Write,
+        [System.IO.FileShare]::ReadWrite)
+    $writer = [System.IO.StreamWriter]::new(
+        $stream,
+        [System.Text.UTF8Encoding]::new($false))
+    $writer.AutoFlush = $true
+    return $writer
+}
+
+function Start-StreamBenchCliLog {
+    param([Parameter(Mandatory)] [string]$BaseDirectory)
+
+    if ($script:StreamBenchCliLogWriter) {
+        return $script:StreamBenchCliLogPath
+    }
+
+    try {
+        $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+        $path = Join-Path $BaseDirectory "StreamBench_cli_$timestamp.log"
+        $writer = Open-StreamBenchCliLogWriter -Path $path
+        $writer.WriteLine('# StreamBench CLI Transcript')
+        $writer.WriteLine('# Start: {0}' -f [DateTime]::Now.ToString('O'))
+        $writer.WriteLine('# WorkingDirectory: {0}' -f (Get-Location).Path)
+        $writer.WriteLine()
+
+        $script:StreamBenchCliLogWriter = $writer
+        $script:StreamBenchCliLogPath = $path
+        $env:STREAMBENCH_CLI_LOG = $path
+        return $path
+    } catch {
+        $script:StreamBenchCliLogWriter = $null
+        $script:StreamBenchCliLogPath = $null
+        Remove-Item Env:\STREAMBENCH_CLI_LOG -ErrorAction SilentlyContinue
+        return $null
+    }
+}
+
+function Suspend-StreamBenchCliLog {
+    if (-not $script:StreamBenchCliLogWriter) {
+        return
+    }
+
+    $script:StreamBenchCliLogWriter.Dispose()
+    $script:StreamBenchCliLogWriter = $null
+}
+
+function Resume-StreamBenchCliLog {
+    if (-not $script:StreamBenchCliLogPath -or $script:StreamBenchCliLogWriter) {
+        return
+    }
+
+    $script:StreamBenchCliLogWriter = Open-StreamBenchCliLogWriter -Path $script:StreamBenchCliLogPath -Append
+}
+
+function Stop-StreamBenchCliLog {
+    try {
+        Resume-StreamBenchCliLog
+        if ($script:StreamBenchCliLogWriter) {
+            $script:StreamBenchCliLogWriter.WriteLine()
+            $script:StreamBenchCliLogWriter.WriteLine('# End: {0}' -f [DateTime]::Now.ToString('O'))
+            $script:StreamBenchCliLogWriter.Dispose()
+        }
+    } catch {
+    } finally {
+        $script:StreamBenchCliLogWriter = $null
+        $script:StreamBenchCliLogPath = $null
+        Remove-Item Env:\STREAMBENCH_CLI_LOG -ErrorAction SilentlyContinue
+    }
+}
+
+function Write-StreamBenchCliLog {
+    param(
+        [AllowNull()] [string]$Text,
+        [switch]$NoNewline
+    )
+
+    if (-not $script:StreamBenchCliLogWriter) {
+        return
+    }
+
+    $value = if ($null -eq $Text) { '' } else { $Text }
+    if ($NoNewline) {
+        $script:StreamBenchCliLogWriter.Write($value)
+    } else {
+        $script:StreamBenchCliLogWriter.WriteLine($value)
+    }
+}
+
+function Write-Host {
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$Object,
+        [object]$Separator = ' ',
+        [ConsoleColor]$ForegroundColor,
+        [ConsoleColor]$BackgroundColor,
+        [switch]$NoNewline
+    )
+
+    $text = [string]::Join(
+        [string]$Separator,
+        @($Object | ForEach-Object {
+            if ($null -eq $_) { '' } else { $_.ToString() }
+        }))
+    Write-StreamBenchCliLog -Text $text -NoNewline:$NoNewline
+    Microsoft.PowerShell.Utility\Write-Host @PSBoundParameters
+}
+
+function Read-Host {
+    [CmdletBinding()]
+    param([Parameter(Position = 0)] [object]$Prompt)
+
+    if ($PSBoundParameters.ContainsKey('Prompt')) {
+        $response = Microsoft.PowerShell.Utility\Read-Host $Prompt
+        Write-StreamBenchCliLog -Text ("{0} {1}" -f $Prompt, $response)
+        return $response
+    }
+
+    $response = Microsoft.PowerShell.Utility\Read-Host
+    Write-StreamBenchCliLog -Text $response
+    return $response
+}
 
 function Initialize-StreamBenchPlatformFlags {
     if ($null -eq (Get-Variable -Name 'IsWindows' -ErrorAction SilentlyContinue)) {
@@ -144,8 +282,43 @@ function Normalize-StreamBenchMode {
     }
 }
 
+function Normalize-StreamBenchAiBackend {
+    param(
+        [AllowNull()] [string]$Backend,
+        [Parameter(Mandatory)] [string]$SourceName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Backend)) {
+        return $null
+    }
+
+    switch ($Backend.Trim().ToLowerInvariant()) {
+        'auto' { return 'auto' }
+        'lmstudio' { return 'lmstudio' }
+        'lm-studio' { return 'lmstudio' }
+        'foundry' { return 'foundry' }
+        'foundrylocal' { return 'foundry' }
+        'foundry-local' { return 'foundry' }
+        default {
+            Write-Host "  [!] Ignoring invalid $SourceName value '$Backend'. Valid values: auto, lmstudio, foundry." -ForegroundColor Yellow
+            return $null
+        }
+    }
+}
+
+function Get-StreamBenchAiBackendLabel {
+    param([AllowNull()] [string]$Backend)
+
+    switch ($Backend) {
+        'lmstudio' { return 'LM Studio' }
+        'foundry' { return 'Foundry Local' }
+        default { return 'Auto-detect' }
+    }
+}
+
 function Get-StreamBenchAiSettings {
     return [pscustomobject]@{
+        Backend = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_BACKEND)) { '' } else { $env:STREAMBENCH_AI_BACKEND.Trim() }
         Model = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_MODEL)) { '' } else { $env:STREAMBENCH_AI_MODEL.Trim() }
         Devices = if ([string]::IsNullOrWhiteSpace($env:STREAMBENCH_AI_DEVICES)) { '' } else { $env:STREAMBENCH_AI_DEVICES.Trim() }
         NoDownload = ($env:STREAMBENCH_AI_NO_DOWNLOAD -eq '1')
@@ -168,7 +341,7 @@ function Select-StreamBenchMode {
         return $mode
     }
 
-    if ($AiSettings.Model -or $AiSettings.Devices -or $AiSettings.NoDownload) {
+    if ($AiSettings.Backend -or $AiSettings.Model -or $AiSettings.Devices -or $AiSettings.NoDownload) {
         return 'ai'
     }
 
@@ -189,6 +362,34 @@ function Select-StreamBenchMode {
     }
 
     return 'memory'
+}
+
+function Select-StreamBenchAiBackend {
+    param([Parameter(Mandatory)] [object]$AiSettings)
+
+    $backend = Normalize-StreamBenchAiBackend -Backend $AiSettings.Backend -SourceName 'STREAMBENCH_AI_BACKEND'
+    if ($backend) {
+        return $backend
+    }
+
+    if (-not (Test-StreamBenchInteractiveConsole)) {
+        return 'auto'
+    }
+
+    Write-Host ''
+    Write-Host '  Choose AI backend:' -ForegroundColor Cyan
+    Write-Host '    1. Auto-detect (Recommended)' -ForegroundColor Green
+    Write-Host '    2. LM Studio' -ForegroundColor Green
+    Write-Host '    3. Foundry Local' -ForegroundColor Green
+    Write-Host ''
+
+    $choice = Read-Host '  Select 1, 2, or 3 (press Enter for 1)'
+    $choiceText = if ($null -eq $choice) { '' } else { $choice.ToString().Trim() }
+    switch ($choiceText) {
+        '2' { return 'lmstudio' }
+        '3' { return 'foundry' }
+        default { return 'auto' }
+    }
 }
 
 function Get-StreamBenchArraySize {
@@ -216,6 +417,7 @@ function Show-StreamBenchLauncherHeader {
 
     if ($Mode -eq 'ai') {
         Write-Host '  [OK] Selected mode: Memory + AI benchmark' -ForegroundColor Green
+        Write-Host "  [OK] AI backend: $(Get-StreamBenchAiBackendLabel -Backend $AiSettings.Backend)" -ForegroundColor Green
         Write-Host "  [OK] AI model: $(if ($AiSettings.Model) { $AiSettings.Model } else { '(auto-select)' })" -ForegroundColor Green
         Write-Host "  [OK] AI device(s): $(if ($AiSettings.Devices) { $AiSettings.Devices } else { '(all detected)' })" -ForegroundColor Green
         Write-Host '  [OK] Q3 local summary: auto (when memory JSON exists)' -ForegroundColor Green
@@ -227,10 +429,52 @@ function Show-StreamBenchLauncherHeader {
     Write-Host ''
 }
 
+function Test-StreamBenchTcpEndpoint {
+    param(
+        [Parameter(Mandatory)] [string]$Host,
+        [Parameter(Mandatory)] [int]$Port
+    )
+
+    try {
+        $client = [System.Net.Sockets.TcpClient]::new()
+        try {
+            $connectTask = $client.ConnectAsync($Host, $Port)
+            if (-not $connectTask.Wait(1000)) {
+                return $false
+            }
+            return $client.Connected
+        } finally {
+            $client.Dispose()
+        }
+    } catch {
+        return $false
+    }
+}
+
+function Test-StreamBenchAiBackendAvailable {
+    param([AllowNull()] [string]$Backend)
+
+    switch ($Backend) {
+        'foundry' {
+            return [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
+                   [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
+        }
+        'lmstudio' {
+            return [bool](Get-Command lms -ErrorAction SilentlyContinue) -or
+                   (Test-StreamBenchTcpEndpoint -Host '127.0.0.1' -Port 1234)
+        }
+        default {
+            return (Test-StreamBenchAiBackendAvailable -Backend 'foundry') -or
+                   (Test-StreamBenchAiBackendAvailable -Backend 'lmstudio')
+        }
+    }
+}
+
 function Ensure-StreamBenchPrerequisites {
     param(
         [Parameter(Mandatory)] [object]$Platform,
-        [bool]$RequireAi
+        [bool]$RequireAi,
+        [AllowNull()] [string]$AiBackend = $null
     )
 
     if (-not $Platform.IsWindows) {
@@ -265,9 +509,7 @@ function Ensure-StreamBenchPrerequisites {
         }
     }
 
-    if ($RequireAi -and
-        -not (Get-Command foundry -ErrorAction SilentlyContinue) -and
-        -not (Get-Command foundrylocal -ErrorAction SilentlyContinue)) {
+    if ($RequireAi -and -not (Test-StreamBenchAiBackendAvailable -Backend $AiBackend)) {
         $setupNeeded = $true
     }
 
@@ -294,7 +536,17 @@ function Ensure-StreamBenchPrerequisites {
     Write-Host "        winget install \"Microsoft.VCRedist.2015+.$($Platform.ArchTag)\"" -ForegroundColor Yellow
     Write-Host '        winget install Microsoft.DotNet.Runtime.10' -ForegroundColor Yellow
     if ($RequireAi) {
-        Write-Host '        winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+        switch ($AiBackend) {
+            'foundry' { Write-Host '        winget install Microsoft.FoundryLocal' -ForegroundColor Yellow }
+            'lmstudio' {
+                Write-Host '        winget install LMStudio.LMStudio' -ForegroundColor Yellow
+                Write-Host '        # or download from https://lmstudio.ai' -ForegroundColor Yellow
+            }
+            default {
+                Write-Host '        winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+                Write-Host '        winget install LMStudio.LMStudio' -ForegroundColor Yellow
+            }
+        }
     }
     return $false
 }
@@ -335,11 +587,26 @@ function Resolve-StreamBenchMemoryLaunch {
         )
     }
 
+    if ($Platform.OsTag -eq 'win' -and $Platform.ArchTag -eq 'arm64') {
+        $benchNames += @(
+            "StreamBench_win-x64$($Platform.Ext)",
+            "StreamBench_win_x64$($Platform.Ext)"
+        )
+    }
+
     $bench = Find-StreamBenchExecutable -CandidateNames $benchNames
-    $cpuExe = Join-Path $ScriptDir "stream_cpu_$($Platform.OsTag)_$($Platform.ArchTag)$($Platform.Ext)"
-    $gpuExe = Join-Path $ScriptDir "stream_gpu_$($Platform.OsTag)_$($Platform.ArchTag)$($Platform.Ext)"
-    $hasCpu = Test-Path $cpuExe
-    $hasGpu = Test-Path $gpuExe
+    $cpuCandidates = @("stream_cpu_$($Platform.OsTag)_$($Platform.ArchTag)$($Platform.Ext)")
+    $gpuCandidates = @("stream_gpu_$($Platform.OsTag)_$($Platform.ArchTag)$($Platform.Ext)")
+    if ($Platform.OsTag -eq 'win' -and $Platform.ArchTag -eq 'arm64') {
+        $cpuCandidates += "stream_cpu_win_x64$($Platform.Ext)"
+        $gpuCandidates += "stream_gpu_win_x64$($Platform.Ext)"
+    }
+    $cpu = Find-StreamBenchExecutable -CandidateNames $cpuCandidates
+    $gpu = Find-StreamBenchExecutable -CandidateNames $gpuCandidates
+    $cpuExe = if ($cpu) { $cpu.Path } else { Join-Path $ScriptDir $cpuCandidates[0] }
+    $gpuExe = if ($gpu) { $gpu.Path } else { Join-Path $ScriptDir $gpuCandidates[0] }
+    $hasCpu = $null -ne $cpu
+    $hasGpu = $null -ne $gpu
     $csproj = Join-Path $ScriptDir 'StreamBench\StreamBench.csproj'
 
     if ($bench) {
@@ -383,6 +650,18 @@ function Resolve-StreamBenchAiLaunch {
     param([Parameter(Mandatory)] [object]$Platform)
 
     $csproj = Join-Path $ScriptDir 'StreamBench\StreamBench.csproj'
+    $cpuCandidates = @("stream_cpu_$($Platform.OsTag)_$($Platform.ArchTag)$($Platform.Ext)")
+    $gpuCandidates = @("stream_gpu_$($Platform.OsTag)_$($Platform.ArchTag)$($Platform.Ext)")
+    if ($Platform.OsTag -eq 'win' -and $Platform.ArchTag -eq 'arm64') {
+        $cpuCandidates += "stream_cpu_win_x64$($Platform.Ext)"
+        $gpuCandidates += "stream_gpu_win_x64$($Platform.Ext)"
+    }
+    $cpu = Find-StreamBenchExecutable -CandidateNames $cpuCandidates
+    $gpu = Find-StreamBenchExecutable -CandidateNames $gpuCandidates
+    $cpuExe = if ($cpu) { $cpu.Path } else { Join-Path $ScriptDir $cpuCandidates[0] }
+    $gpuExe = if ($gpu) { $gpu.Path } else { Join-Path $ScriptDir $gpuCandidates[0] }
+    $hasCpu = $null -ne $cpu
+    $hasGpu = $null -ne $gpu
 
     # Priority 1: prebuilt AI executable (end-user scenario)
     if ($Platform.OsTag -eq 'win') {
@@ -405,6 +684,14 @@ function Resolve-StreamBenchAiLaunch {
         )
     }
 
+    if ($Platform.OsTag -eq 'win' -and $Platform.ArchTag -eq 'arm64') {
+        $benchNames += @(
+            "StreamBench_win_x64_ai$($Platform.Ext)",
+            "StreamBench_win-x64$($Platform.Ext)",
+            "StreamBench_win_x64$($Platform.Ext)"
+        )
+    }
+
     $bench = Find-StreamBenchExecutable -CandidateNames $benchNames
     if ($bench) {
         return [pscustomobject]@{
@@ -412,6 +699,10 @@ function Resolve-StreamBenchAiLaunch {
             BenchName = $bench.Name
             BenchExe = $bench.Path
             Csproj = $csproj
+            HasCpu = $hasCpu
+            HasGpu = $hasGpu
+            CpuExe = $cpuExe
+            GpuExe = $gpuExe
         }
     }
 
@@ -422,6 +713,10 @@ function Resolve-StreamBenchAiLaunch {
             BenchName = $null
             BenchExe = $null
             Csproj = $csproj
+            HasCpu = $hasCpu
+            HasGpu = $hasGpu
+            CpuExe = $cpuExe
+            GpuExe = $gpuExe
         }
     }
 
@@ -447,9 +742,55 @@ function Start-StreamBenchProcess {
         }
         $psi.Arguments = $escaped -join ' '
     }
-    $p = [System.Diagnostics.Process]::Start($psi)
-    $p.WaitForExit()
-    return $p.ExitCode
+    Suspend-StreamBenchCliLog
+    try {
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $p.WaitForExit()
+        return $p.ExitCode
+    }
+    finally {
+        Resume-StreamBenchCliLog
+    }
+}
+
+function Get-StreamBenchAiArgs {
+    param(
+        [Parameter(Mandatory)] [string]$ArraySize,
+        [Parameter(Mandatory)] [object]$AiSettings,
+        [switch]$UseEmbeddedMemoryBackends,
+        [AllowNull()] [string]$CpuExe,
+        [AllowNull()] [string]$GpuExe,
+        [switch]$AiOnly
+    )
+
+    $exeArgs = @('--ai', '--array-size', "$ArraySize")
+    if ($AiOnly) {
+        $exeArgs += '--ai-only'
+    }
+    if ($UseEmbeddedMemoryBackends) {
+        $exeArgs = @('--cpu', '--gpu') + $exeArgs
+    } else {
+        if (-not $AiOnly -and -not [string]::IsNullOrWhiteSpace($CpuExe) -and (Test-Path $CpuExe)) {
+            $exeArgs += @('--cpu', '--cpu-exe', "$CpuExe")
+        }
+        if (-not $AiOnly -and -not [string]::IsNullOrWhiteSpace($GpuExe) -and (Test-Path $GpuExe)) {
+            $exeArgs += @('--gpu', '--gpu-exe', "$GpuExe")
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($AiSettings.Backend)) {
+        $exeArgs += @('--ai-backend', "$($AiSettings.Backend)")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($AiSettings.Devices)) {
+        $exeArgs += @('--ai-device', "$($AiSettings.Devices)")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($AiSettings.Model)) {
+        $exeArgs += @('--ai-model', "$($AiSettings.Model)")
+    }
+    if ($AiSettings.NoDownload) {
+        $exeArgs += '--ai-no-download'
+    }
+    return $exeArgs
 }
 
 function Invoke-StreamBenchMemoryLaunch {
@@ -523,26 +864,25 @@ function Invoke-StreamBenchAiLaunch {
         Write-Host '  [OK] Using dotnet build + app run (source mode)' -ForegroundColor Green
         $buildOutput = & dotnet build "$($Resolved.Csproj)" -p:EnableAI=true --nologo -v:q 2>&1
         if ($LASTEXITCODE -ne 0) {
-            $buildOutput | Out-Host
+            $buildOutput | ForEach-Object { Write-Host $_ }
             return $LASTEXITCODE
         }
 
+        $aiOnly = $false
+        if (-not $Resolved.HasCpu -and -not $Resolved.HasGpu) {
+            Write-Host '  [!] Source memory backends are not built locally; continuing with AI-only mode.' -ForegroundColor Yellow
+            Write-Host '      Build them with .\build_all_windows.ps1 to enable memory benchmarks and Q3 locally.' -ForegroundColor Yellow
+            $aiOnly = $true
+        }
+        if (-not $Resolved.HasCpu) {
+            Write-Host '  [!] CPU backend not found; continuing without CPU memory benchmark.' -ForegroundColor Yellow
+        }
+        if (-not $Resolved.HasGpu) {
+            Write-Host '  [!] GPU backend not found; continuing without GPU memory benchmark.' -ForegroundColor Yellow
+        }
+
         $debugDir = Join-Path $ScriptDir 'StreamBench\bin\Debug'
-        $appArgs = @(
-            '--cpu',
-            '--gpu',
-            '--ai',
-            '--array-size', "$ArraySize"
-        )
-        if (-not [string]::IsNullOrWhiteSpace($AiSettings.Devices)) {
-            $appArgs += @('--ai-device', "$($AiSettings.Devices)")
-        }
-        if (-not [string]::IsNullOrWhiteSpace($AiSettings.Model)) {
-            $appArgs += @('--ai-model', "$($AiSettings.Model)")
-        }
-        if ($AiSettings.NoDownload) {
-            $appArgs += '--ai-no-download'
-        }
+        $appArgs = Get-StreamBenchAiArgs -ArraySize $ArraySize -AiSettings $AiSettings -CpuExe $Resolved.CpuExe -GpuExe $Resolved.GpuExe -AiOnly:$aiOnly
 
         if ($Platform.IsWindows) {
             $appExe = Get-ChildItem -Path $debugDir -Filter 'StreamBench.exe' -Recurse -ErrorAction SilentlyContinue |
@@ -568,16 +908,7 @@ function Invoke-StreamBenchAiLaunch {
 
     Write-Host "  [OK] Found $($Resolved.BenchName)" -ForegroundColor Green
 
-    $exeArgs = @('--cpu', '--gpu', '--ai', '--array-size', "$ArraySize")
-    if (-not [string]::IsNullOrWhiteSpace($AiSettings.Devices)) {
-        $exeArgs += @('--ai-device', "$($AiSettings.Devices)")
-    }
-    if (-not [string]::IsNullOrWhiteSpace($AiSettings.Model)) {
-        $exeArgs += @('--ai-model', "$($AiSettings.Model)")
-    }
-    if ($AiSettings.NoDownload) {
-        $exeArgs += '--ai-no-download'
-    }
+    $exeArgs = Get-StreamBenchAiArgs -ArraySize $ArraySize -AiSettings $AiSettings -UseEmbeddedMemoryBackends
 
     return (Start-StreamBenchProcess -FilePath $Resolved.BenchExe -Arguments $exeArgs)
 }
@@ -587,10 +918,33 @@ function Invoke-StreamBenchLauncher {
 
     $platform = Get-StreamBenchPlatformContext
     $sleepPrevented = Start-StreamBenchSleepPrevention -Platform $platform
+    $cliLogPath = Start-StreamBenchCliLog -BaseDirectory $ScriptDir
 
     try {
+        if ($cliLogPath) {
+            Write-Host ''
+            Write-Host "  [OK] CLI transcript: $cliLogPath" -ForegroundColor DarkGray
+        }
+
         $aiSettings = Get-StreamBenchAiSettings
         $mode = Select-StreamBenchMode -SelectedMode $SelectedMode -AiSettings $aiSettings
+        if ($mode -eq 'ai') {
+            $selectedBackend = Select-StreamBenchAiBackend -AiSettings $aiSettings
+            $aiSettings = [pscustomobject]@{
+                Backend = $selectedBackend
+                Model = $aiSettings.Model
+                Devices = $aiSettings.Devices
+                NoDownload = $aiSettings.NoDownload
+            }
+        } else {
+            $aiSettings = [pscustomobject]@{
+                Backend = ''
+                Model = $aiSettings.Model
+                Devices = $aiSettings.Devices
+                NoDownload = $aiSettings.NoDownload
+            }
+        }
+
         $arraySize = Get-StreamBenchArraySize
         if ($null -eq $arraySize) {
             return 1
@@ -598,7 +952,7 @@ function Invoke-StreamBenchLauncher {
 
         Show-StreamBenchLauncherHeader -Mode $mode -AiSettings $aiSettings -ArraySize $arraySize
 
-        if (-not (Ensure-StreamBenchPrerequisites -Platform $platform -RequireAi:($mode -eq 'ai'))) {
+        if (-not (Ensure-StreamBenchPrerequisites -Platform $platform -RequireAi:($mode -eq 'ai') -AiBackend $aiSettings.Backend)) {
             return 1
         }
 
@@ -618,6 +972,7 @@ function Invoke-StreamBenchLauncher {
     }
     finally {
         Stop-StreamBenchSleepPrevention -Enabled:$sleepPrevented
+        Stop-StreamBenchCliLog
     }
 }
 

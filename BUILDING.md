@@ -61,6 +61,12 @@ pwsh ./build_all_macos.ps1   # or build_all_linux.ps1
 # -> produces stream_cpu_win_x64.exe, stream_gpu_win_x64.exe, and builds StreamBench/
 ```
 
+For source-mode launcher runs (`run_stream.cmd` / `run_stream.ps1` against the
+repo checkout), these native `stream_cpu_*` / `stream_gpu_*` binaries are what
+enable the memory benchmark and Q3 relation summary. If they are missing, the
+launcher now warns and falls back to AI-only mode so local backend validation
+can still continue.
+
 ### 2. Run (CPU benchmark)
 
 ```bash
