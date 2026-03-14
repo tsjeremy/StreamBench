@@ -81,6 +81,7 @@ async Task<int> RunMainAsync(string[] args)
     bool   aiQuick     = false;   // --quick-ai / --ai-quick (CI: skip shared, cached only, 1 model/device)
     string? aiModel   = null;    // --ai-model ALIAS
     string? aiDevices = null;    // --ai-device cpu,gpu,npu (comma-separated)
+    string? aiBackend = null;    // --ai-backend foundry|lmstudio|auto
     long?  arraySize  = null;
     bool   noSave     = false;
     string? outputDir = null;
@@ -110,7 +111,11 @@ async Task<int> RunMainAsync(string[] args)
                     aiDevices = args[++i];
                     break;
 
-                case "--array-size" when i + 1 < args.Length:
+                case "--ai-backend" when i + 1 < args.Length:
+                    aiBackend = args[++i];
+                    break;
+
+                case "--array-size"when i + 1 < args.Length:
                     arraySize = ParseSize(args[++i]);
                     break;
 
@@ -214,7 +219,7 @@ async Task<int> RunMainAsync(string[] args)
         int aiCode = await RunAiBenchmarkAsync(
             aiDevices, aiModel, noSave, outputDir,
             aiSharedOnly, aiNoDownload, aiQuick,
-            savedMemoryJsonPaths);
+            savedMemoryJsonPaths, aiBackend);
         if (aiCode != 0)
         {
             // AI failure is non-fatal when CPU/GPU benchmarks already ran successfully
@@ -463,7 +468,8 @@ async Task<int> RunMainAsync(string[] args)
 async Task<int> RunAiBenchmarkAsync(
     string? deviceArg, string? modelAlias, bool noSave, string? outputDir,
     bool sharedOnly, bool noDownload, bool quickMode = false,
-    IReadOnlyCollection<string>? memoryJsonPaths = null)
+    IReadOnlyCollection<string>? memoryJsonPaths = null,
+    string? aiBackend = null)
 {
     // Parse comma-separated device list (e.g. "cpu,gpu,npu" or "npu")
     IEnumerable<string>? deviceFilter = null;
@@ -480,19 +486,32 @@ async Task<int> RunAiBenchmarkAsync(
     ConsoleOutput.WriteMarkup($"[dim]  Q1 (cold): {AiBenchmarkRunner.Q1}[/]");
     ConsoleOutput.WriteMarkup($"[dim]  Q2 (warm): {AiBenchmarkRunner.Q2}[/]");
 
+    AiBackendType backendType = AiBackendType.Auto;
+    if (!string.IsNullOrWhiteSpace(aiBackend))
+    {
+        backendType = aiBackend.ToLowerInvariant() switch
+        {
+            "foundry" => AiBackendType.Foundry,
+            "lmstudio" or "lm-studio" => AiBackendType.LmStudio,
+            "auto" => AiBackendType.Auto,
+            _ => AiBackendType.Auto,
+        };
+    }
+
     AiBenchmarkTwoPassResult twoPassResult;
     AiBenchmarkRunner.AiSession? aiSession = null;
     try
     {
-        (twoPassResult, aiSession) = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias, sharedOnly, noDownload, quickMode);
+        (twoPassResult, aiSession) = await AiBenchmarkRunner.RunAsync(deviceFilter, modelAlias, sharedOnly, noDownload, quickMode, backendType: backendType);
     }
     catch (Exception ex)
     {
         var diag = DiagnosticHelper.LogException(ex);
         ConsoleOutput.WriteMarkup($"[red][FAIL][/] AI benchmark failed: {ex.Message}");
         ConsoleOutput.WriteMarkup($"[dim]  {diag}[/]");
-        ConsoleOutput.WriteMarkup("[dim]  Ensure Microsoft AI Foundry Local is installed:[/]");
-        ConsoleOutput.WriteMarkup("[dim]  Windows: winget install Microsoft.FoundryLocal[/]");
+        ConsoleOutput.WriteMarkup("[dim]  Ensure an AI backend is installed:[/]");
+        ConsoleOutput.WriteMarkup("[dim]  Foundry: winget install Microsoft.FoundryLocal[/]");
+        ConsoleOutput.WriteMarkup("[dim]  LM Studio: https://lmstudio.ai[/]");
         return 1;
     }
 
@@ -561,10 +580,9 @@ async Task<int> RunAiBenchmarkAsync(
         {
             relationSummary = await AiBenchmarkRunner.RunLocalRelationSummaryAsync(
                 summaryDir, modelAlias, deviceFilter,
-                existingCli: aiSession?.Cli,
-                existingServiceUrl: aiSession?.ServiceUrl,
-                existingCatalog: aiSession?.Catalog,
-                existingAiResults: twoPassResult);
+                existingSession: aiSession,
+                existingAiResults: twoPassResult,
+                backendType: backendType);
         }
         catch (Exception ex)
         {
@@ -637,13 +655,14 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--output-dir[/] DIR         Directory for output files (default: current dir)");
     ConsoleOutput.WriteMarkup("  [cyan]--exe[/] PATH               Explicit path to the C backend executable");
     Console.WriteLine();
-    ConsoleOutput.WriteMarkup("[bold white]AI Inference Benchmark (Foundry Local):[/]");
+    ConsoleOutput.WriteMarkup("[bold white]AI Inference Benchmark:[/]");
     ConsoleOutput.WriteMarkup("  [cyan]--ai[/]                     Run AI inference benchmark on all available devices");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-shared-only[/]         Skip best-per-device pass (shared model comparison only)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-no-download[/]         Only use cached models (skip downloads for fast repeat runs)");
     ConsoleOutput.WriteMarkup("  [cyan]--quick-ai[/]               Fast CI mode: cached models only, 1 model per device");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-backend[/] TYPE        AI backend: auto (default), foundry, lmstudio");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Diagnostics:[/]");

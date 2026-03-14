@@ -6,8 +6,7 @@
 
 A cross-platform **memory bandwidth benchmark** with both **CPU** and **GPU** versions, based on the
 industry-standard [STREAM benchmark](http://www.cs.virginia.edu/stream/ref.html) by John D. McCalpin.
-Also includes an **AI inference benchmark** using [Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)
-to measure LLM response time and tokens/second on CPU, GPU, and NPU.
+Also includes an **AI inference benchmark** supporting [Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/) and [LM Studio](https://lmstudio.ai) to measure LLM response time and tokens/second on CPU, GPU, and NPU.
 
 ## Architecture
 
@@ -26,7 +25,7 @@ displays color-formatted results, saves files, and runs the AI inference benchma
                                         | JSON on stdout
                         <- display colored table, save .csv / .json
 
-  User -> StreamBench (.NET 10) --ai -> Foundry Local CLI + REST API
+  User -> StreamBench (.NET 10) --ai -> AI Backend (Foundry Local or LM Studio)
                                         | runs SLM on CPU / GPU / NPU
                         <- display inference timing, tokens/sec, save .json
 ```
@@ -226,9 +225,12 @@ release page for users who want to run them directly without the StreamBench fro
 
 ## AI Inference Benchmark (`--ai`)
 
-StreamBench includes an AI inference benchmark powered by
-**[Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)**,
-which runs small language models (SLMs) directly on-device with hardware acceleration.
+StreamBench includes an AI inference benchmark supporting two backends:
+
+- **[Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)** — runs SLMs with hardware-specific optimization (CPU, GPU, NPU) on Windows and macOS
+- **[LM Studio](https://lmstudio.ai)** — cross-platform (Windows, macOS, Linux) GPU/CPU inference via llama.cpp
+
+Both backends expose OpenAI-compatible REST APIs, abstracted via Microsoft.Extensions.AI (`IChatClient`).
 
 ### What it measures
 
@@ -246,7 +248,9 @@ sustained inference throughput across CPU, GPU, and NPU.
 
 ### Prerequisites
 
-Microsoft AI Foundry Local must be installed on the target machine:
+Install at least one AI backend:
+
+**Microsoft Foundry Local:**
 
 ```powershell
 # Windows
@@ -255,9 +259,22 @@ winget install Microsoft.FoundryLocal
 
 ```bash
 # macOS
-brew tap microsoft/foundrylocal
-brew install foundrylocal
+brew tap microsoft/foundrylocal && brew install foundrylocal
 ```
+
+**LM Studio (cross-platform):**
+
+```powershell
+# Windows
+winget install LMStudio.LMStudio
+```
+
+```bash
+# macOS
+brew install --cask lm-studio
+```
+
+Then open LM Studio and download a model (e.g. phi-3.5-mini-instruct GGUF).
 
 ### Running the AI benchmark
 
@@ -275,6 +292,13 @@ brew install foundrylocal
 
 # Use a specific model
 .\StreamBench.exe --ai --ai-model phi-3.5-mini
+
+# Select AI backend explicitly
+.\StreamBench.exe --ai --ai-backend lmstudio
+.\StreamBench.exe --ai --ai-backend foundry
+
+# Auto-detect best available backend (default)
+.\StreamBench.exe --ai --ai-backend auto
 
 # Quick mode — cached models only, skip shared pass, 1 model/device (CI/automated)
 .\StreamBench.exe --ai --quick-ai

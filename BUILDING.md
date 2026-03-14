@@ -19,8 +19,9 @@ If you're setting up a fresh Windows machine for source builds and `--ai`, run:
 # .NET SDK (build + dotnet run)
 winget install Microsoft.DotNet.SDK.10
 
-# AI benchmark backend
-winget install Microsoft.FoundryLocal
+# AI benchmark backend (choose one or both)
+winget install Microsoft.FoundryLocal    # Foundry Local (Windows, NPU/GPU/CPU)
+winget install LMStudio.LMStudio         # LM Studio (cross-platform, GPU/CPU)
 
 # Windows ARM64 only: install x64 .NET runtime for mixed-arch dependencies
 winget install --id Microsoft.DotNet.Runtime.10 --architecture x64
@@ -38,9 +39,14 @@ brew install --cask dotnet-sdk
 # OpenMP support for CPU benchmark multi-threading
 brew install libomp
 
-# AI benchmark backend (Foundry Local)
+# AI benchmark backend (choose one or both)
+# Option A: Foundry Local
 brew tap microsoft/foundrylocal
 brew install foundrylocal
+
+# Option B: LM Studio (cross-platform)
+brew install --cask lm-studio
+# Then open LM Studio and download a model (e.g. phi-3.5-mini-instruct GGUF)
 ```
 
 ### 1. Build everything
@@ -81,6 +87,10 @@ dotnet run --project StreamBench -p:EnableAI=true -- --ai
 
 # Narrow to a specific device or model if you want a faster validation pass
 dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-device gpu --ai-model phi-3.5-mini
+
+# Use a specific AI backend
+dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend lmstudio
+dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend foundry
 ```
 
 > `dotnet run --project StreamBench -- --ai` uses the default non-AI build and will skip AI.
@@ -99,8 +109,9 @@ dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-device gpu --ai-m
 --exe PATH               Explicit path to the C backend executable
 --help                   Show help
 
-AI Inference Benchmark (requires Microsoft AI Foundry Local):
+AI Inference Benchmark:
 --ai                     Add AI inference benchmark (memory benchmarks still run by default)
+--ai-backend TYPE        AI backend: auto (default), foundry, lmstudio
 --ai-device LIST         Comma-separated devices: cpu, gpu, npu (default: all)
 --ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)
 ```

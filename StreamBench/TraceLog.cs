@@ -205,6 +205,54 @@ public static class TraceLog
     public static void AiCatalogDeviceTypes(string summary)
         => Info($"AI catalog device types: {summary}");
 
+#if ENABLE_AI
+    // ── AI Backend Selection ──
+
+    public static void AiBackendSelected(string backendName, string reason)
+        => Info($"AI backend selected. Backend: {backendName}, Reason: {reason}");
+
+    public static void AiBackendAutoDetect(string found, string tried)
+        => Info($"AI backend auto-detect. Found: {found}, Tried: {tried}");
+
+    // ── LM Studio ──
+
+    public static void LmStudioCliFound(string path)
+        => Info($"LM Studio CLI found. Path: {path}");
+
+    public static void LmStudioCliNotFound()
+        => Warn("LM Studio CLI not found on any known path");
+
+    public static void LmStudioServerStarting(int port)
+        => Info($"LM Studio server starting. Port: {port}");
+
+    public static void LmStudioServerStarted(string url)
+        => Info($"LM Studio server started. URL: {url}");
+
+    public static void LmStudioServerAlreadyRunning(string url)
+        => Info($"LM Studio server already running. URL: {url}");
+
+    public static void LmStudioServerStopped()
+        => Info("LM Studio server stopped");
+
+    public static void LmStudioServerStopFailed(string error)
+        => Warn($"LM Studio server stop failed. Error: {error}");
+
+    public static void LmStudioModelListed(int count)
+        => Info($"LM Studio models listed. Count: {count}");
+
+    public static void LmStudioModelLoading(string modelId)
+        => Info($"LM Studio model loading. Model: {modelId}");
+
+    public static void LmStudioModelLoaded(string modelId, long durationMs)
+        => Info($"LM Studio model loaded. Model: {modelId}, Duration: {durationMs}ms");
+
+    public static void LmStudioModelLoadFailed(string modelId, string error)
+        => Warn($"LM Studio model load failed. Model: {modelId}, Error: {error}");
+
+    public static void LmStudioSuggestModel(string modelId)
+        => Info($"LM Studio suggesting model. Model: {modelId}");
+#endif
+
     public static void NpuHardwareDetected(string info)
         => Info($"NPU hardware detected: {info}");
 
