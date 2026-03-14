@@ -2,6 +2,29 @@
 
 Revisions as of Sat, Mar 15, 2026
 
+  LM Studio integration fixes and AI output improvements
+
+  - Fixed LM Studio model filtering: embedding models (e.g.
+    text-embedding-nomic-embed-text-v1.5) and virtual/system entries
+    (e.g. "You", "Assistant") returned by /v1/models are now excluded
+    from the AI benchmark candidate list.  Also added defense-in-depth
+    filtering in FindBestModel and FindRelationSummaryModel.
+
+  - Fixed LM Studio auto-load hanging: lms load with a fuzzy model
+    name could enter interactive mode waiting for user selection.  Now
+    resolves exact model keys via lms ls before loading.  If no chat
+    models exist on disk, downloads one with lms get --yes.
+
+  - Improved ParseLmsLsOutput to handle LM Studio v0.4+ sectioned
+    output (LLM vs EMBEDDING sections) and skip non-chat models.
+
+  - Reordered AI benchmark summary output: best-per-device results
+    now display first, followed by the shared-model device comparison
+    as the final result for clear apples-to-apples comparison.  Added
+    subtitle notes when different models are used per device.
+
+  - Removed silicon partner specific naming from code and docs.
+
   Fact-check fixes for AI benchmark accuracy
 
   - Fixed LPDDR5/LPDDR5X theoretical bandwidth calculation:
