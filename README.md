@@ -138,7 +138,7 @@ Optional manual / advanced path:
 .\StreamBench_win_x64_ai.exe --ai --ai-device cpu,gpu
 ```
 
-> **ARM64 Windows users** (Snapdragon/Qualcomm): Use `*_arm64*` variants instead.
+> **ARM64 Windows users:** Use `*_arm64*` variants instead.
 
 #### One-liner PowerShell (copy-paste)
 

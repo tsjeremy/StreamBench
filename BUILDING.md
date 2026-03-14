@@ -27,7 +27,7 @@ winget install ElementLabs.LMStudio      # LM Studio (cross-platform, GPU/CPU)
 winget install --id Microsoft.DotNet.Runtime.10 --architecture x64
 ```
 
-> **Windows ARM64 note (Snapdragon/Qualcomm):** StreamBench now auto-uses `win-x64`
+> **Windows ARM64 note:** StreamBench now auto-uses `win-x64`
 > for local `dotnet run` on ARM64 Windows. You only need the x64 runtime install command above.
 
 ### New macOS setup
@@ -186,7 +186,7 @@ It sets up the compiler paths automatically.
 
 > **Tip:** Right-click it and choose **"Pin to taskbar"** for quick access next time.
 >
-> **ARM64 users** (e.g., Snapdragon/Qualcomm laptops): Search for
+> **ARM64 users** (e.g., ARM64 Windows laptops): Search for
 > **"ARM64 Native Tools Command Prompt"** instead.
 
 You'll see a prompt like:

@@ -289,7 +289,7 @@ public record GpuDeviceInfo
     ///   - Device name keywords: "AI Boost", "NPU", "Neural", "Hexagon", "VPU".
     ///   - OS-level detection via pnputil class GUID for Neural Processors:
     ///     if the OS has a registered NPU and the OpenCL vendor is "Microsoft",
-    ///     the device is the NPU (on Snapdragon X the NPU is exposed via OpenCL
+    ///     the device is the NPU (some NPUs are exposed via OpenCL
     ///     with vendor "Microsoft").
     /// </summary>
     public static bool IsNpu(string? deviceName, string? vendor = null)
@@ -445,15 +445,15 @@ public record GpuDeviceInfo
     // Windows class GUIDs that may host NPU devices
     private static readonly string[] NpuClassGuids =
     [
-        "{f01a9d53-3ff6-48d2-9f97-c8a7004be10c}",   // ComputeAccelerator (Snapdragon X2 Hexagon NPU, etc.)
-        "{d3540260-d950-4922-a562-3aafcab6e49a}",    // Neural Processors (older/Intel NPU class)
+        "{f01a9d53-3ff6-48d2-9f97-c8a7004be10c}",   // ComputeAccelerator class
+        "{d3540260-d950-4922-a562-3aafcab6e49a}",    // Neural Processors class
     ];
 
     /// <summary>
     /// Queries the OS for registered NPU devices using known NPU class GUIDs.
     /// On Windows, uses "pnputil /enum-devices /connected /class {GUID}" to directly
     /// enumerate only NPU-class devices — no keyword matching needed.
-    /// Checks ComputeAccelerator (Snapdragon X2) and Neural Processors (Intel) classes.
+    /// Checks ComputeAccelerator and Neural Processors classes.
     /// Returns the first matching device description, or null if none found.
     /// </summary>
     private static string? DetectNpuFromOs()

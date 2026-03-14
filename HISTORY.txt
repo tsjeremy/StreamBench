@@ -10,8 +10,8 @@ Revisions as of Sat, Mar 15, 2026
     SMBIOS reports per-entry width including both x16 sub-channels,
     doubling the actual physical channel width.  Per JEDEC spec, LPDDR5X
     channels are x32.  Now halves the SMBIOS width for LPDDR5/LPDDR5X,
-    giving the correct 256-bit = 307.2 GB/s for Intel Panther Lake
-    8-channel configurations.
+    giving the correct 256-bit = 307.2 GB/s for typical 8-channel
+    LPDDR5X mobile configurations.
 
   - Fixed Q3 relation summary context: the data summary passed to the
     AI model previously reported "AI JSON files: 0" (because AI results

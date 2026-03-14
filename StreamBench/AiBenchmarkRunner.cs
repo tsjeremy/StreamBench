@@ -248,7 +248,7 @@ public static class AiBenchmarkRunner
                             ConsoleOutput.WriteMarkup(
                                 "[yellow][INFO][/] No NPU hardware detected — skipping NPU benchmark.");
                             ConsoleOutput.WriteMarkup(
-                                "[dim]  NPU benchmarks require Intel Core Ultra (AI Boost) or Qualcomm Snapdragon X (Hexagon NPU).[/]");
+                                "[dim]  NPU benchmarks require a device with a supported NPU (AI accelerator).[/]");
                         }
                     }
                     else
@@ -1552,7 +1552,6 @@ public static class AiBenchmarkRunner
         // includes both x16 sub-channels, doubling the actual physical channel
         // width.  JEDEC LPDDR5X channels are x32 (2 × x16 sub-channels), so we
         // halve the SMBIOS-reported width to match the true bus width.
-        // Reference: Intel Panther Lake = 8 channels × 32-bit = 256-bit = 307.2 GB/s.
         string? memType = TryGetString(memory, "type")?.Trim();
         bool isLpddr5 = memType is not null
             && memType.StartsWith("LPDDR5", StringComparison.OrdinalIgnoreCase);
