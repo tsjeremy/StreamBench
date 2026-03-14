@@ -982,9 +982,11 @@ public static class AiBenchmarkRunner
         bool strictAlias,
         IReadOnlySet<string>? excludeIds = null)
     {
+        // Filter: correct device, not excluded, and not an embedding/non-chat model
         var candidates = allModels
             .Where(m => m.DeviceType.Equals(deviceLabel, StringComparison.OrdinalIgnoreCase))
             .Where(m => excludeIds is null || !excludeIds.Contains(m.Id))
+            .Where(m => !IsNonChatModelId(m.Id) && !IsNonChatModelId(m.Alias))
             .ToList();
 
         if (candidates.Count == 0)
@@ -1690,6 +1692,7 @@ public static class AiBenchmarkRunner
         var candidates = allModels
             .Where(m => m.DeviceType.Equals(deviceLabel, StringComparison.OrdinalIgnoreCase))
             .Where(m => excludeIds is null || !excludeIds.Contains(m.Id))
+            .Where(m => !IsNonChatModelId(m.Id) && !IsNonChatModelId(m.Alias))
             .ToList();
         if (candidates.Count == 0)
             return null;
@@ -1723,6 +1726,30 @@ public static class AiBenchmarkRunner
     /// <summary>Rough token count estimate: ~4 chars per token on average.</summary>
     private static int EstimateTokens(string text) =>
         Math.Max(1, text.Length / 4);
+
+    /// <summary>
+    /// Returns true if a model ID or alias indicates a non-chat model
+    /// (embedding, rerank, TTS, etc.) that cannot handle /v1/chat/completions.
+    /// </summary>
+    private static bool IsNonChatModelId(string idOrAlias)
+    {
+        if (string.IsNullOrWhiteSpace(idOrAlias)) return false;
+
+        ReadOnlySpan<string> markers =
+        [
+            "embedding", "embed-", "rerank", "reranker",
+            "whisper", "tts", "text-to-speech",
+            "clip", "vision-encoder", "image-encoder"
+        ];
+
+        foreach (var marker in markers)
+        {
+            if (idOrAlias.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
 
     // ── Inference heartbeat ───────────────────────────────────────────────
 

@@ -154,6 +154,9 @@ internal sealed class LmStudioAiBackend : IAiBackend
                     string id = model.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? "" : "";
                     if (string.IsNullOrEmpty(id)) continue;
 
+                    // Skip non-chat models (embedding, rerank, vision-only, TTS, etc.)
+                    if (IsNonChatModel(id)) continue;
+
                     string alias = ExtractAlias(id);
                     models.Add(new AiModelInfo(
                         Id: id,
@@ -431,6 +434,7 @@ internal sealed class LmStudioAiBackend : IAiBackend
             // lms ls typically outputs model paths like: "user/model-name-q4_k_m.gguf"
             string id = trimmed.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? trimmed;
             if (id.Length < 3) continue;
+            if (IsNonChatModel(id)) continue;
 
             string alias = ExtractAlias(id);
             models.Add(new AiModelInfo(
@@ -466,6 +470,33 @@ internal sealed class LmStudioAiBackend : IAiBackend
         }
 
         return name.Trim('-').Trim('_');
+    }
+
+    /// <summary>
+    /// Returns true if the model ID indicates a non-chat model (embedding, rerank, TTS,
+    /// whisper, vision-encoder-only, etc.) that cannot handle /v1/chat/completions.
+    /// </summary>
+    private static bool IsNonChatModel(string modelId)
+    {
+        // Common non-chat model indicators in LM Studio model IDs
+        ReadOnlySpan<string> markers =
+        [
+            "embedding", "embed-", "rerank", "reranker",
+            "whisper", "tts", "text-to-speech",
+            "clip", "vision-encoder", "image-encoder"
+        ];
+
+        foreach (var marker in markers)
+        {
+            if (modelId.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // Model IDs starting with "text-embedding-" are always embedding models
+        if (modelId.StartsWith("text-embedding-", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
     }
 }
 #endif
