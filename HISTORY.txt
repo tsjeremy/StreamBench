@@ -2,6 +2,35 @@
 
 Revisions as of Sat, Mar 15, 2026
 
+  Shared-model-only AI benchmark and output labelling
+
+  - Removed best-per-device pass: the AI benchmark now runs a single
+    shared model across all devices (CPU, GPU, NPU) for a fair
+    apples-to-apples comparison.  The best-per-device pass that
+    selected the fastest model per device has been removed to avoid
+    misleading comparisons between different-sized models.
+
+  - Added [Device][Model] labels to all AI output: Q1/Q2 per-device
+    answers, Q3+ relation questions, and the relation summary timing
+    table now show the device and model name on each line, e.g.
+    "Q1 [CPU][phi-3.5-mini]: Hello World!".
+
+  - Fixed Q3 relation summary model selection: BuildRelationSeedResults
+    now prefers shared-pass results over best-per-device, ensuring Q3
+    uses the same model across all devices for consistent comparison.
+
+  - Updated data readers (AppendAiSamples, JSON reader) to prefer
+    shared results over best-per-device when aggregating AI samples.
+
+  - Removed --ai-shared-only CLI flag (now always the default behavior).
+
+  - Renamed CLI header from "Shared Model Device Comparison" to
+    "AI Device Comparison (same model across all devices)".
+
+-------------------------------------------------------------------------
+
+Revisions as of Sat, Mar 15, 2026
+
   LM Studio integration fixes and AI output improvements
 
   - Fixed LM Studio model filtering: embedding models (e.g.
