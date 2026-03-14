@@ -43,25 +43,18 @@ public static class AiBenchmarkRunner
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    // ── IChatClient creation via SK/MEAI ──────────────────────────────────
+    // ── IChatClient creation ─────────────────────────────────────────────
 
     /// <summary>
     /// Creates an IChatClient pointing at the backend's OpenAI-compatible endpoint.
     /// Both Foundry and LM Studio expose /v1/chat/completions.
+    /// Uses DirectOpenAiChatClient (raw HttpClient) instead of the OpenAI SDK to
+    /// avoid deserialization bugs with non-OpenAI backends that return
+    /// "tool_calls": [] in their responses.
     /// </summary>
     private static IChatClient CreateChatClient(string serviceUrl, string? modelId = null)
     {
-        // Use OpenAI client from Microsoft.Extensions.AI.OpenAI package
-        // pointed at the local backend's base URL (not the real OpenAI API).
-        var openAiClient = new OpenAI.OpenAIClient(
-            new System.ClientModel.ApiKeyCredential("not-needed"),
-            new OpenAI.OpenAIClientOptions
-            {
-                Endpoint = new Uri(serviceUrl),
-            });
-
-        return openAiClient.GetChatClient(modelId ?? "default")
-            .AsIChatClient();
+        return new DirectOpenAiChatClient(serviceUrl, modelId ?? "default");
     }
 
     // ── Public entry point ────────────────────────────────────────────────
