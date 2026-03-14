@@ -21,7 +21,7 @@ winget install Microsoft.DotNet.SDK.10
 
 # AI benchmark backend (choose one or both)
 winget install Microsoft.FoundryLocal    # Foundry Local (Windows, NPU/GPU/CPU)
-winget install LMStudio.LMStudio         # LM Studio (cross-platform, GPU/CPU)
+winget install ElementLabs.LMStudio      # LM Studio (cross-platform, GPU/CPU)
 
 # Windows ARM64 only: install x64 .NET runtime for mixed-arch dependencies
 winget install --id Microsoft.DotNet.Runtime.10 --architecture x64

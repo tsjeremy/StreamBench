@@ -169,7 +169,7 @@ curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.24/Str
 The launcher files are available as separate downloads on the
 [release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.24).
 
-- **`setup.ps1`**: optional first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and Foundry Local (all silent via winget; standalone mode auto-detected)
+- **`setup.ps1`**: optional first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and AI backends (Foundry Local and/or LM Studio) — all silent via winget; standalone mode auto-detected
 - **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass, lets you choose memory-only or memory + AI, prompts for AI backend when needed, and saves a full CLI transcript
 - **`run_stream.ps1`**: unified PowerShell launcher for Windows, macOS, and Linux — **auto-runs `setup.ps1`** on Windows if prerequisites are missing and saves a full CLI transcript
 - **`run_stream_ai.cmd`**: Windows compatibility shortcut that preselects AI mode and automatically uses PowerShell bypass
@@ -264,9 +264,10 @@ sustained inference throughput across CPU, GPU, and NPU.
 
 ### Prerequisites
 
-Install at least one AI backend:
+Install at least one AI backend. The `setup.ps1` script auto-installs these when
+you choose the AI benchmark, but you can also install them manually:
 
-**Microsoft Foundry Local:**
+**Microsoft Foundry Local (Windows/macOS):**
 
 ```powershell
 # Windows
@@ -278,11 +279,11 @@ winget install Microsoft.FoundryLocal
 brew tap microsoft/foundrylocal && brew install foundrylocal
 ```
 
-**LM Studio (cross-platform):**
+**LM Studio (Windows/macOS/Linux):**
 
 ```powershell
 # Windows
-winget install LMStudio.LMStudio
+winget install ElementLabs.LMStudio
 ```
 
 ```bash

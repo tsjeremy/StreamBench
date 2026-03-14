@@ -440,28 +440,46 @@ public static class AiBenchmarkRunner
                 TraceLog.AiPassStarted("per-device-fallback", targetDevices.Count);
                 foreach (var deviceType in targetDevices)
                 {
-                    var model = FindBestModel(backend, allModels, deviceType, effectiveAlias, strictAlias);
-                    if (model is null)
+                    const int maxRetries = 3;
+                    HashSet<string>? triedIds = null;
+                    AiDeviceBenchmarkResult? result = null;
+
+                    for (int attempt = 0; attempt < maxRetries; attempt++)
                     {
-                        TraceLog.DiagnosticInfo($"No model available for {deviceType}");
+                        var model = FindBestModel(backend, allModels, deviceType, effectiveAlias, strictAlias, triedIds);
+                        if (model is null)
+                        {
+                            if (attempt == 0)
+                            {
+                                TraceLog.DiagnosticInfo($"No model available for {deviceType}");
+                                ConsoleOutput.WriteMarkup(
+                                    $"[yellow][SKIP][/] No model available for [white]{deviceType}[/].");
+                            }
+                            break;
+                        }
+
+                        Console.WriteLine();
+                        TraceLog.AiBenchmarkDeviceStarted(deviceType, model.Id);
                         ConsoleOutput.WriteMarkup(
-                            $"[yellow][SKIP][/] No model available for [white]{deviceType}[/].");
-                        continue;
-                    }
+                            $"[bold cyan]── AI Benchmark: {deviceType} ({model.Id}) ──[/]");
 
-                    Console.WriteLine();
-                    TraceLog.AiBenchmarkDeviceStarted(deviceType, model.Id);
-                    ConsoleOutput.WriteMarkup(
-                        $"[bold cyan]── AI Benchmark: {deviceType} ({model.Id}) ──[/]");
+                        var devSw = Stopwatch.StartNew();
+                        result = await BenchmarkModelAsync(
+                            backend, serviceUrl, model, deviceType, noDownload, cancellationToken);
+                        devSw.Stop();
+                        if (result is not null)
+                        {
+                            sharedResults.Add(result with { BenchmarkPass = "shared" });
+                            TraceLog.AiBenchmarkDeviceCompleted(deviceType, model.Id, devSw.ElapsedMilliseconds);
+                            break;
+                        }
 
-                    var devSw = Stopwatch.StartNew();
-                    var result = await BenchmarkModelAsync(
-                        backend, serviceUrl, model, deviceType, noDownload, cancellationToken);
-                    devSw.Stop();
-                    if (result is not null)
-                    {
-                        sharedResults.Add(result with { BenchmarkPass = "shared" });
-                        TraceLog.AiBenchmarkDeviceCompleted(deviceType, model.Id, devSw.ElapsedMilliseconds);
+                        // Model failed — track it and try next candidate
+                        triedIds ??= new(StringComparer.OrdinalIgnoreCase);
+                        triedIds.Add(model.Id);
+                        TraceLog.DiagnosticInfo($"Model {model.Id} failed for {deviceType}, trying next candidate (attempt {attempt + 1}/{maxRetries})");
+                        ConsoleOutput.WriteMarkup(
+                            $"[yellow][WARN][/] Model [white]{model.Id}[/] failed for {deviceType}; trying next candidate...");
                     }
                 }
                 TraceLog.AiPassCompleted("per-device-fallback", sharedResults.Count, targetDevices.Count);

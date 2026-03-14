@@ -47,4 +47,4 @@ dotnet publish StreamBench/StreamBench.csproj -c Release -p:EnableAI=true
 - Version string appears in `stream.c` line 3, `stream_gpu.c` line 3, and `StreamBench.csproj` `<Version>`
 - Result files: `stream_cpu_results_{size}.csv/json`, `stream_gpu_results_{size}.csv/json`
 - Launcher scripts (`run_stream.ps1`, `run_stream_ai.ps1`) auto-detect source vs standalone mode
-- `setup.ps1` handles first-time VC++ Redistributable and Foundry Local installation
+- `setup.ps1` handles first-time VC++ Redistributable, Foundry Local, and LM Studio installation

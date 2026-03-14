@@ -544,6 +544,14 @@ async Task<int> RunAiBenchmarkAsync(
             ConsoleOutput.WriteMarkup("[dim]  Re-run without --quick-ai / --ai-no-download, or pre-download a model first:[/]");
             ConsoleOutput.WriteMarkup("[dim]  foundry model run phi-3.5-mini[/]");
         }
+        else if (aiOptions.DeviceFilter.Count == 1 && aiOptions.DeviceFilter[0].Equals("NPU", StringComparison.OrdinalIgnoreCase))
+        {
+            ConsoleOutput.WriteMarkup("[dim]  All NPU models failed to load. Possible causes:[/]");
+            ConsoleOutput.WriteMarkup("[dim]  • NPU driver may not be installed or may need updating[/]");
+            ConsoleOutput.WriteMarkup("[dim]  • Foundry Local NPU execution provider may not support this NPU hardware yet[/]");
+            ConsoleOutput.WriteMarkup("[dim]  Try: foundry --version  and check for Foundry/driver updates[/]");
+            ConsoleOutput.WriteMarkup("[dim]  Or run without --ai-device npu to benchmark CPU/GPU instead[/]");
+        }
         else
         {
             ConsoleOutput.WriteMarkup("[dim]  Ensure an AI backend is installed:[/]");

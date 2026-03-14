@@ -13,7 +13,7 @@
 #   4. (Source mode only) Runs "dotnet restore" for base + AI packages
 #   5. Checks GPU driver / OpenCL availability for GPU benchmark
 #   6. (Optional) Checks / installs PowerShell 7
-#   7. (Optional) Installs Microsoft Foundry Local for AI benchmark
+#   7. (Optional) Installs AI backends (Microsoft Foundry Local and/or LM Studio)
 #
 # Usage:
 #   .\setup.ps1
@@ -388,7 +388,7 @@ Write-Host '  [7/7] Setting up AI backend (AI benchmark)...' -ForegroundColor Cy
 $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
             [System.Environment]::GetEnvironmentVariable('PATH', 'User')
 
-# Foundry detection (Windows only)
+# Foundry detection (Windows / macOS)
 $foundryOk = $false
 $foundryCmd = $null
 if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
@@ -425,6 +425,8 @@ if (Get-Command lms -ErrorAction SilentlyContinue) {
     $lmsPaths = @()
     if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
         $lmsPaths += Join-Path $env:USERPROFILE '.lmstudio\bin\lms.exe'
+        $lmsPaths += Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\resources\app\.webpack\lms.exe'
+        $lmsPaths += Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\resources\bin\lms.exe'
         $lmsPaths += Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\lms.exe'
     } elseif ($IsMacOS) {
         $lmsPaths += Join-Path $HOME '.lmstudio/bin/lms'
@@ -452,7 +454,7 @@ Write-Host ''
 # ── Ask user which backend to set up ──
 
 Write-Host '  Select AI backend for StreamBench:' -ForegroundColor Cyan
-Write-Host '    [1] Microsoft Foundry Local  (Windows only, NPU/GPU/CPU support)' -ForegroundColor White
+Write-Host '    [1] Microsoft Foundry Local  (Windows/macOS, NPU/GPU/CPU support)' -ForegroundColor White
 Write-Host '    [2] LM Studio               (Windows/macOS/Linux, GPU/CPU)' -ForegroundColor White
 Write-Host '    [3] Both' -ForegroundColor White
 Write-Host '    [4] Skip AI setup' -ForegroundColor DarkGray
@@ -627,20 +629,85 @@ if ($setupLmStudio) {
             }
         }
     } else {
-        # LM Studio not installed — guide user
-        Write-Host '  LM Studio is not installed. Install instructions:' -ForegroundColor Yellow
+        # LM Studio not installed — attempt auto-install
         if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
-            Write-Host '    Option A: winget install LMStudio.LMStudio' -ForegroundColor White
-            Write-Host '    Option B: Download from https://lmstudio.ai' -ForegroundColor White
+            if ($hasWinget) {
+                Write-Host '  Installing LM Studio via winget...' -ForegroundColor Yellow
+                winget install ElementLabs.LMStudio --accept-package-agreements --accept-source-agreements --silent
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host '  [OK] LM Studio installed.' -ForegroundColor Green
+
+                    # Refresh PATH from registry so newly-installed commands are visible
+                    $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
+                    $userPath    = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+                    $env:PATH    = "$machinePath;$userPath"
+
+                    # Re-detect lms CLI after install
+                    $lmsOk = [bool](Get-Command lms -ErrorAction SilentlyContinue)
+                    if (-not $lmsOk) {
+                        $lmsWellKnown = @(
+                            (Join-Path $env:USERPROFILE '.lmstudio\bin\lms.exe'),
+                            (Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\resources\app\.webpack\lms.exe'),
+                            (Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\resources\bin\lms.exe'),
+                            (Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\lms.exe')
+                        )
+                        foreach ($p in $lmsWellKnown) {
+                            if (Test-Path $p) {
+                                $lmsOk = $true
+                                $lmsCmd = $p
+                                $lmsDir = Split-Path $p -Parent
+                                if ($env:PATH -notlike "*$lmsDir*") {
+                                    $env:PATH = "$lmsDir;$env:PATH"
+                                }
+                                break
+                            }
+                        }
+                    } else {
+                        $lmsCmd = 'lms'
+                    }
+                    if ($lmsOk) {
+                        Write-Host "  [OK] LM Studio CLI available at: $lmsCmd" -ForegroundColor Green
+                    } else {
+                        Write-Host '  [!] LM Studio installed but CLI not found on PATH.' -ForegroundColor Yellow
+                        Write-Host '      Open LM Studio once to register the CLI, then re-run setup.' -ForegroundColor DarkGray
+                    }
+                } else {
+                    Write-Host '  [!] LM Studio install may have failed (non-fatal — AI is optional).' -ForegroundColor Yellow
+                    Write-Host '      Install manually: winget install ElementLabs.LMStudio' -ForegroundColor Yellow
+                    Write-Host '      Or download from https://lmstudio.ai' -ForegroundColor DarkGray
+                }
+            } else {
+                Write-Host '  [!] winget not available. Install LM Studio manually:' -ForegroundColor Yellow
+                Write-Host '      winget install ElementLabs.LMStudio' -ForegroundColor Yellow
+                Write-Host '      Or download from https://lmstudio.ai' -ForegroundColor DarkGray
+            }
         } elseif ($IsMacOS) {
-            Write-Host '    Option A: brew install --cask lm-studio' -ForegroundColor White
-            Write-Host '    Option B: Download from https://lmstudio.ai' -ForegroundColor White
+            if (Get-Command brew -ErrorAction SilentlyContinue) {
+                Write-Host '  Installing LM Studio via Homebrew...' -ForegroundColor Yellow
+                brew install --cask lm-studio
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host '  [OK] LM Studio installed.' -ForegroundColor Green
+                    # Re-detect
+                    $lmsCheck = Join-Path $HOME '.lmstudio/bin/lms'
+                    if (Test-Path $lmsCheck) { $lmsOk = $true; $lmsCmd = $lmsCheck }
+                    elseif (Get-Command lms -ErrorAction SilentlyContinue) { $lmsOk = $true; $lmsCmd = 'lms' }
+                } else {
+                    Write-Host '  [!] LM Studio install may have failed (non-fatal — AI is optional).' -ForegroundColor Yellow
+                    Write-Host '      Install manually: brew install --cask lm-studio' -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host '  [!] Homebrew not available. Install LM Studio manually:' -ForegroundColor Yellow
+                Write-Host '      brew install --cask lm-studio' -ForegroundColor Yellow
+                Write-Host '      Or download from https://lmstudio.ai' -ForegroundColor DarkGray
+            }
         } else {
-            Write-Host '    Download AppImage from https://lmstudio.ai' -ForegroundColor White
+            Write-Host '  [!] Automatic LM Studio install is not supported on Linux.' -ForegroundColor Yellow
+            Write-Host '      Download AppImage from https://lmstudio.ai' -ForegroundColor DarkGray
         }
-        Write-Host ''
-        Write-Host '  After installing, open LM Studio and download a model (e.g. phi-3.5-mini-instruct, qwen2.5-0.5b, or gemma-2b in GGUF format).' -ForegroundColor DarkGray
-        Write-Host '  Then run this setup script again, or just use: StreamBench --ai --ai-backend lmstudio' -ForegroundColor DarkGray
+        if ($lmsOk) {
+            Write-Host ''
+            Write-Host '  After opening LM Studio, download a model (e.g. phi-3.5-mini-instruct, qwen2.5-0.5b, or gemma-2b in GGUF format).' -ForegroundColor DarkGray
+        }
     }
 }
 

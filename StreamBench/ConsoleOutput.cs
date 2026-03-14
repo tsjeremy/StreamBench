@@ -472,7 +472,8 @@ public static class ConsoleOutput
         infoTable.AddRow("[cyan]Device[/]",             $"[bold white]{r.DeviceType}[/]");
         infoTable.AddRow("[cyan]Model ID[/]",            $"[white]{r.ModelId}[/]");
         infoTable.AddRow("[cyan]Alias[/]",               $"[white]{r.ModelAlias}[/]");
-        infoTable.AddRow("[cyan]Execution Provider[/]",  $"[white]{r.ExecutionProvider}[/]");
+        if (!string.IsNullOrWhiteSpace(r.ExecutionProvider))
+            infoTable.AddRow("[cyan]Execution Provider[/]",  $"[white]{r.ExecutionProvider}[/]");
         infoTable.AddRow("[cyan]Timestamp[/]",           $"[dim]{r.Timestamp}[/]");
         infoTable.Render();
 

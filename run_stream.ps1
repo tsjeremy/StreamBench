@@ -460,8 +460,27 @@ function Test-StreamBenchAiBackendAvailable {
                    [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
         }
         'lmstudio' {
-            return [bool](Get-Command lms -ErrorAction SilentlyContinue) -or
-                   (Test-StreamBenchTcpEndpoint -Host '127.0.0.1' -Port 1234)
+            if ([bool](Get-Command lms -ErrorAction SilentlyContinue)) { return $true }
+            if (Test-StreamBenchTcpEndpoint -Host '127.0.0.1' -Port 1234) { return $true }
+            # Check well-known CLI paths (matches LmStudioAiBackend.cs FindLmsCli)
+            if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+                $lmsPaths = @(
+                    (Join-Path $env:USERPROFILE '.lmstudio\bin\lms.exe'),
+                    (Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\resources\app\.webpack\lms.exe'),
+                    (Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\resources\bin\lms.exe'),
+                    (Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\lms.exe')
+                )
+            } else {
+                $home = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+                $lmsPaths = @(
+                    (Join-Path $home '.lmstudio/bin/lms'),
+                    '/usr/local/bin/lms'
+                )
+            }
+            foreach ($p in $lmsPaths) {
+                if (Test-Path $p) { return $true }
+            }
+            return $false
         }
         default {
             return (Test-StreamBenchAiBackendAvailable -Backend 'foundry') -or
@@ -539,12 +558,12 @@ function Ensure-StreamBenchPrerequisites {
         switch ($AiBackend) {
             'foundry' { Write-Host '        winget install Microsoft.FoundryLocal' -ForegroundColor Yellow }
             'lmstudio' {
-                Write-Host '        winget install LMStudio.LMStudio' -ForegroundColor Yellow
+                Write-Host '        winget install ElementLabs.LMStudio' -ForegroundColor Yellow
                 Write-Host '        # or download from https://lmstudio.ai' -ForegroundColor Yellow
             }
             default {
                 Write-Host '        winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
-                Write-Host '        winget install LMStudio.LMStudio' -ForegroundColor Yellow
+                Write-Host '        winget install ElementLabs.LMStudio' -ForegroundColor Yellow
             }
         }
     }
