@@ -1,5 +1,35 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sat, Mar 15, 2026
+
+  Fact-check fixes for AI benchmark accuracy
+
+  - Fixed LPDDR5/LPDDR5X theoretical bandwidth calculation:
+    EstimateTheoreticalMemoryBandwidth() was summing SMBIOS
+    data_width_bits across all modules (8 x 64 = 512-bit = 614.4 GB/s).
+    SMBIOS reports per-entry width including both x16 sub-channels,
+    doubling the actual physical channel width.  Per JEDEC spec, LPDDR5X
+    channels are x32.  Now halves the SMBIOS width for LPDDR5/LPDDR5X,
+    giving the correct 256-bit = 307.2 GB/s for Intel Panther Lake
+    8-channel configurations.
+
+  - Fixed Q3 relation summary context: the data summary passed to the
+    AI model previously reported "AI JSON files: 0" (because AI results
+    are saved after Q3 runs).  The model interpreted this as no AI data
+    existing, even though current-session AI samples were included in
+    the device aggregates.  Now the context explicitly states when AI
+    data comes from the current session vs. on-disk files.
+
+  - Improved prompt token estimation: when the backend does not report
+    input token counts (common with Foundry Local), prompt_tokens was
+    left at 0.  Now estimates prompt tokens using the same ~4 chars/token
+    heuristic used for completion tokens.
+
+  - Added LPDDR5X bus-width note to the Q3 data summary formula line
+    so the AI model understands the JEDEC sub-channel correction.
+
+-------------------------------------------------------------------------
+
 Revisions as of Sat, Mar 14, 2026
 
   UX improvements for long-running AI operations

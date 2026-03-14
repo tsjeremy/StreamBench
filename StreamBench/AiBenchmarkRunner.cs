@@ -927,10 +927,10 @@ public static class AiBenchmarkRunner
 
             string content = response.Text ?? "";
             int completionTokens = (int)(response.Usage?.OutputTokenCount ?? EstimateTokens(content));
-            int promptTokens = (int)(response.Usage?.InputTokenCount ?? 0);
+            int promptTokens = (int)(response.Usage?.InputTokenCount ?? EstimateTokens(prompt));
             double tokensPerSec = responseSec > 0 ? completionTokens / responseSec : 0;
             if (response.Usage?.OutputTokenCount is null)
-                TraceLog.DiagnosticInfo($"Token count estimated (backend did not report usage): ~{completionTokens} tokens");
+                TraceLog.DiagnosticInfo($"Token count estimated (backend did not report usage): ~{promptTokens} prompt, ~{completionTokens} completion tokens");
             string preview = content.Length > 200 ? content[..200] + "…" : content;
 
             TraceLog.AiInferenceCompleted(sw.ElapsedMilliseconds, completionTokens);
@@ -1454,8 +1454,18 @@ public static class AiBenchmarkRunner
     {
         var sb = new StringBuilder();
         sb.AppendLine($"Source directory: {sourceDir}");
-        sb.AppendLine($"Memory JSON files: {dataset.MemoryFileCount} (parsed samples: {dataset.MemorySamples.Count})");
-        sb.AppendLine($"AI JSON files: {dataset.AiFileCount} (parsed samples: {dataset.AiSamples.Count})");
+        sb.AppendLine($"Memory JSON files on disk: {dataset.MemoryFileCount} (parsed samples: {dataset.MemorySamples.Count})");
+
+        // Clarify AI data source: on-disk files + current session results
+        int totalAiSamples = dataset.AiSamples.Count;
+        if (dataset.AiFileCount > 0)
+            sb.AppendLine($"AI JSON files on disk: {dataset.AiFileCount} (parsed samples may overlap with current session)");
+        if (totalAiSamples > 0 && dataset.AiFileCount == 0)
+            sb.AppendLine($"AI benchmark data: {totalAiSamples} sample(s) from current session (not yet saved to disk)");
+        else if (totalAiSamples > 0)
+            sb.AppendLine($"Total AI benchmark samples (disk + current session): {totalAiSamples}");
+        else
+            sb.AppendLine("AI benchmark data: none available");
         sb.AppendLine();
         sb.AppendLine("Device aggregates:");
 
@@ -1482,7 +1492,8 @@ public static class AiBenchmarkRunner
                     $"- {s.DeviceType} ({s.Hostname}): measured {s.TriadMbps / 1000.0:F2} GB/s vs theoretical {s.TheoreticalGbps!.Value:F2} GB/s " +
                     $"at {speed} MT/s and {width}-bit => {s.MeasuredVsTheoreticalPercent!.Value:F1}%");
             }
-            sb.AppendLine("Formula used: theoretical GB/s = speed(MT/s) × bus width(bits) ÷ 8 ÷ 1000.");
+            sb.AppendLine("Formula used: theoretical GB/s = speed(MT/s) x bus width(bits) / 8 / 1000.");
+            sb.AppendLine("Note: For LPDDR5/LPDDR5X, bus width per channel is 32-bit (JEDEC x32); SMBIOS may report 64-bit including sub-channels.");
         }
         else
         {
@@ -1535,6 +1546,15 @@ public static class AiBenchmarkRunner
         if (!speedMts.HasValue || speedMts.Value <= 0)
             return (null, speedMts, null);
 
+        // Detect LPDDR5/LPDDR5X: SMBIOS reports data_width_bits per entry that
+        // includes both x16 sub-channels, doubling the actual physical channel
+        // width.  JEDEC LPDDR5X channels are x32 (2 × x16 sub-channels), so we
+        // halve the SMBIOS-reported width to match the true bus width.
+        // Reference: Intel Panther Lake = 8 channels × 32-bit = 256-bit = 307.2 GB/s.
+        string? memType = TryGetString(memory, "type")?.Trim();
+        bool isLpddr5 = memType is not null
+            && memType.StartsWith("LPDDR5", StringComparison.OrdinalIgnoreCase);
+
         double busWidthBits = 0;
 
         if (memory.TryGetProperty("modules", out var modules)
@@ -1547,7 +1567,10 @@ public static class AiBenchmarkRunner
                 double? bits = TryGetDouble(module, "total_width_bits")
                                ?? TryGetDouble(module, "data_width_bits");
                 if (bits.HasValue && bits.Value > 0)
-                    busWidthBits += bits.Value;
+                {
+                    // LPDDR5/LPDDR5X: halve SMBIOS width to get physical channel width
+                    busWidthBits += isLpddr5 ? bits.Value / 2.0 : bits.Value;
+                }
             }
         }
 
@@ -1555,7 +1578,7 @@ public static class AiBenchmarkRunner
         {
             double? modulesPopulated = TryGetDouble(memory, "modules_populated");
             if (modulesPopulated.HasValue && modulesPopulated.Value > 0)
-                busWidthBits = modulesPopulated.Value * 64.0;
+                busWidthBits = modulesPopulated.Value * (isLpddr5 ? 32.0 : 64.0);
         }
 
         if (busWidthBits <= 0)
