@@ -1671,10 +1671,14 @@ public static class AiBenchmarkRunner
         if (existingAiResults is null)
             return results;
 
-        foreach (var result in existingAiResults.BestPerDeviceResults)
+        // Prefer shared-pass results so Q3 uses the same model across all
+        // devices, giving an apples-to-apples comparison in the relation
+        // summary timing table.  Fall back to best-per-device only for
+        // devices not covered by the shared pass.
+        foreach (var result in existingAiResults.SharedResults)
             results[result.DeviceType] = result;
 
-        foreach (var result in existingAiResults.SharedResults)
+        foreach (var result in existingAiResults.BestPerDeviceResults)
             results.TryAdd(result.DeviceType, result);
 
         return results;
