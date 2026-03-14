@@ -503,18 +503,18 @@ public static class ConsoleOutput
 
         table.Render();
 
-        WriteMarkup($"[bold yellow]  Q1 (cold):[/] [white]{r.Question1}[/]");
+        string tag = $"[{r.DeviceType}][{r.ModelAlias}]";
+        WriteMarkup($"[bold yellow]  Q1 {tag}:[/] [white]{r.Question1}[/]");
         WriteMultilineAnswer(r.Run1.ResponseText);
         Console.WriteLine();
-        WriteMarkup($"[bold yellow]  Q2 (warm):[/] [white]{r.Question2}[/]");
+        WriteMarkup($"[bold yellow]  Q2 {tag}:[/] [white]{r.Question2}[/]");
         WriteMultilineAnswer(r.Run2.ResponseText);
         Console.WriteLine();
     }
 
     /// <summary>
-    /// Prints summary comparison tables for the two-pass AI benchmark.
-    /// Pass 1: shared model comparison. Pass 2: best-per-device performance.
-    /// When a relation summary is provided, extra relation questions (Q3+) are shown.
+    /// Prints the AI benchmark summary: shared-model device comparison table and
+    /// relation analysis questions (Q3+) when available.
     /// </summary>
     public static void PrintAiSummary(
         AiBenchmarkTwoPassResult twoPassResult,
@@ -527,37 +527,12 @@ public static class ConsoleOutput
             .ToList()
             ?? [];
 
-        // Best-per-device first: shows peak throughput each device can achieve
-        if (twoPassResult.BestPerDeviceResults.Count > 0)
-        {
-            // Check if any model actually differs from the shared pass
-            bool hasDifferentModels = twoPassResult.SharedResults.Count > 0
-                && twoPassResult.BestPerDeviceResults.Any(bpd =>
-                {
-                    var shared = twoPassResult.SharedResults.FirstOrDefault(
-                        s => s.DeviceType.Equals(bpd.DeviceType, StringComparison.OrdinalIgnoreCase));
-                    return shared is null || !shared.ModelId.Equals(bpd.ModelId, StringComparison.OrdinalIgnoreCase);
-                });
-
-            Console.WriteLine();
-            WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-            WriteMarkup("[bold cyan]  Best-Per-Device Performance (fastest model per device)[/]");
-            WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-            if (!hasDifferentModels && twoPassResult.SharedResults.Count > 0)
-                WriteMarkup("[dim]  (All devices used the same model as the shared comparison)[/]");
-            else if (hasDifferentModels)
-                WriteMarkup("[dim]  Note: Different models per device — not a direct device comparison.[/]");
-            Console.WriteLine();
-
-            PrintAiComparisonTable(twoPassResult.BestPerDeviceResults);
-        }
-
-        // Shared model last: the fair apples-to-apples device comparison (final result)
+        // Shared model comparison: same model on every device for fair comparison
         if (twoPassResult.SharedResults.Count > 0)
         {
             Console.WriteLine();
             WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-            WriteMarkup("[bold cyan]  Shared Model Device Comparison (same model, fair comparison)[/]");
+            WriteMarkup("[bold cyan]  AI Device Comparison (same model across all devices)[/]");
             WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
             Console.WriteLine();
 
@@ -589,13 +564,24 @@ public static class ConsoleOutput
                 WriteMarkup($"[dim]  Model: {relationSummary.ModelAlias} ({summaryDevice})[/]");
             }
             Console.WriteLine();
+            // Build device → model alias lookup for Q3+ labels
+            var deviceModelMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (relationSummary!.Models is { Count: > 0 })
+            {
+                foreach (var m in relationSummary.Models)
+                    deviceModelMap.TryAdd(m.DeviceType, m.ModelAlias);
+            }
+
             foreach (var q in relationQuestions)
             {
                 string questionDevice = string.IsNullOrWhiteSpace(q.DeviceType) ? summaryDevice : q.DeviceType!;
-                WriteMarkup($"[bold green]  Q{q.Index} [{questionDevice}] Response:[/] {q.Run!.ResponseTimeSec:F3}s  " +
+                string modelLabel = deviceModelMap.TryGetValue(questionDevice, out var alias)
+                    ? alias
+                    : relationSummary.ModelAlias;
+                WriteMarkup($"[bold green]  Q{q.Index} [{questionDevice}][{modelLabel}] Response:[/] {q.Run!.ResponseTimeSec:F3}s  " +
                     $"[bold cyan]{q.Run.TokensPerSecond:F1} tok/s[/]  " +
                     $"[white]{q.Run.CompletionTokens} tokens[/]");
-                WriteMarkup($"[bold yellow]  Q{q.Index} [{questionDevice}]:[/] [white]{q.Question}[/]");
+                WriteMarkup($"[bold yellow]  Q{q.Index} [{questionDevice}][{modelLabel}]:[/] [white]{q.Question}[/]");
                 WriteMultilineAnswer(q.Answer);
                 Console.WriteLine();
             }
@@ -708,13 +694,24 @@ public static class ConsoleOutput
         else
             WriteMarkup("[bold white]Device-level correlation:[/] [dim]insufficient paired device data[/]");
 
+        // Build device → model alias lookup
+        var relModelMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (summary.Models is { Count: > 0 })
+        {
+            foreach (var m in summary.Models)
+                relModelMap.TryAdd(m.DeviceType, m.ModelAlias);
+        }
+
         foreach (var qa in summary.Questions
             .OrderBy(q => q.Index)
             .ThenBy(q => q.DeviceType, StringComparer.OrdinalIgnoreCase))
         {
             string questionDevice = string.IsNullOrWhiteSpace(qa.DeviceType) ? summaryDevice : qa.DeviceType!;
+            string modelLabel = relModelMap.TryGetValue(questionDevice, out var rAlias)
+                ? rAlias
+                : summary.ModelAlias;
             Console.WriteLine();
-            WriteMarkup($"[bold yellow]  Q{qa.Index} [{questionDevice}]:[/] [white]{qa.Question}[/]");
+            WriteMarkup($"[bold yellow]  Q{qa.Index} [{questionDevice}][{modelLabel}]:[/] [white]{qa.Question}[/]");
             WriteMultilineAnswer(qa.Answer);
         }
 
@@ -728,7 +725,7 @@ public static class ConsoleOutput
         {
             Console.WriteLine();
             var qTable = new SimpleTable("[bold white]Relation Summary — Inference Timing[/]")
-                .AddColumn("[bold white]Run[/]",        34)
+                .AddColumn("[bold white]Run[/]",        52)
                 .AddColumn("[white]Response (s)[/]",    14, rightAlign: true)
                 .AddColumn("[bold cyan]Tok/s[/]",       10, rightAlign: true)
                 .AddColumn("[white]Tokens Out[/]",      12, rightAlign: true);
@@ -736,13 +733,16 @@ public static class ConsoleOutput
             foreach (var qa in qWithRun)
             {
                 string questionDevice = string.IsNullOrWhiteSpace(qa.DeviceType) ? summaryDevice : qa.DeviceType!;
+                string modelLabel = relModelMap.TryGetValue(questionDevice, out var tAlias)
+                    ? tAlias
+                    : summary.ModelAlias;
                 string phase = qa.Index switch
                 {
                     1 => "cold",
                     2 => "warm",
                     _ => "relation summary",
                 };
-                string label = $"Q{qa.Index} [{questionDevice}] ({phase})";
+                string label = $"Q{qa.Index} [{questionDevice}][{modelLabel}] ({phase})";
                 qTable.AddRow(
                     $"[bold white]{label}[/]",
                     $"[white]{qa.Run!.ResponseTimeSec:F3}[/]",

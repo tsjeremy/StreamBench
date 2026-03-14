@@ -84,11 +84,10 @@ public static class AiBenchmarkRunner
 
     /// <summary>
     /// Runs the AI inference benchmark on the requested device(s).
-    /// Returns a two-pass result: shared model comparison + best-per-device performance.
+    /// Uses a single shared model across all devices for fair comparison.
     /// The returned <see cref="AiSession"/> can be passed to <see cref="RunLocalRelationSummaryAsync"/>
     /// to avoid a redundant service restart.
     /// Caller should call <c>session.StopAsync()</c> after all AI work is complete.
-    /// When sharedOnly is true, the best-per-device pass is skipped.
     /// When noDownload is true, only already-cached models are used.
     /// </summary>
     internal static Task<(AiBenchmarkTwoPassResult Result, AiSession? Session)> RunAsync(
@@ -264,7 +263,7 @@ public static class AiBenchmarkRunner
             bool strictAlias = false;
             bool allowNpuFailFast = string.IsNullOrWhiteSpace(modelAlias) && targetDevices.Count > 1;
 
-            // ── Pass 1: Multi-device side-by-side comparison with shared model ──
+            // ── Shared-model comparison: same model on all devices ──
             if (!quickMode && string.IsNullOrWhiteSpace(effectiveAlias) && sharedPassDevices.Count > 1)
             {
                 var sharedCandidates = SelectSharedAliasCandidates(allModels, sharedPassDevices, backend);
@@ -313,7 +312,7 @@ public static class AiBenchmarkRunner
                         }
 
                         ConsoleOutput.WriteMarkup(
-                            $"[bold cyan]Pass 1 — Trying shared model for side-by-side comparison:[/] [white]{sharedAlias}[/]");
+                            $"[bold cyan]Trying shared model for device comparison:[/] [white]{sharedAlias}[/]");
 
                         var attemptResults = new List<AiDeviceBenchmarkResult>();
                         int successCount = 0;
@@ -332,7 +331,7 @@ public static class AiBenchmarkRunner
                             Console.WriteLine();
                             TraceLog.AiBenchmarkDeviceStarted(deviceType, model.Id);
                             ConsoleOutput.WriteMarkup(
-                                $"[bold cyan]── Pass 1: AI Benchmark: {deviceType} ({model.Id}) ──[/]");
+                                $"[bold cyan]── AI Benchmark: {deviceType} ({model.Id}) ──[/]");
 
                             var devSw = Stopwatch.StartNew();
                             var result = await BenchmarkModelAsync(
@@ -354,9 +353,7 @@ public static class AiBenchmarkRunner
                                     sharedPassDevices.RemoveAll(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
                                     allowNpuFailFast = false;
                                     TraceLog.DiagnosticInfo("NPU removed from shared-model comparison after first model-load failure");
-                                    ConsoleOutput.WriteMarkup(sharedOnly
-                                        ? "[yellow][WARN][/] NPU model load failed in shared-model pass; continuing with CPU/GPU for this shared-only run."
-                                        : "[yellow][WARN][/] NPU model load failed in shared-model pass; continuing with CPU/GPU for now and retrying NPU in per-device benchmarking.");
+                                    ConsoleOutput.WriteMarkup("[yellow][WARN][/] NPU model load failed; continuing with CPU/GPU.");
                                 }
 
                                 // Detect service crash: 2 consecutive failures → try restart once
@@ -488,61 +485,9 @@ public static class AiBenchmarkRunner
                 TraceLog.AiPassCompleted("per-device-fallback", sharedResults.Count, targetDevices.Count);
             }
 
-            // ── Pass 2: Best-per-device performance ──
-            if (!sharedOnly && targetDevices.Count > 1 && sharedResults.Count > 0)
-            {
-                Console.WriteLine();
-                ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-                ConsoleOutput.WriteMarkup("[bold cyan]  Pass 2 — Best-Per-Device Performance[/]");
-                ConsoleOutput.WriteMarkup("[bold cyan]══════════════════════════════════════════════════════════════[/]");
-                TraceLog.AiPassStarted("best-per-device", targetDevices.Count);
-
-                // Build a set of model IDs used in shared pass per device
-                var sharedModelByDevice = sharedResults
-                    .ToDictionary(r => r.DeviceType, r => r.ModelId, StringComparer.OrdinalIgnoreCase);
-
-                foreach (var deviceType in targetDevices)
-                {
-                    // Find this device's best model (no alias constraint)
-                    var bestModel = FindBestModel(backend, allModels, deviceType, aliasHint: null, strictAlias: false);
-                    if (bestModel is null)
-                    {
-                        TraceLog.DiagnosticInfo($"No model for {deviceType} in best-per-device pass");
-                        ConsoleOutput.WriteMarkup(
-                            $"[yellow][SKIP][/] No model available for [white]{deviceType}[/] in best-per-device pass.");
-                        continue;
-                    }
-
-                    // If the best model is the same as the shared model, reuse the result
-                    if (sharedModelByDevice.TryGetValue(deviceType, out var sharedModelId)
-                        && bestModel.Id.Equals(sharedModelId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        var sharedResult = sharedResults.First(
-                            r => r.DeviceType.Equals(deviceType, StringComparison.OrdinalIgnoreCase));
-                        bestPerDeviceResults.Add(sharedResult with { BenchmarkPass = "best_per_device" });
-                        TraceLog.DiagnosticInfo($"{deviceType}: best model same as shared ({bestModel.Alias}), reusing");
-                        ConsoleOutput.WriteMarkup(
-                            $"[dim]  {deviceType}: best model same as shared ({bestModel.Alias}) — reusing result[/]");
-                        continue;
-                    }
-
-                    Console.WriteLine();
-                    TraceLog.AiBenchmarkDeviceStarted(deviceType, bestModel.Id);
-                    ConsoleOutput.WriteMarkup(
-                        $"[bold cyan]── Pass 2: AI Benchmark: {deviceType} ({bestModel.Id}) ──[/]");
-
-                    var devSw = Stopwatch.StartNew();
-                    var result = await BenchmarkModelAsync(
-                        backend, serviceUrl, bestModel, deviceType, noDownload, cancellationToken);
-                    devSw.Stop();
-                    if (result is not null)
-                    {
-                        bestPerDeviceResults.Add(result with { BenchmarkPass = "best_per_device" });
-                        TraceLog.AiBenchmarkDeviceCompleted(deviceType, bestModel.Id, devSw.ElapsedMilliseconds);
-                    }
-                }
-                TraceLog.AiPassCompleted("best-per-device", bestPerDeviceResults.Count, targetDevices.Count);
-            }
+            // Best-per-device pass removed: the shared model pass provides an
+            // apples-to-apples comparison across devices, which is the only result
+            // we present.  The bestPerDeviceResults list stays empty.
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1296,15 +1241,15 @@ public static class AiBenchmarkRunner
             if (root.ValueKind == JsonValueKind.Object)
             {
                 // New two-pass format: shared_results / best_per_device_results arrays
-                // Prefer best_per_device when available; fall back to shared for
-                // devices not covered, avoiding duplicate samples.
+                // Prefer shared results (same model, fair comparison); fall back to
+                // best_per_device for devices not covered by the shared set.
                 bool foundTwoPass = false;
                 var coveredDevices = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                if (root.TryGetProperty("best_per_device_results", out var bpd) && bpd.ValueKind == JsonValueKind.Array)
+                if (root.TryGetProperty("shared_results", out var shared) && shared.ValueKind == JsonValueKind.Array)
                 {
                     foundTwoPass = true;
-                    using var entries = bpd.EnumerateArray();
+                    using var entries = shared.EnumerateArray();
                     while (entries.MoveNext())
                     {
                         var dt = TryGetString(entries.Current, "device_type");
@@ -1313,13 +1258,13 @@ public static class AiBenchmarkRunner
                     }
                 }
 
-                if (root.TryGetProperty("shared_results", out var shared) && shared.ValueKind == JsonValueKind.Array)
+                if (root.TryGetProperty("best_per_device_results", out var bpd) && bpd.ValueKind == JsonValueKind.Array)
                 {
                     foundTwoPass = true;
-                    using var entries = shared.EnumerateArray();
+                    using var entries = bpd.EnumerateArray();
                     while (entries.MoveNext())
                     {
-                        // Only add shared entries for devices not already covered by best-per-device
+                        // Only add best-per-device entries for devices not already covered by shared
                         var dt = TryGetString(entries.Current, "device_type");
                         if (dt is not null && coveredDevices.Contains(dt)) continue;
                         TryReadAiSampleEntry(entries.Current, aiSamples);
@@ -1368,8 +1313,10 @@ public static class AiBenchmarkRunner
         AiBenchmarkTwoPassResult existingAiResults,
         List<AiSample> aiSamples)
     {
+        // Prefer shared results (same model, fair comparison).
+        // Fall back to best-per-device only for devices not in the shared set.
         var coveredDevices = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var result in existingAiResults.BestPerDeviceResults)
+        foreach (var result in existingAiResults.SharedResults)
         {
             coveredDevices.Add(result.DeviceType);
             aiSamples.Add(new AiSample(
@@ -1379,7 +1326,7 @@ public static class AiBenchmarkRunner
                 result.Timestamp));
         }
 
-        foreach (var result in existingAiResults.SharedResults)
+        foreach (var result in existingAiResults.BestPerDeviceResults)
         {
             if (coveredDevices.Contains(result.DeviceType))
                 continue;

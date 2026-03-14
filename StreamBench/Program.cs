@@ -531,9 +531,7 @@ async Task<int> RunAiBenchmarkAsync(
         return 1;
     }
 
-    var allResults = twoPassResult.SharedResults
-        .Concat(twoPassResult.BestPerDeviceResults)
-        .ToList();
+    var allResults = twoPassResult.SharedResults.ToList();
 
     if (allResults.Count == 0)
     {
@@ -686,7 +684,6 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--ai-only[/]                Run AI inference only without default CPU/GPU memory passes");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
-    ConsoleOutput.WriteMarkup("  [cyan]--ai-shared-only[/]         Skip best-per-device pass (shared model comparison only)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-no-download[/]         Only use cached models (skip downloads for fast repeat runs)");
     ConsoleOutput.WriteMarkup("  [cyan]--quick-ai[/]               Fast CI mode: cached models only, 1 model per device");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-backend[/] TYPE        AI backend: auto (default), foundry, lmstudio");

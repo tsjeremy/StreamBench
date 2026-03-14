@@ -115,6 +115,7 @@ public static class ResultSaver
         AiLocalRelationSummaryResult? relationSummary = null,
         string? outputDir = null)
     {
+        // Use shared results as the primary indicator; best-per-device is no longer populated
         var allResults = twoPassResult.SharedResults
             .Concat(twoPassResult.BestPerDeviceResults)
             .ToList();
