@@ -130,7 +130,7 @@ Optional manual / advanced path:
 # GPU benchmark
 .\StreamBench_win_x64.exe --gpu
 
-# AI inference benchmark (requires AI-enabled exe + Foundry Local)
+# AI inference benchmark (requires AI-enabled exe + Foundry Local or LM Studio)
 # The _ai binary auto-runs memory (CPU/GPU) + AI (CPU/GPU/NPU) with no flags needed:
 .\StreamBench_win_x64_ai.exe
 
@@ -246,7 +246,7 @@ StreamBench includes an AI inference benchmark supporting two backends:
 - **[Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)** — runs SLMs with hardware-specific optimization (CPU, GPU, NPU) on Windows and macOS
 - **[LM Studio](https://lmstudio.ai)** — cross-platform (Windows, macOS, Linux) GPU/CPU inference via llama.cpp
 
-Both backends expose OpenAI-compatible REST APIs, abstracted via Microsoft.Extensions.AI (`IChatClient`).
+Both backends expose OpenAI-compatible REST APIs. StreamBench uses a lightweight `DirectOpenAiChatClient` (custom `IChatClient` implementation) to avoid compatibility issues with SDK response parsing from local backends.
 
 ### What it measures
 

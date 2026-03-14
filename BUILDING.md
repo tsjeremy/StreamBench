@@ -117,9 +117,13 @@ dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend foundry
 
 AI Inference Benchmark:
 --ai                     Add AI inference benchmark (memory benchmarks still run by default)
+--ai-only                Run AI inference only without default CPU/GPU memory passes
 --ai-backend TYPE        AI backend: auto (default), foundry, lmstudio
 --ai-device LIST         Comma-separated devices: cpu, gpu, npu (default: all)
 --ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)
+--ai-shared-only         Skip best-per-device pass (shared model comparison only)
+--ai-no-download         Only use cached models (skip downloads for fast repeat runs)
+--quick-ai               Fast CI mode: cached models only, 1 model per device
 ```
 
 When building from source, AI options are only compiled in when you pass `-p:EnableAI=true`.
@@ -401,7 +405,19 @@ StreamBench/ (.NET 10 frontend)
 ├── ResultSaver.cs            # JSON / CSV saving
 ├── SystemInfoDetector.cs     # Cross-platform hardware detection
 ├── EmbeddedBackends.cs       # Self-contained binary extraction
-├── AiBenchmarkRunner.cs      # AI inference benchmark (Microsoft.AI.Foundry.Local)
+├── IAiBackend.cs             # AI backend abstraction (Foundry Local, LM Studio)
+├── AiBackendConfig.cs        # Persisted AI backend preferences (streambench_ai_config.json)
+├── AiBackendFactory.cs       # Platform-aware backend auto-detection and creation
+├── AiExecutionOptions.cs     # Typed CLI argument parsing for AI options
+├── FoundryAiBackend.cs       # Foundry Local backend (Windows/macOS, CPU/GPU/NPU)
+├── LmStudioAiBackend.cs      # LM Studio backend (cross-platform, GPU/CPU)
+├── DirectOpenAiChatClient.cs # Lightweight IChatClient for local OpenAI-compatible APIs
+├── AiBenchmarkRunner.cs      # AI inference benchmark orchestrator (two-pass strategy)
+├── CliLog.cs                 # Console-to-file tee logging (STREAMBENCH_CLI_LOG env var)
+├── TraceLog.cs               # Structured diagnostic file logging
+├── DiagnosticHelper.cs       # Logging facade with caller info attributes
+├── VersionInfo.cs            # Centralized version management
+├── SleepPreventer.cs         # Prevent system sleep during long benchmarks
 └── Models/
     ├── BenchmarkResult.cs          # STREAM benchmark result model
     └── AiInferenceBenchmarkResult.cs  # AI benchmark result model

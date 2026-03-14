@@ -1,5 +1,38 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sat, Mar 14, 2026
+
+  Multi-backend AI support: Foundry Local + LM Studio
+
+  - Added pluggable AI backend architecture (IAiBackend, AiBackendFactory,
+    AiBackendConfig) supporting both Microsoft Foundry Local and LM Studio
+    through a unified interface.
+
+  - New --ai-backend CLI flag: choose "foundry", "lmstudio", or "auto"
+    (default). Auto-detection prefers Foundry on Windows, LM Studio
+    on macOS/Linux.
+
+  - Replaced OpenAI .NET SDK with DirectOpenAiChatClient (custom
+    IChatClient via HttpClient) to fix SDK response-parsing failures
+    with local backends that return empty tool_calls arrays.
+
+  - New AI execution options: --ai-only, --ai-shared-only,
+    --ai-no-download, --quick-ai for CI and fast validation scenarios.
+
+  - Added CliLog: console-to-file tee logging when STREAMBENCH_CLI_LOG
+    environment variable is set.
+
+  - Updated setup.ps1 with interactive backend selection menu
+    (Foundry, LM Studio, Both, Skip) and cross-platform LM Studio
+    CLI detection.
+
+  - Updated run_stream.ps1 with AI backend selection support.
+
+  - Verified end-to-end: Foundry Local (CPU, Q1/Q2/Q3), LM Studio
+    (GPU, Q1/Q2/Q3), and auto-detect mode all pass on Windows.
+
+-------------------------------------------------------------------------
+
 Revisions as of Sun, Mar 08, 2026
 
 Version 5.10.23 of stream.c, stream_gpu.c, and StreamBench released.
