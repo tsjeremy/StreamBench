@@ -1,5 +1,16 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sun, Mar 15, 2026  (v5.10.31)
+
+  Bug fix & docs update
+
+  - Fix memory module slot display: use BankLabel when DeviceLocator is
+    non-unique across DIMM slots.
+
+  - docs: compact README example tables to fit GitHub code block width.
+
+-------------------------------------------------------------------------
+
 Revisions as of Sat, Mar 15, 2026  (v5.10.30)
 
   UX polish: standalone ZIP, .cmd pause, elapsed time, log noise reduction

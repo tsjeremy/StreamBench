@@ -1,6 +1,6 @@
 /*-----------------------------------------------------------------------*/
 /* Program: STREAM                                                       */
-/* Revision: $Id: stream.c,v 5.10.30 2026/03/15 jtsai Exp $             */
+/* Revision: $Id: stream.c,v 5.10.31 2026/03/15 jtsai Exp $             */
 /* Original code developed by John D. McCalpin                           */
 /* Programmers: John D. McCalpin                                         */
 /*              Joe R. Zagar                                             */
