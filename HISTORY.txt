@@ -1,5 +1,35 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sat, Mar 15, 2026  (v5.10.30)
+
+  UX polish: standalone ZIP, .cmd pause, elapsed time, log noise reduction
+
+  - build_all_windows.ps1 now auto-creates a standalone ZIP
+    (StreamBench_v{VERSION}_win_standalone.zip) containing all launcher
+    scripts and pre-built executables for distribution.
+
+  - run_stream.cmd / run_stream_ai.cmd: added pause at end so the terminal
+    stays open when launched via double-click; exit code is preserved.
+
+  - run_stream.ps1: shows total elapsed time at the end of each run
+    (e.g. "Total elapsed time: 6m 12s").
+
+  - LmStudioAiBackend.cs: removed 6 duplicate trace log calls (CLI found,
+    catalog loaded, model loading) that were already covered by generic
+    TraceLog methods — cuts LM Studio trace entries roughly in half.
+
+  - FoundryAiBackend.cs: demoted "Timed out reading foundry stdout" from
+    Warn to Info — this fires on every service start and is not actionable.
+
+  - AiBenchmarkRunner.cs: consolidated per-inference token-estimation log
+    into the inference-completed line with an "(estimated)" suffix.
+
+  - AiBenchmarkRunner.cs: relation summary now skips devices that had zero
+    results in the main AI benchmark (e.g. NPU), avoiding 2-3 redundant
+    model-load failures and saving ~25 s on affected systems.
+
+-------------------------------------------------------------------------
+
 Revisions as of Sat, Mar 15, 2026  (v5.10.28)
 
   Fix LM Studio end-to-end setup, add final summary, reduce log noise
