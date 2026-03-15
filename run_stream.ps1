@@ -979,6 +979,7 @@ function Invoke-StreamBenchLauncher {
     $platform = Get-StreamBenchPlatformContext
     $sleepPrevented = Start-StreamBenchSleepPrevention -Platform $platform
     $cliLogPath = Start-StreamBenchCliLog -BaseDirectory $ScriptDir
+    $launcherStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
     try {
         if ($cliLogPath) {
@@ -1016,19 +1017,32 @@ function Invoke-StreamBenchLauncher {
             return 1
         }
 
+        $exitCode = 0
         if ($mode -eq 'ai') {
             $aiLaunch = Resolve-StreamBenchAiLaunch -Platform $platform
             if ($null -eq $aiLaunch) {
                 return 1
             }
-            return (Invoke-StreamBenchAiLaunch -Resolved $aiLaunch -ArraySize $arraySize -AiSettings $aiSettings -Platform $platform)
+            $exitCode = Invoke-StreamBenchAiLaunch -Resolved $aiLaunch -ArraySize $arraySize -AiSettings $aiSettings -Platform $platform
+        } else {
+            $memoryLaunch = Resolve-StreamBenchMemoryLaunch -Platform $platform
+            if ($null -eq $memoryLaunch) {
+                return 1
+            }
+            $exitCode = Invoke-StreamBenchMemoryLaunch -Resolved $memoryLaunch -ArraySize $arraySize
         }
 
-        $memoryLaunch = Resolve-StreamBenchMemoryLaunch -Platform $platform
-        if ($null -eq $memoryLaunch) {
-            return 1
+        $launcherStopwatch.Stop()
+        $elapsed = $launcherStopwatch.Elapsed
+        $elapsedText = if ($elapsed.TotalMinutes -ge 1) {
+            '{0}m {1:D2}s' -f [int][Math]::Floor($elapsed.TotalMinutes), $elapsed.Seconds
+        } else {
+            '{0}s' -f [int][Math]::Floor($elapsed.TotalSeconds)
         }
-        return (Invoke-StreamBenchMemoryLaunch -Resolved $memoryLaunch -ArraySize $arraySize)
+        Write-Host ''
+        Write-Host "  Total elapsed time: $elapsedText" -ForegroundColor DarkGray
+        Write-Host ''
+        return $exitCode
     }
     finally {
         Stop-StreamBenchSleepPrevention -Enabled:$sleepPrevented

@@ -345,6 +345,7 @@ $cpu = Get-WmiObject Win32_Processor | Select-Object -First 1
 $mems = @(Get-WmiObject Win32_PhysicalMemory | ForEach-Object {
     @{
         loc  = $_.DeviceLocator
+        bank = $_.BankLabel
         mb   = [int]($_.Capacity / 1MB)
         tid  = [int]$_.SMBIOSMemoryType
         spd  = [int]$_.Speed
@@ -363,6 +364,8 @@ $mems | ConvertTo-Json -Depth 1
 
         using var doc = JsonDocument.Parse(json);
         var modules = new List<MemoryModule>();
+        // Collect raw locator + bank label pairs to decide which to use
+        var rawEntries = new List<(string? Loc, string? Bank, int Mb, string Type, int Spd, int CSpd, string? Mfr, string? Part)>();
 #pragma warning disable IDISP004 // JsonElement.ArrayEnumerator is disposed by foreach
         foreach (var item in doc.RootElement.EnumerateArray())
         {
@@ -374,12 +377,32 @@ $mems | ConvertTo-Json -Depth 1
             // LPDDR5X modules with the LPDDR5 SMBIOS type code (0x23).
             if (type == "LPDDR5" && speed >= 6400)
                 type = "LPDDR5X";
-            modules.Add(MakeModule(
-                StrProp(item, "loc"), mb, type, "DIMM",
-                speed, IntProp(item, "cspd"),
+            rawEntries.Add((
+                StrProp(item, "loc"), StrProp(item, "bank"),
+                mb, type, speed, IntProp(item, "cspd"),
                 StrProp(item, "mfr"), StrProp(item, "part")));
         }
 #pragma warning restore IDISP004
+
+        // When all DeviceLocator values are identical (e.g. all "DIMM 0"),
+        // fall back to BankLabel which often has controller/channel info
+        // (e.g. "P0 CHANNEL A").  Intel systems typically put the useful
+        // name in DeviceLocator ("Controller0-ChannelA"); AMD systems
+        // often put it in BankLabel instead.
+        bool locatorsAllSame = rawEntries.Count > 1
+            && rawEntries.Select(e => e.Loc).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1;
+        bool hasBankLabels = rawEntries.Any(e => !string.IsNullOrWhiteSpace(e.Bank));
+
+        foreach (var e in rawEntries)
+        {
+            string? slot = (locatorsAllSame && hasBankLabels)
+                ? e.Bank
+                : e.Loc;
+            modules.Add(MakeModule(
+                slot, e.Mb, e.Type, "DIMM",
+                e.Spd, e.CSpd,
+                e.Mfr, e.Part));
+        }
         return BuildMemoryInfo(modules);
     }
 

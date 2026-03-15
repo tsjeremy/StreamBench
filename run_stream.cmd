@@ -2,4 +2,8 @@
 setlocal
 chcp 65001 >nul 2>&1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0run_stream.ps1"
-exit /b %ERRORLEVEL%
+set _EC=%ERRORLEVEL%
+echo.
+echo   Press any key to exit...
+pause >nul
+exit /b %_EC%

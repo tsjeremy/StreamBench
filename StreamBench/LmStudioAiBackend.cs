@@ -183,8 +183,6 @@ internal sealed class LmStudioAiBackend : IAiBackend
             if (models.Count > 0)
             {
                 TraceLog.AiCatalogLoaded(models.Count, 0);
-                TraceLog.DiagnosticInfo($"LM Studio model catalog loaded via REST API ({models.Count} models)");
-                TraceLog.LmStudioModelListed(models.Count);
                 return models;
             }
         }
@@ -201,8 +199,6 @@ internal sealed class LmStudioAiBackend : IAiBackend
             {
                 models = ParseLmsLsOutput(stdout);
                 TraceLog.AiCatalogLoaded(models.Count, 0);
-                TraceLog.LmStudioModelListed(models.Count);
-                TraceLog.DiagnosticInfo($"LM Studio model catalog loaded via CLI fallback ({models.Count} models)");
             }
         }
 
@@ -212,7 +208,6 @@ internal sealed class LmStudioAiBackend : IAiBackend
     public async Task<string?> LoadModelAsync(string modelIdOrAlias, CancellationToken ct = default)
     {
         TraceLog.AiModelLoading(modelIdOrAlias, "");
-        TraceLog.LmStudioModelLoading(modelIdOrAlias);
 
         // If the model is already loaded (via /v1/models), return immediately
         var loadedModels = await ListModelsAsync(ct);
@@ -433,7 +428,6 @@ internal sealed class LmStudioAiBackend : IAiBackend
             p.WaitForExit(5000);
             if (p.ExitCode == 0)
             {
-                TraceLog.DiagnosticInfo($"LM Studio CLI found: {nameOrPath}");
                 TraceLog.LmStudioCliFound(nameOrPath);
                 return nameOrPath;
             }
