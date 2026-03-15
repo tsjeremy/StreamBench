@@ -130,7 +130,7 @@ if ($vcRedistOk) {
     Write-Host '  [!] vcomp140.dll not found (required by CPU benchmark).' -ForegroundColor Yellow
     if ($hasWinget) {
         Write-Host "  Installing VC++ Redistributable ($archTag) via winget..." -ForegroundColor Yellow
-        winget install "Microsoft.VCRedist.2015+.$archTag" --accept-package-agreements --accept-source-agreements --silent
+        winget install "Microsoft.VCRedist.2015+.$archTag" --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
         if ($LASTEXITCODE -eq 0) {
             Write-Host '  [OK] Visual C++ Redistributable installed.' -ForegroundColor Green
         } else {
@@ -166,7 +166,7 @@ if ($hasSource) {
         Write-Host '  [!] .NET 10 SDK not found.' -ForegroundColor Yellow
         if ($hasWinget) {
             Write-Host '  Installing .NET 10 SDK via winget...' -ForegroundColor Yellow
-            winget install Microsoft.DotNet.SDK.10 --accept-package-agreements --accept-source-agreements --silent
+            winget install Microsoft.DotNet.SDK.10 --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
             $wingetExit = $LASTEXITCODE
             # Refresh PATH after install
             $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
@@ -212,7 +212,7 @@ if ($hasSource) {
         Write-Host '  [!] .NET 10 Runtime not found.' -ForegroundColor Yellow
         if ($hasWinget) {
             Write-Host '  Installing .NET 10 Runtime via winget...' -ForegroundColor Yellow
-            winget install Microsoft.DotNet.Runtime.10 --accept-package-agreements --accept-source-agreements --silent
+            winget install Microsoft.DotNet.Runtime.10 --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
             $wingetExit = $LASTEXITCODE
             # Refresh PATH after install
             $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
@@ -363,7 +363,7 @@ if (Get-Command pwsh -ErrorAction SilentlyContinue) {
     Write-Host '      Scripts work with PowerShell 5.1, but pwsh is recommended.' -ForegroundColor Yellow
     if ($hasWinget) {
         Write-Host '  Installing PowerShell 7 via winget...' -ForegroundColor Yellow
-        winget install Microsoft.PowerShell --accept-package-agreements --accept-source-agreements --silent
+        winget install Microsoft.PowerShell --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
         if ($LASTEXITCODE -eq 0) {
             Write-Host '  [OK] PowerShell 7 installed.' -ForegroundColor Green
         } else {
@@ -581,7 +581,7 @@ if ($setupFoundry) {
         # Foundry not installed — attempt install
         if ($hasWinget) {
             Write-Host '  Installing Microsoft Foundry Local via winget...' -ForegroundColor Yellow
-            winget install Microsoft.FoundryLocal --accept-package-agreements --accept-source-agreements --silent
+            winget install Microsoft.FoundryLocal --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
             if ($LASTEXITCODE -eq 0) {
                 Write-Host '  [OK] Foundry Local installed.' -ForegroundColor Green
                 $msixDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
@@ -663,7 +663,7 @@ if ($setupLmStudio) {
         if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
             if ($hasWinget) {
                 Write-Host '  Installing LM Studio via winget...' -ForegroundColor Yellow
-                winget install ElementLabs.LMStudio --accept-package-agreements --accept-source-agreements --silent
+                winget install ElementLabs.LMStudio --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host '  [OK] LM Studio installed.' -ForegroundColor Green
 
