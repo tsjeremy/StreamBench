@@ -715,7 +715,10 @@ public static class ConsoleOutput
                 : summary.ModelAlias;
             Console.WriteLine();
             WriteMarkup($"[bold yellow]  Q{qa.Index} [{questionDevice}][{modelLabel}]:[/] [white]{qa.Question}[/]");
-            WriteMultilineAnswer(qa.Answer);
+            if (qa.IsReused)
+                WriteMarkup($"[dim]  (answer shown above in AI benchmark)[/]");
+            else
+                WriteMultilineAnswer(qa.Answer);
         }
 
         // ── Relation question inference timing table (Q1+) ──

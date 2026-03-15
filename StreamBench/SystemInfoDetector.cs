@@ -449,7 +449,22 @@ $mems | ConvertTo-Json -Depth 1
             process.WaitForExit(15_000);
 
             if (!string.IsNullOrWhiteSpace(output))
-                return output;
+            {
+                // Filter well-known false positives that the WMI query may incorrectly match
+                // (e.g. "Microsoft Input Configuration Device" on Snapdragon ARM64 devices)
+                string[] knownFalsePositives =
+                [
+                    "Microsoft Input Configuration Device",
+                ];
+                var names = output.Split(';')
+                    .Select(n => n.Trim())
+                    .Where(n => n.Length > 0
+                        && !knownFalsePositives.Any(fp =>
+                            n.Equals(fp, StringComparison.OrdinalIgnoreCase)))
+                    .ToArray();
+                if (names.Length > 0)
+                    return string.Join("; ", names);
+            }
         }
         catch (Exception ex)
         {

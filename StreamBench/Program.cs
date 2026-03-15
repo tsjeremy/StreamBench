@@ -305,6 +305,15 @@ async Task<int> RunMainAsync(string[] args)
         var allDevices = await BenchmarkRunner.ListGpusAsync(exe);
         var gpus = allDevices.Where(g => g.DeviceKind != "NPU").ToList();
 
+        // Deduplicate GPUs that share the same device name (e.g. the same Qualcomm GPU
+        // exposed via both its native driver and the Microsoft render adapter).
+        // Keep the entry with the most compute units — that is always the real hardware driver.
+        gpus = gpus
+            .GroupBy(g => g.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(grp => grp.OrderByDescending(g => g.ComputeUnits).First())
+            .OrderBy(g => g.Index)
+            .ToList();
+
         if (gpus.Count == 0)
         {
             // Fallback: no --list-gpus support or no GPUs found — run without device index
