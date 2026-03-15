@@ -1,5 +1,27 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sun, Mar 15, 2026  (v5.10.27)
+
+  Q2 tok/s color highlight, inference timeout fix, and README NPU clarity
+
+  - Highlighted Q2 (warm) tokens/second in yellow with ★ marker in all AI output
+    tables to visually distinguish it as the key memory-bandwidth metric. Q2 tok/s
+    is now colored yellow in both the per-device Inference Timing table and the
+    cross-device Device Comparison table; footnotes explain why Q2 is the key metric.
+
+  - Added 300-second per-inference timeout to RunInferenceAsync to prevent silent
+    hangs. When a backend stops responding, inference is cancelled after 5 minutes
+    and a clear timeout message is shown. The heartbeat message now displays elapsed
+    and remaining seconds: "(Xs elapsed, Ys until timeout)".
+
+  - Clarified in README that LM Studio (llama.cpp) has no NPU support on Windows.
+    Added a backend comparison table (Foundry=CPU/GPU/NPU, LM Studio=CPU/GPU only).
+    Added instructions to pre-load a model in LM Studio before running the benchmark.
+    Improved Interpreting Results section to highlight Q2 tok/s as the key metric
+    and explain why CPU/GPU/NPU with the same memory bandwidth yield similar throughput.
+
+-------------------------------------------------------------------------
+
 Revisions as of Sat, Mar 15, 2026
 
   Shared-model-only AI benchmark and output labelling

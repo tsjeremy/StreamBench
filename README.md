@@ -35,14 +35,14 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.26).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.27).
 No compiler, .NET SDK, or build tools needed — just download and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
 so you only need a single download. The benchmarks still run as native C code for
 maximum performance — StreamBench extracts them automatically on first run.
 
-> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.26_win_standalone.zip`)
+> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.27_win_standalone.zip`)
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
@@ -72,8 +72,8 @@ flowchart TD
 
 ### Windows — Standalone ZIP (recommended)
 
-1. Go to the **[v5.10.26 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.26)**
-2. Download **`StreamBench_v5.10.26_win_standalone.zip`**
+1. Go to the **[v5.10.27 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.27)**
+2. Download **`StreamBench_v5.10.27_win_standalone.zip`**
 3. Extract to any folder and run the recommended Windows entrypoint:
 
 ```cmd
@@ -111,7 +111,7 @@ Optional manual / advanced path:
 
 ### Windows — Individual exe download
 
-1. Go to the **[v5.10.26 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.26)**
+1. Go to the **[v5.10.27 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.27)**
 2. Download the exe for your architecture:
 
 | File | Description |
@@ -143,12 +143,12 @@ Optional manual / advanced path:
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.26/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.27/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.26 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.26)**
+1. Go to the **[v5.10.27 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.27)**
 2. Download **`StreamBench_osx-arm64`** (ARM64) or **`StreamBench_osx-x64`** (x64)
 3. Run it:
 
@@ -161,13 +161,13 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.26/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.27/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 ### Using the launcher scripts (alternative)
 
 The launcher files are available as separate downloads on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.26).
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.27).
 
 - **`setup.ps1`**: optional first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and AI backends (Foundry Local and/or LM Studio) — all silent via winget; standalone mode auto-detected
 - **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass, lets you choose memory-only or memory + AI, prompts for AI backend when needed, and saves a full CLI transcript
@@ -246,6 +246,13 @@ StreamBench includes an AI inference benchmark supporting two backends:
 - **[Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)** — runs SLMs with hardware-specific optimization (CPU, GPU, NPU) on Windows and macOS
 - **[LM Studio](https://lmstudio.ai)** — cross-platform (Windows, macOS, Linux) GPU/CPU inference via llama.cpp
 
+| Backend | CPU | GPU | NPU |
+|---------|-----|-----|-----|
+| Microsoft Foundry Local | ✅ | ✅ | ✅ (Windows, Intel/Qualcomm NPU) |
+| LM Studio (llama.cpp) | ✅ | ✅ | ❌ (llama.cpp has no NPU backend) |
+
+> **NPU benchmarking requires Microsoft Foundry Local.** LM Studio uses llama.cpp which has no NPU/DirectML-NPU support on Windows.
+
 Both backends expose OpenAI-compatible REST APIs. StreamBench uses a lightweight `DirectOpenAiChatClient` (custom `IChatClient` implementation) to avoid compatibility issues with SDK response parsing from local backends.
 
 ### What it measures
@@ -256,7 +263,9 @@ Both backends expose OpenAI-compatible REST APIs. StreamBench uses a lightweight
 | **Q1 response time** | Time for the first inference — "Hello World!" |
 | **Q1 total time** | Model load + Q1 response (what a cold-start user experiences) |
 | **Q2 response time** | Time for the second inference — "How to calculate memory bandwidth on different memory?" |
-| **Tokens/second** | Output throughput (completion tokens ÷ inference time) |
+| **★ Q2 Tokens/second** | **Key metric** — output throughput with model already loaded (warm run) |
+
+> **Why Q2 tokens/second is the key metric:** once the model is loaded, inference is *memory-bandwidth limited* — the bottleneck is how fast the hardware can stream model weights from RAM/VRAM/NPU memory into the compute units. A device with higher memory bandwidth produces higher tokens/second. This is why CPU, GPU, and NPU with the *same memory bandwidth* (e.g., unified LPDDR5X on a laptop SoC) tend to produce similar Q2 tok/s even with very different compute architectures.
 
 The benchmark runs Q1 immediately after model loading (cold run), then Q2 with the model
 already resident in memory (warm run). This lets you compare cold-start latency with
@@ -291,7 +300,9 @@ winget install ElementLabs.LMStudio
 brew install --cask lm-studio
 ```
 
-Then open LM Studio and download a model (e.g. phi-3.5-mini-instruct GGUF).
+Then open LM Studio, download a model (e.g. phi-3.5-mini-instruct GGUF), and **load it into the server before running StreamBench** (LM Studio → Developer tab → Load a model).
+
+> ⚠️ **LM Studio does not support NPU.** It uses llama.cpp which has no NPU backend. For NPU benchmarking use Foundry Local instead.
 
 ### Running the AI benchmark
 
@@ -458,13 +469,14 @@ so Q1/Q2/Q3 (and future Qn) remain available in the same saved file:
 
 ### Interpreting results
 
-- **Higher tokens/second** = better inference throughput (limited by memory bandwidth)
+- **★ Higher Q2 tokens/second** = better inference throughput (memory-bandwidth limited — the key metric)
 - **Lower model load time** = faster cold start (depends on storage speed and model size)
-- **NPU > GPU > CPU** in tokens/second is typical for small models on compatible hardware
+- **CPU, GPU, and NPU** with the *same underlying memory bandwidth* (e.g., unified LPDDR5X on a laptop SoC) typically produce **similar Q2 tok/s** even though their compute architectures differ — because throughput is bottlenecked by memory bandwidth, not TOPS
+- **NPU > GPU > CPU** in tokens/second is typical only when the NPU has a dedicated higher-bandwidth memory path
 - Compare Q1 total time vs Q2 time to understand the impact of model loading
 
-The tokens/second metric is directly comparable to your memory bandwidth results
-(higher memory bandwidth → higher tokens/second, especially for CPU inference).
+The ★ Q2 tokens/second metric is directly comparable to your memory bandwidth results:
+higher memory bandwidth → higher tokens/second (this is the point of the StreamBench correlation).
 
 ---
 

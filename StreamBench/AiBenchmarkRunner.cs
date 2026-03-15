@@ -854,13 +854,27 @@ public static class AiBenchmarkRunner
                 MaxOutputTokens = maxOutputTokens
             };
 
-            // Run inference with a heartbeat so the user knows we're still alive
-            using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var heartbeatTask = ShowInferenceHeartbeatAsync(deviceLabel, sw, heartbeatCts.Token);
+            // Run inference with a per-request timeout and a heartbeat showing elapsed/remaining time.
+            // This prevents the benchmark from hanging silently if the backend stops responding.
+            const int InferenceTimeoutSec = 300;
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(InferenceTimeoutSec));
+            using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token);
+            var heartbeatTask = ShowInferenceHeartbeatAsync(deviceLabel, sw, InferenceTimeoutSec, heartbeatCts.Token);
             ChatResponse response;
             try
             {
-                response = await chatClient.GetResponseAsync(messages, options, ct);
+                response = await chatClient.GetResponseAsync(messages, options, timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // Timeout fired (not user cancel) — report and propagate as failure
+                heartbeatCts.Cancel();
+                try { await heartbeatTask; } catch (OperationCanceledException) { }
+                sw.Stop();
+                ConsoleOutput.WriteMarkup($"[yellow]  ⏰ Inference timed out after {InferenceTimeoutSec}s on {deviceLabel} — skipping. (Try a smaller model or --quick-ai)[/]");
+                TraceLog.AiInferenceFailed($"Inference timeout after {InferenceTimeoutSec}s", "AiBenchmarkRunner.cs", 0);
+                return null;
             }
             finally
             {
@@ -1710,7 +1724,7 @@ public static class AiBenchmarkRunner
     /// then every 30 s thereafter.
     /// </summary>
     private static async Task ShowInferenceHeartbeatAsync(
-        string deviceLabel, Stopwatch sw, CancellationToken ct)
+        string deviceLabel, Stopwatch sw, int timeoutSec, CancellationToken ct)
     {
         const int initialDelaySec = 30;
         const int intervalSec = 30;
@@ -1720,8 +1734,9 @@ public static class AiBenchmarkRunner
             while (!ct.IsCancellationRequested)
             {
                 int elapsed = (int)sw.Elapsed.TotalSeconds;
+                int remaining = Math.Max(0, timeoutSec - elapsed);
                 ConsoleOutput.WriteMarkup(
-                    $"[dim]  ⏳ Inference in progress on {deviceLabel}... ({elapsed}s elapsed)[/]");
+                    $"[dim]  ⏳ Inference in progress on {deviceLabel}... ({elapsed}s elapsed, {remaining}s until timeout)[/]");
                 await Task.Delay(TimeSpan.FromSeconds(intervalSec), ct);
             }
         }
