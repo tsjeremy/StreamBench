@@ -486,7 +486,7 @@ public static class ConsoleOutput
             .AddColumn("[white]Response (s)[/]",         14, rightAlign: true)
             .AddColumn("[bold green]Total (s)[/]",        11, rightAlign: true)
             .AddColumn("[white]Tokens Out[/]",            12, rightAlign: true)
-            .AddColumn("[bold yellow]Tok/sec★[/]",          10, rightAlign: true);
+            .AddColumn("[bold yellow]Tok/sec[/]",          10, rightAlign: true);
 
         table.AddRow(
             $"[cyan]Q1 (cold, incl. load)[/]",
@@ -497,7 +497,7 @@ public static class ConsoleOutput
             $"[bold cyan]{r.Run1.TokensPerSecond:F1}[/]");
 
         table.AddRow(
-            $"[bold yellow]★ Q2 (warm)[/]",
+            $"[bold yellow]Q2 (warm)[/]",
             $"[dim]—[/]",
             $"[white]{r.Run2.ResponseTimeSec:F3}[/]",
             $"[bold green]{r.Run2.ResponseTimeSec:F3}[/]",
@@ -505,7 +505,7 @@ public static class ConsoleOutput
             $"[bold yellow]{r.Run2.TokensPerSecond:F1}[/]");
 
         table.Render();
-        WriteMarkup("  [dim]★ Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited (higher bandwidth → higher tok/s)[/]");
+        WriteMarkup("  [dim]Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited (higher bandwidth → higher tok/s)[/]");
 
         string tag = $"[{r.DeviceType}][{r.ModelAlias}]";
         WriteMarkup($"[bold yellow]  Q1 {tag}:[/] [white]{r.Question1}[/]");
@@ -609,7 +609,7 @@ public static class ConsoleOutput
             .AddColumn("[white]Q1 Total (s)[/]",     14, rightAlign: true)
             .AddColumn("[bold cyan]Q1 Tok/s[/]",     10, rightAlign: true)
             .AddColumn("[white]Q2 Total (s)[/]",     14, rightAlign: true)
-            .AddColumn("[bold yellow]Q2 Tok/s★[/]",     10, rightAlign: true);
+            .AddColumn("[bold yellow]Q2 Tok/s[/]",     10, rightAlign: true);
 
         foreach (var r in results)
         {
@@ -632,7 +632,7 @@ public static class ConsoleOutput
         }
 
         table.Render();
-        WriteMarkup("  [dim]★ Q2 (warm) tok/s = key metric — higher memory bandwidth → higher tok/s (CPU/GPU/NPU all scale with memory bandwidth)[/]");
+        WriteMarkup("  [dim]Q2 (warm) tok/s = key metric — higher memory bandwidth → higher tok/s (CPU/GPU/NPU all scale with memory bandwidth)[/]");
         Console.WriteLine();
     }
 
@@ -934,7 +934,7 @@ public static class ConsoleOutput
         if (showAiCols)
         {
             table.AddColumn("[bold cyan]AI Cold Tok/s[/]", 14, rightAlign: true);
-            table.AddColumn("[bold yellow]AI Warm Tok/s★[/]", 16, rightAlign: true);
+            table.AddColumn("[bold yellow]AI Warm Tok/s[/]", 16, rightAlign: true);
         }
 
         // Sort: CPU → GPU → NPU → other
@@ -960,7 +960,7 @@ public static class ConsoleOutput
 
         table.Render();
         if (showAiCols)
-            WriteMarkup("  [dim]★ Q2 (warm) = sustained throughput — memory-bandwidth limited[/]");
+            WriteMarkup("  [dim]Q2 (warm) = sustained throughput — memory-bandwidth limited[/]");
         Console.WriteLine();
     }
 }

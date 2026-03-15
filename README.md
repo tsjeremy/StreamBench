@@ -274,7 +274,7 @@ Both backends expose OpenAI-compatible REST APIs. StreamBench uses a lightweight
 | **Q1 response time** | Time for the first inference — "Hello World!" |
 | **Q1 total time** | Model load + Q1 response (what a cold-start user experiences) |
 | **Q2 response time** | Time for the second inference — "How to calculate memory bandwidth on different memory?" |
-| **★ Q2 Tokens/second** | **Key metric** — output throughput with model already loaded (warm run) |
+| **Q2 Tokens/second** | **Key metric** — output throughput with model already loaded (warm run) |
 
 > **Why Q2 tokens/second is the key metric:** once the model is loaded, inference is *memory-bandwidth limited* — the bottleneck is how fast the hardware can stream model weights from RAM/VRAM/NPU memory into the compute units. A device with higher memory bandwidth produces higher tokens/second. This is why CPU, GPU, and NPU with the *same memory bandwidth* (e.g., unified LPDDR5X on a laptop SoC) tend to produce similar Q2 tok/s even with very different compute architectures.
 
@@ -407,39 +407,39 @@ cached models first to reduce download/startup time.
 │ Alias                  │ phi-4-mini                        │
 ╰────────────────────────┴───────────────────────────────────╯
 ╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
-│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │   Tok/sec★ │
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │   Tok/sec│
 ├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
 │ Q1 (cold, incl. load)      │          151.036 │          3.226 │     154.262 │           95 │       29.5 │
-│ ★ Q2 (warm)                │                — │         27.554 │      27.554 │          567 │       20.6 │
+│ Q2 (warm)                │                — │         27.554 │      27.554 │          567 │       20.6 │
 ╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
 
 ── AI Benchmark: GPU (phi-4-mini-instruct-generic-gpu) ──
 
 ╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
-│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │   Tok/sec★ │
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │   Tok/sec│
 ├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
 │ Q1 (cold, incl. load)      │          104.848 │          1.139 │     105.987 │            8 │        7.0 │
-│ ★ Q2 (warm)                │                — │         19.326 │      19.326 │          744 │       38.5 │
+│ Q2 (warm)                │                — │         19.326 │      19.326 │          744 │       38.5 │
 ╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
 
 ── AI Benchmark: NPU (phi-4-mini-instruct-openvino-npu) ──
 
 ╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
-│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │   Tok/sec★ │
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │   Tok/sec│
 ├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
 │ Q1 (cold, incl. load)      │          154.216 │          3.968 │     158.183 │          102 │       25.7 │
-│ ★ Q2 (warm)                │                — │         17.062 │      17.062 │          472 │       27.7 │
+│ Q2 (warm)                │                — │         17.062 │      17.062 │          472 │       27.7 │
 ╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
-  ★ Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
+  Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
 
 ╭──────────────────────────────────────────────── Device Comparison ─────────────────────────────────────────────────╮
-│ Device   │ Model                          │   Load (s) │   Q1 Total (s) │   Q1 Tok/s │   Q2 Total (s) │  Q2 Tok/s★ │
+│ Device   │ Model                          │   Load (s) │   Q1 Total (s) │   Q1 Tok/s │   Q2 Total (s) │  Q2 Tok/s│
 ├──────────┼────────────────────────────────┼────────────┼────────────────┼────────────┼────────────────┼────────────┤
 │ CPU      │ phi-4-mini                     │    151.036 │        154.262 │       29.5 │         27.554 │       20.6 │
 │ GPU      │ phi-4-mini                     │    104.848 │        105.987 │        7.0 │         19.326 │       38.5 │
 │ NPU      │ phi-4-mini                     │    154.216 │        158.183 │       25.7 │         17.062 │       27.7 │
 ╰──────────┴────────────────────────────────┴────────────┴────────────────┴────────────┴────────────────┴────────────╯
-  ★ Q2 (warm) tok/s = key metric — higher memory bandwidth → higher tok/s
+  Q2 (warm) tok/s = key metric — higher memory bandwidth → higher tok/s
 ```
 
 > Foundry Local runs the same model on CPU, GPU, and NPU for an apples-to-apples comparison.
@@ -471,12 +471,12 @@ Starting LM Studio AI service...
 │ Execution Provider     │ llama.cpp                    │
 ╰────────────────────────┴──────────────────────────────╯
 ╭────────────────────────────────── Inference Timing ───────────────────────────────────╮
-│ Run                        │ Model Load (s) │ Response (s) │ Total (s) │ Tok/sec★    │
+│ Run                        │ Model Load (s) │ Response (s) │ Total (s) │ Tok/sec   │
 ├────────────────────────────┼────────────────┼──────────────┼───────────┼─────────────┤
 │ Q1 (cold, incl. load)      │          0.004 │       11.382 │    11.386 │         2.3 │
-│ ★ Q2 (warm)                │              — │       22.382 │    22.382 │        40.0 │
+│ Q2 (warm)                │              — │       22.382 │    22.382 │        40.0 │
 ╰────────────────────────────┴────────────────┴──────────────┴───────────┴─────────────╯
-  ★ Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
+  Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
 ```
 
 > LM Studio runs a single GPU pass (no device targeting — llama.cpp has no NPU backend).
@@ -495,13 +495,13 @@ Starting LM Studio AI service...
   GPU    : Discrete GPU (96 CUs, 16.4 GiB)
 
 ╭───────────────────────── Key Results ─────────────────────────╮
-│ Device   │   STREAM Triad │  AI Cold Tok/s │   AI Warm Tok/s★ │
+│ Device   │   STREAM Triad │  AI Cold Tok/s │   AI Warm Tok/s│
 ├──────────┼────────────────┼────────────────┼──────────────────┤
 │ CPU      │     90.72 GB/s │           29.5 │             20.6 │
 │ GPU      │    362.36 GB/s │            7.0 │             38.5 │
 │ NPU      │              — │           25.7 │             27.7 │
 ╰──────────┴────────────────┴────────────────┴──────────────────╯
-  ★ Q2 (warm) = sustained throughput — memory-bandwidth limited
+  Q2 (warm) = sustained throughput — memory-bandwidth limited
 ```
 
 > The summary combines memory bandwidth and AI inference results in one table.
@@ -546,13 +546,13 @@ so Q1/Q2/Q3 (and future Qn) remain available in the same saved file:
 
 ### Interpreting results
 
-- **★ Higher Q2 tokens/second** = better inference throughput (memory-bandwidth limited — the key metric)
+- **Higher Q2 tokens/second** = better inference throughput (memory-bandwidth limited — the key metric)
 - **Lower model load time** = faster cold start (depends on storage speed and model size)
 - **CPU, GPU, and NPU** with the *same underlying memory bandwidth* (e.g., unified LPDDR5X on a laptop SoC) typically produce **similar Q2 tok/s** even though their compute architectures differ — because throughput is bottlenecked by memory bandwidth, not TOPS
 - **NPU > GPU > CPU** in tokens/second is typical only when the NPU has a dedicated higher-bandwidth memory path
 - Compare Q1 total time vs Q2 time to understand the impact of model loading
 
-The ★ Q2 tokens/second metric is directly comparable to your memory bandwidth results:
+The Q2 tokens/second metric is directly comparable to your memory bandwidth results:
 higher memory bandwidth → higher tokens/second (this is the point of the StreamBench correlation).
 
 ---
