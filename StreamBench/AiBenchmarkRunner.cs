@@ -151,9 +151,18 @@ public static class AiBenchmarkRunner
         // For backends without device targeting, simplify to single pass
         if (!backend.SupportsDeviceTargeting)
         {
+            var requestedNpu = targetDevices.Any(d => d.Equals("NPU", StringComparison.OrdinalIgnoreCase));
             sharedPassDevices = ["GPU"]; // LM Studio uses GPU primarily
             targetDevices = ["GPU"];
             TraceLog.DiagnosticInfo($"{backend.Name} does not support device targeting; using single-device mode");
+            ConsoleOutput.WriteMarkup($"[dim]  {backend.Name} does not support device targeting; using single-device GPU mode.[/]");
+            if (requestedNpu)
+            {
+                ConsoleOutput.WriteMarkup(
+                    $"[yellow][INFO][/] {backend.Name} uses llama.cpp which has no NPU backend — NPU skipped.");
+                ConsoleOutput.WriteMarkup(
+                    "[dim]  For NPU benchmarking, use Foundry Local instead (--ai-backend foundry).[/]");
+            }
         }
 
         // Quick mode (--quick-ai): cached models only, skip shared pass, 1 model per device.

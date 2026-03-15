@@ -56,18 +56,29 @@ flowchart TD
     D["▶ Run run_stream.cmd<br/>or pwsh ./run_stream.ps1"] --> E{"Choose mode"}
 
     subgraph mem ["💾 Memory Benchmark"]
-        E -->|"Memory only"| F["🔵 CPU bandwidth test"]
-        E -->|"Memory + AI"| F
-        F --> G["🔵 GPU bandwidth test"]
+        F["🔵 CPU bandwidth test"] --> G["🔵 GPU bandwidth test"]
     end
 
-    subgraph ai ["🤖 AI Benchmark  —  Foundry Local"]
-        H["🟢 Q1  cold start latency"] --> I["🟢 Q2  tokens per second"]
-        I --> J["🟢 Q3  relation summary"]
+    E -->|"Memory only"| F
+    E -->|"Memory + AI"| F
+
+    G -->|"Memory only"| K
+    G -->|"Memory + AI"| BE{"Choose AI backend"}
+
+    subgraph ai_foundry ["🤖 AI  —  Foundry Local  (CPU · GPU · NPU)"]
+        BE -->|"Foundry Local"| FH["🟢 Q1  cold start latency"]
+        FH --> FI["🟢 Q2  tokens per second"]
+        FI --> FJ["🟢 Q3  relation summary"]
     end
 
-    G --> H
-    J --> K(["📊 CLI summary displayed<br/>JSON result files saved to folder"])
+    subgraph ai_lms ["🤖 AI  —  LM Studio  (GPU only)"]
+        BE -->|"LM Studio"| LH["🟣 Q1  cold start latency"]
+        LH --> LI["🟣 Q2  tokens per second"]
+        LI --> LJ["🟣 Q3  relation summary"]
+    end
+
+    FJ --> K(["📊 CLI summary displayed<br/>JSON result files saved to folder"])
+    LJ --> K
 ```
 
 ### Windows — Standalone ZIP (recommended)
@@ -407,29 +418,34 @@ cached models first to reduce download/startup time.
 ══════════════════════════════════════════════════════════════
   Q1 (cold): Hello World!
   Q2 (warm): How to calculate memory bandwidth on different memory?
+  Q3 (relation): Summarize local memory bandwidth and AI benchmark results from saved JSON files.
+Starting LM Studio AI service...
+  Service URL: http://127.0.0.1:1234
+  LM Studio does not support device targeting; using single-device GPU mode.
+  Querying model catalog from backend...
 
-── AI Benchmark: GPU (lmstudio-community/phi-3.5-mini-instruct-GGUF) ──
+── AI Benchmark: GPU (phi-3.5-mini-instruct) ──
 
-╭──────────────────────────────────────────────────────────╮
-│                     Model Info                           │
-├────────────────────────┬─────────────────────────────────┤
-│ Device                 │ GPU                             │
-│ Model ID               │ phi-3.5-mini-instruct-GGUF      │
-│ Alias                  │ phi-3.5-mini                    │
-│ Execution Provider     │ llama.cpp                       │
-╰────────────────────────┴─────────────────────────────────╯
-
-╭──────────────────────────────────────────────────────────────────────────╮
-│                         Inference Timing                                │
-├────────────────────────┬───────────────┬─────────────┬────────┬─────────┤
-│ Run                    │ Model Load (s)│ Response (s)│Total(s)│ Tok/sec │
-├────────────────────────┼───────────────┼─────────────┼────────┼─────────┤
-│ Q1 (cold, incl. load)  │         3.210 │       0.892 │  4.102 │    48.3 │
-│ Q2 (warm)              │             — │       1.756 │  1.756 │    52.1 │
-╰────────────────────────┴───────────────┴─────────────┴────────┴─────────╯
+╭───────────────────── Model Info ──────────────────────╮
+│ Property               │ Value                        │
+├────────────────────────┼──────────────────────────────┤
+│ Device                 │ GPU                          │
+│ Model ID               │ phi-3.5-mini-instruct        │
+│ Alias                  │ phi-3.5-mini                 │
+│ Execution Provider     │ llama.cpp                    │
+╰────────────────────────┴──────────────────────────────╯
+╭────────────────────────────────── Inference Timing ───────────────────────────────────╮
+│ Run                        │ Model Load (s) │ Response (s) │ Total (s) │ Tok/sec★    │
+├────────────────────────────┼────────────────┼──────────────┼───────────┼─────────────┤
+│ Q1 (cold, incl. load)      │          0.004 │       11.382 │    11.386 │         2.3 │
+│ ★ Q2 (warm)                │              — │       22.382 │    22.382 │        40.0 │
+╰────────────────────────────┴────────────────┴──────────────┴───────────┴─────────────╯
+  ★ Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
 ```
 
-> LM Studio runs a single GPU pass (no device targeting). Use `--ai-backend lmstudio` to select it explicitly.
+> LM Studio runs a single GPU pass (no device targeting — llama.cpp has no NPU backend).
+> Use `--ai-backend lmstudio` to select it explicitly.
+> For NPU benchmarking, use Foundry Local instead (`--ai-backend foundry`).
 
 ### Key metrics
 
@@ -439,7 +455,7 @@ flowchart LR
 
     B["🔵 Memory Bandwidth<br/>Triad MB/s  —  peak sustained bandwidth<br/>% of theoretical max  —  efficiency score"]
 
-    C["🟢 AI Inference<br/>Q1 total s  —  cold start time<br/>Q2 tok/s  —  warm throughput<br/>NPU · GPU · CPU  side-by-side"]
+    C["🟢 AI Inference<br/>Q1 total s  —  cold start time<br/>Q2 tok/s  —  warm throughput<br/>Foundry: NPU · GPU · CPU<br/>LM Studio: GPU"]
 
     D["📝 Q3 Relation Summary<br/>AI-written analysis<br/>bandwidth vs inference tradeoff"]
 

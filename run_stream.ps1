@@ -421,6 +421,13 @@ function Show-StreamBenchLauncherHeader {
         Write-Host "  [OK] AI model: $(if ($AiSettings.Model) { $AiSettings.Model } else { '(auto-select)' })" -ForegroundColor Green
         Write-Host "  [OK] AI device(s): $(if ($AiSettings.Devices) { $AiSettings.Devices } else { '(all detected)' })" -ForegroundColor Green
         Write-Host '  [OK] Q3 local summary: auto (when memory JSON exists)' -ForegroundColor Green
+
+        # Warn if user requested NPU with LM Studio (llama.cpp has no NPU backend)
+        if ($AiSettings.Backend -eq 'lmstudio' -and $AiSettings.Devices -match '(?i)npu') {
+            Write-Host ''
+            Write-Host '  [!] LM Studio uses llama.cpp which has no NPU backend — NPU will be skipped.' -ForegroundColor Yellow
+            Write-Host '      For NPU benchmarking, use Foundry Local instead (--ai-backend foundry).' -ForegroundColor Yellow
+        }
     } else {
         Write-Host '  [OK] Selected mode: Memory benchmark only' -ForegroundColor Green
     }
@@ -486,6 +493,31 @@ function Test-StreamBenchAiBackendAvailable {
             return (Test-StreamBenchAiBackendAvailable -Backend 'foundry') -or
                    (Test-StreamBenchAiBackendAvailable -Backend 'lmstudio')
         }
+    }
+}
+
+function Hide-LmStudioWindow {
+    <#
+    .SYNOPSIS
+        Minimizes any visible LM Studio GUI windows so they don't cover the terminal.
+        Windows-only; no-op on other platforms.
+    #>
+    if (-not ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop'))) {
+        return
+    }
+
+    try {
+        $user32 = Add-Type -Name 'User32LMS' -Namespace 'StreamBench' -PassThru -ErrorAction SilentlyContinue -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+'@
+        $SW_MINIMIZE = 6
+        Get-Process -Name 'LM Studio' -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.MainWindowHandle -ne [IntPtr]::Zero) {
+                $user32::ShowWindow($_.MainWindowHandle, $SW_MINIMIZE) | Out-Null
+            }
+        }
+    } catch {
+        # Silently ignore — non-critical UX helper
     }
 }
 
@@ -930,6 +962,11 @@ function Invoke-StreamBenchAiLaunch {
     }
 
     Write-Host "  [OK] Found $($Resolved.BenchName)" -ForegroundColor Green
+
+    # Minimize LM Studio GUI before launching the benchmark so it doesn't cover the terminal
+    if ($AiSettings.Backend -eq 'lmstudio') {
+        Hide-LmStudioWindow
+    }
 
     $exeArgs = Get-StreamBenchAiArgs -ArraySize $ArraySize -AiSettings $AiSettings -UseEmbeddedMemoryBackends
 

@@ -6,6 +6,7 @@
 using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
@@ -87,9 +88,12 @@ internal sealed class LmStudioAiBackend : IAiBackend
 
         var (exitCode, stdout, stderr) = await RunLmsAsync(_cli, "server start", 60_000);
 
-        // Wait briefly for server to become ready
+        // Minimize LM Studio GUI windows so they don't cover the terminal
+        MinimizeLmStudioWindows();
+
+        // Wait for server to become ready (LM Studio can take 20-30 s to initialise)
         _serviceUrl ??= DefaultEndpoint;
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < 30; i++)
         {
             if (IsServerRunning(_serviceUrl))
             {
@@ -623,6 +627,38 @@ internal sealed class LmStudioAiBackend : IAiBackend
             return true;
 
         return false;
+    }
+
+    // ── Window management helpers ──────────────────────────────────────────
+
+    private const int SW_MINIMIZE = 6;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    /// <summary>
+    /// Minimizes any visible LM Studio GUI windows so they don't cover the terminal.
+    /// Called after <c>lms server start</c> wakes the Electron daemon.
+    /// </summary>
+    private static void MinimizeLmStudioWindows()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            foreach (var proc in Process.GetProcessesByName("LM Studio"))
+            {
+                if (proc.MainWindowHandle != IntPtr.Zero)
+                {
+                    ShowWindow(proc.MainWindowHandle, SW_MINIMIZE);
+                    TraceLog.DiagnosticInfo($"Minimized LM Studio window (PID {proc.Id})");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            TraceLog.DiagnosticInfo($"Failed to minimize LM Studio window: {ex.Message}");
+        }
     }
 }
 #endif
