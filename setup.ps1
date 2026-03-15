@@ -441,6 +441,25 @@ if (Get-Command lms -ErrorAction SilentlyContinue) {
             break
         }
     }
+    # Fallback: recursive search in the LM Studio install directory
+    if (-not $lmsOk) {
+        $lmInstallDir = if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+            Join-Path $env:LOCALAPPDATA 'Programs\LM Studio'
+        } elseif ($IsMacOS) {
+            '/Applications/LM Studio.app'
+        } else { $null }
+        if ($lmInstallDir -and (Test-Path $lmInstallDir)) {
+            $lmsExe = Get-ChildItem -Path $lmInstallDir -Filter 'lms.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $lmsExe -and -not $IsWindows) {
+                $lmsExe = Get-ChildItem -Path $lmInstallDir -Filter 'lms' -Recurse -ErrorAction SilentlyContinue |
+                    Where-Object { -not $_.PSIsContainer } | Select-Object -First 1
+            }
+            if ($lmsExe) {
+                $lmsOk = $true
+                $lmsCmd = $lmsExe.FullName
+            }
+        }
+    }
 }
 
 # Report what's detected
@@ -453,19 +472,30 @@ Write-Host ''
 
 # ── Ask user which backend to set up ──
 
-Write-Host '  Select AI backend for StreamBench:' -ForegroundColor Cyan
-Write-Host '    [1] Microsoft Foundry Local  (Windows/macOS, NPU/GPU/CPU support)' -ForegroundColor White
-Write-Host '    [2] LM Studio               (Windows/macOS/Linux, GPU/CPU)' -ForegroundColor White
-Write-Host '    [3] Both' -ForegroundColor White
-Write-Host '    [4] Skip AI setup' -ForegroundColor DarkGray
-Write-Host ''
+# If launched from run_stream.ps1, the backend choice is passed via env var
+if ($env:STREAMBENCH_AI_BACKEND) {
+    $aiChoice = switch ($env:STREAMBENCH_AI_BACKEND.ToLower()) {
+        'foundry'  { '1' }
+        'lmstudio' { '2' }
+        default    { '3' }
+    }
+    $aiChoiceName = switch ($aiChoice) { '1' { 'Foundry Local' } '2' { 'LM Studio' } '3' { 'Both' } }
+    Write-Host "  AI backend pre-selected by launcher: $aiChoiceName" -ForegroundColor DarkGray
+} else {
+    Write-Host '  Select AI backend for StreamBench:' -ForegroundColor Cyan
+    Write-Host '    [1] Microsoft Foundry Local  (Windows/macOS, NPU/GPU/CPU support)' -ForegroundColor White
+    Write-Host '    [2] LM Studio               (Windows/macOS/Linux, GPU/CPU)' -ForegroundColor White
+    Write-Host '    [3] Both' -ForegroundColor White
+    Write-Host '    [4] Skip AI setup' -ForegroundColor DarkGray
+    Write-Host ''
 
-$aiChoice = Read-Host '  Enter choice (1-4)'
-if ([string]::IsNullOrWhiteSpace($aiChoice)) {
-    if ($foundryOk -and $lmsOk) { $aiChoice = '3' }
-    elseif ($foundryOk)         { $aiChoice = '1' }
-    elseif ($lmsOk)             { $aiChoice = '2' }
-    else                        { $aiChoice = '3' }
+    $aiChoice = Read-Host '  Enter choice (1-4)'
+    if ([string]::IsNullOrWhiteSpace($aiChoice)) {
+        if ($foundryOk -and $lmsOk) { $aiChoice = '3' }
+        elseif ($foundryOk)         { $aiChoice = '1' }
+        elseif ($lmsOk)             { $aiChoice = '2' }
+        else                        { $aiChoice = '3' }
+    }
 }
 
 $setupFoundry   = $aiChoice -in @('1', '3')
@@ -665,6 +695,22 @@ if ($setupLmStudio) {
                     } else {
                         $lmsCmd = 'lms'
                     }
+                    # Fallback: recursive search in the LM Studio install directory
+                    if (-not $lmsOk) {
+                        $lmInstallDir = Join-Path $env:LOCALAPPDATA 'Programs\LM Studio'
+                        if (Test-Path $lmInstallDir) {
+                            $lmsExe = Get-ChildItem -Path $lmInstallDir -Filter 'lms.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                            if ($lmsExe) {
+                                $lmsOk = $true
+                                $lmsCmd = $lmsExe.FullName
+                                $lmsDir = $lmsExe.DirectoryName
+                                if ($env:PATH -notlike "*$lmsDir*") {
+                                    $env:PATH = "$lmsDir;$env:PATH"
+                                }
+                                Write-Host "  [OK] LM Studio CLI found via search: $lmsCmd" -ForegroundColor Green
+                            }
+                        }
+                    }
                     if ($lmsOk) {
                         Write-Host "  [OK] LM Studio CLI available at: $lmsCmd" -ForegroundColor Green
                     } else {
@@ -706,7 +752,45 @@ if ($setupLmStudio) {
         }
         if ($lmsOk) {
             Write-Host ''
-            Write-Host '  After opening LM Studio, download a model (e.g. phi-3.5-mini-instruct, qwen2.5-0.5b, or gemma-2b in GGUF format).' -ForegroundColor DarkGray
+            # Download a default model if none are present (similar to Foundry bootstrap)
+            $hasModels = $false
+            try {
+                $lsOutput = & $lmsCmd ls 2>&1 | Out-String
+                if ($lsOutput -match 'phi-|qwen|llama|gemma|deepseek') { $hasModels = $true }
+            } catch {}
+
+            if (-not $hasModels) {
+                Write-Host '  Downloading default AI model (phi-3.5-mini)...' -ForegroundColor Cyan
+                Write-Host '  (This may take several minutes on first run.)' -ForegroundColor Yellow
+                $dlStart = Get-Date
+                $dlJob = Start-Job -ScriptBlock {
+                    param($cmd)
+                    & $cmd get "lmstudio-community/phi-3.5-mini-instruct-GGUF" --yes 2>&1
+                    $LASTEXITCODE  # return exit code from job
+                } -ArgumentList $lmsCmd
+                while ($dlJob.State -eq 'Running') {
+                    if ([int]((Get-Date) - $dlStart).TotalSeconds -ge 600) { break }
+                    Write-Host '.' -NoNewline -ForegroundColor Cyan
+                    Start-Sleep -Seconds 5
+                }
+                Write-Host ''
+                if ($dlJob.State -eq 'Running') {
+                    Write-Host '  [!] Model download timed out after 10 min (non-fatal).' -ForegroundColor Yellow
+                    $dlJob | Stop-Job -PassThru | Remove-Job -Force
+                } else {
+                    $dlOutput = @(Receive-Job $dlJob 2>&1)
+                    $jobExit = if ($dlOutput.Count -gt 0) { $dlOutput[-1] } else { 1 }
+                    Remove-Job $dlJob -Force
+                    $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
+                    if ($jobExit -eq 0) {
+                        Write-Host "  [OK] Default model (phi-3.5-mini) downloaded in ${dlSec}s." -ForegroundColor Green
+                    } else {
+                        Write-Host "  [!] Model download may have failed (non-fatal). Try: lms get phi-3.5-mini --yes" -ForegroundColor Yellow
+                    }
+                }
+            } else {
+                Write-Host '  [OK] AI model(s) already present in LM Studio.' -ForegroundColor Green
+            }
         }
     }
 }
@@ -759,4 +843,4 @@ if ($sleepPrevented) {
     try { [Win32.PowerMgmt]::SetThreadExecutionState(0x80000000) | Out-Null } catch {}
 }
 
-if ($errors -gt 0) { exit 1 }
+if ($errors -gt 0) { exit 1 } else { exit 0 }

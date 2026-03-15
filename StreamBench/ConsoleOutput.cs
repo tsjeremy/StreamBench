@@ -202,12 +202,15 @@ public static class ConsoleOutput
             try   { savedVisible = Console.CursorVisible; Console.CursorVisible = false; }
             catch { /* ignore on unsupported consoles */ }
 
+        // Write spinner frames directly to the original console, bypassing the CLI
+        // log tee so the log file doesn't fill with hundreds of overwritten frames.
+        var directOut = CliLog.OriginalOut;
         try
         {
             while (!token.IsCancellationRequested)
             {
                 Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write($"\r{SpinFrames[frame % SpinFrames.Length]} {label}");
+                directOut.Write($"\r{SpinFrames[frame % SpinFrames.Length]} {label}");
                 Console.ResetColor();
                 frame++;
                 await Task.Delay(80, token);
@@ -216,7 +219,7 @@ public static class ConsoleOutput
         catch (OperationCanceledException) { }
         finally
         {
-            Console.Write($"\r{new string(' ', label.Length + 3)}\r");
+            directOut.Write($"\r{new string(' ', label.Length + 3)}\r");
             Console.ResetColor();
             if (OperatingSystem.IsWindows())
                 try { Console.CursorVisible = savedVisible; } catch { }
@@ -834,4 +837,130 @@ public static class ConsoleOutput
 
     private static string FormatSizeMb(int mb) =>
         mb >= 1024 ? $"{mb / 1024} GB" : $"{mb} MB";
+
+    // ── Final summary ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Prints a consolidated end-of-run summary with system info and key metrics
+    /// from all benchmarks (memory + AI) so the user doesn't have to scroll.
+    /// </summary>
+    public static void PrintFinalSummary(
+        IReadOnlyList<BenchmarkResult> memoryResults,
+        AiBenchmarkTwoPassResult? aiResults)
+    {
+        bool hasMemory = memoryResults.Count > 0;
+        bool hasAi = aiResults?.SharedResults is { Count: > 0 };
+        if (!hasMemory && !hasAi) return;
+
+        // ── Collect per-device metrics ──────────────────────────────────
+        // key = device identity, value = (label, bestTriadGbps, q1Tps, q2Tps)
+        var devices = new List<(string Id, string Label, double? TriadGbps, double? Q1Tps, double? Q2Tps)>();
+
+        // Memory results: group by device, keep best Triad
+        foreach (var g in memoryResults.GroupBy(
+            r => r.Device?.Name ?? r.Type, StringComparer.OrdinalIgnoreCase))
+        {
+            var best = g.OrderByDescending(r => r.Results?.Triad?.BestRateMbps ?? 0).First();
+            if (best.Results?.Triad is null) continue;
+            double gbps = best.Results.Triad.BestRateMbps / 1000.0;
+            string id = best.Device?.Name ?? best.Type;
+            string label = best.Type; // "CPU" or "GPU"
+            devices.Add((id, label, gbps, null, null));
+        }
+
+        // AI results: merge into matching device rows or add new ones
+        if (hasAi)
+        {
+            foreach (var ar in aiResults!.SharedResults)
+            {
+                if (ar.Run1 is null || ar.Run2 is null) continue;
+                int idx = devices.FindIndex(d =>
+                    d.Label.Equals(ar.DeviceType, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0)
+                {
+                    var d = devices[idx];
+                    devices[idx] = (d.Id, d.Label, d.TriadGbps,
+                        ar.Run1.TokensPerSecond, ar.Run2.TokensPerSecond);
+                }
+                else
+                {
+                    devices.Add((ar.DeviceType, ar.DeviceType, null,
+                        ar.Run1.TokensPerSecond, ar.Run2.TokensPerSecond));
+                }
+            }
+        }
+
+        // ── Header ──────────────────────────────────────────────────────
+        Console.WriteLine();
+        WriteMarkup("[bold green]══════════════════════════════════════════════════════════════[/]");
+        WriteMarkup("[bold green]  StreamBench — Summary[/]");
+        WriteMarkup("[bold green]══════════════════════════════════════════════════════════════[/]");
+        Console.WriteLine();
+
+        // ── System info one-liners ──────────────────────────────────────
+        var first = memoryResults.FirstOrDefault();
+        if (first?.System is { } sys)
+        {
+            WriteMarkup($"  [cyan]CPU[/]    : [white]{sys.CpuModel} ({sys.LogicalCpus} cores)[/]");
+            if (first.Memory is { Type: not null } mem)
+            {
+                string ram = $"{sys.TotalRamGb:F0} GB";
+                if (!string.IsNullOrWhiteSpace(mem.Type)) ram += $" {mem.Type}";
+                if (mem.SpeedMts > 0) ram += $" @ {mem.SpeedMts} MT/s";
+                WriteMarkup($"  [cyan]Memory[/] : [white]{ram}[/]");
+            }
+            else
+            {
+                WriteMarkup($"  [cyan]Memory[/] : [white]{sys.TotalRamGb:F0} GB[/]");
+            }
+        }
+
+        var gpuResult = memoryResults.FirstOrDefault(r => r.Device is not null);
+        if (gpuResult?.Device is { } dev)
+        {
+            string gpuName = GpuDeviceInfo.InferGpuDisplayName(dev.Name, dev.Vendor) ?? dev.Name;
+            WriteMarkup($"  [cyan]GPU[/]    : [white]{gpuName} ({dev.ComputeUnits} CUs, {dev.GlobalMemoryGib:F1} GiB)[/]");
+        }
+        Console.WriteLine();
+
+        // ── Key results table ───────────────────────────────────────────
+        bool showTriad = devices.Any(d => d.TriadGbps is > 0);
+        bool showAiCols = devices.Any(d => d.Q2Tps.HasValue);
+
+        var table = new SimpleTable("[bold white]Key Results[/]")
+            .AddColumn("[bold white]Device[/]", 8);
+        if (showTriad)
+            table.AddColumn("[bold green]STREAM Triad[/]", 14, rightAlign: true);
+        if (showAiCols)
+        {
+            table.AddColumn("[bold cyan]AI Cold Tok/s[/]", 14, rightAlign: true);
+            table.AddColumn("[bold yellow]AI Warm Tok/s★[/]", 16, rightAlign: true);
+        }
+
+        // Sort: CPU → GPU → NPU → other
+        var sorted = devices.OrderBy(d =>
+            d.Label.Equals("CPU", StringComparison.OrdinalIgnoreCase) ? 0 :
+            d.Label.Contains("GPU", StringComparison.OrdinalIgnoreCase) ? 1 :
+            d.Label.Equals("NPU", StringComparison.OrdinalIgnoreCase) ? 2 : 3);
+
+        foreach (var (_, label, triad, q1, q2) in sorted)
+        {
+            var cells = new List<string> { $"[bold white]{label}[/]" };
+            if (showTriad)
+                cells.Add(triad is > 0
+                    ? $"[bold green]{triad.Value:F2} GB/s[/]"
+                    : "[dim]—[/]");
+            if (showAiCols)
+            {
+                cells.Add(q1.HasValue ? $"[bold cyan]{q1.Value:F1}[/]" : "[dim]—[/]");
+                cells.Add(q2.HasValue ? $"[bold yellow]{q2.Value:F1}[/]" : "[dim]—[/]");
+            }
+            table.AddRow(cells.ToArray());
+        }
+
+        table.Render();
+        if (showAiCols)
+            WriteMarkup("  [dim]★ Q2 (warm) = sustained throughput — memory-bandwidth limited[/]");
+        Console.WriteLine();
+    }
 }

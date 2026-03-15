@@ -129,7 +129,7 @@ public static class AiBenchmarkRunner
 
         if (!backend.IsAvailable())
         {
-            ConsoleOutput.WriteMarkup($"[red][FAIL][/] {backend.Name} is not available.");
+            ConsoleOutput.WriteMarkup($"[yellow][WARN][/] {backend.Name} is not available.");
             ConsoleOutput.WriteMarkup($"[dim]  {AiBackendFactory.GetInstallInstructions(config.Backend)}[/]");
             return (new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults), null);
         }

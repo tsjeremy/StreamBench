@@ -540,7 +540,10 @@ function Ensure-StreamBenchPrerequisites {
     if (Test-Path $setupScript) {
         Write-Host '  [!] Missing prerequisites detected -- running setup.ps1...' -ForegroundColor Yellow
         Write-Host ''
-        & $setupScript
+        # Pass the AI backend choice so setup.ps1 doesn't prompt again
+        if ($AiBackend) { $env:STREAMBENCH_AI_BACKEND = $AiBackend }
+        & $setupScript | Out-Host
+        if ($AiBackend) { Remove-Item Env:\STREAMBENCH_AI_BACKEND -ErrorAction SilentlyContinue }
         if ($LASTEXITCODE -ne 0) {
             Write-Host '  [FAIL] setup.ps1 finished with errors. Please resolve and re-run.' -ForegroundColor Red
             return $false

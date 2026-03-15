@@ -51,6 +51,12 @@ internal static class CliLog
 
     internal static string? LogPath { get; private set; }
 
+    /// <summary>
+    /// Returns the original Console.Out writer, bypassing the tee.
+    /// Use for transient output (spinners, progress bars) that should not be logged.
+    /// </summary>
+    internal static TextWriter OriginalOut => _originalOut ?? Console.Out;
+
     internal static void InitializeFromEnvironment()
     {
         if (_fileWriter is not null)

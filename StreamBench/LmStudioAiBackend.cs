@@ -313,15 +313,30 @@ internal sealed class LmStudioAiBackend : IAiBackend
 
     public async Task<bool> DownloadModelAsync(string modelIdOrAlias, CancellationToken ct = default)
     {
-        // LM Studio doesn't have CLI-based download like Foundry.
-        // Users must download models through the LM Studio GUI.
-        TraceLog.AiModelDownloadSkipped(modelIdOrAlias, "LM Studio requires manual download via GUI");
-        ConsoleOutput.WriteMarkup(
-            $"[yellow][INFO][/] LM Studio requires manual model download through the GUI.");
-        ConsoleOutput.WriteMarkup(
-            $"[dim]  Suggested model: {modelIdOrAlias}[/]");
-        ConsoleOutput.WriteMarkup(
-            "[dim]  Open LM Studio → Search tab → search for the model → Download[/]");
+        _cli ??= FindLmsCli();
+        if (_cli is null)
+        {
+            TraceLog.AiModelDownloadSkipped(modelIdOrAlias, "LM Studio CLI not available for download");
+            ConsoleOutput.WriteMarkup(
+                $"[yellow][INFO][/] LM Studio CLI not available — cannot download {modelIdOrAlias} automatically.");
+            ConsoleOutput.WriteMarkup(
+                "[dim]  Open LM Studio → Search tab → search for the model → Download[/]");
+            return false;
+        }
+
+        TraceLog.DiagnosticInfo($"Downloading model via lms get: {modelIdOrAlias}");
+        ConsoleOutput.WriteMarkup($"[dim]  Downloading {modelIdOrAlias} via LM Studio CLI (this may take several minutes)...[/]");
+
+        var (exitCode, stdout, stderr) = await RunLmsAsync(_cli, $"get \"{modelIdOrAlias}\" --yes", 600_000);
+        if (exitCode == 0)
+        {
+            TraceLog.DiagnosticInfo($"Model downloaded successfully: {modelIdOrAlias}");
+            return true;
+        }
+
+        TraceLog.Warn($"Model download failed for {modelIdOrAlias}: {stderr}");
+        ConsoleOutput.WriteMarkup($"[yellow][WARN][/] Model download failed. Open LM Studio to download manually.");
+        ConsoleOutput.WriteMarkup($"[dim]  Suggested model: {modelIdOrAlias}[/]");
         return false;
     }
 
@@ -353,6 +368,29 @@ internal sealed class LmStudioAiBackend : IAiBackend
             foreach (var path in paths)
             {
                 if (File.Exists(path) && TryProbeLmsCli(path) is string f) return f;
+            }
+
+            // Fallback: recursive search in the LM Studio install directory
+            var installDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "LM Studio");
+            if (Directory.Exists(installDir))
+            {
+                try
+                {
+                    foreach (var candidate in Directory.EnumerateFiles(installDir, "lms.exe", SearchOption.AllDirectories))
+                    {
+                        if (TryProbeLmsCli(candidate) is string ff)
+                        {
+                            TraceLog.DiagnosticInfo($"LM Studio CLI found via directory search: {candidate}");
+                            return ff;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    TraceLog.DiagnosticInfo($"LM Studio directory search failed: {ex.Message}");
+                }
             }
         }
         else
