@@ -929,10 +929,10 @@ function Invoke-StreamBenchAiLaunch {
             Write-Host '      Build them with .\build_all_windows.ps1 to enable memory benchmarks and Q3 locally.' -ForegroundColor Yellow
             $aiOnly = $true
         }
-        if (-not $Resolved.HasCpu) {
+        if (-not $aiOnly -and -not $Resolved.HasCpu) {
             Write-Host '  [!] CPU backend not found; continuing without CPU memory benchmark.' -ForegroundColor Yellow
         }
-        if (-not $Resolved.HasGpu) {
+        if (-not $aiOnly -and -not $Resolved.HasGpu) {
             Write-Host '  [!] GPU backend not found; continuing without GPU memory benchmark.' -ForegroundColor Yellow
         }
 

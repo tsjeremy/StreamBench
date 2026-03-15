@@ -74,7 +74,10 @@ public record AiRelationQuestionAnswer(
     [property: JsonPropertyName("question")]                     string Question,
     [property: JsonPropertyName("answer")]                       string Answer,
     [property: JsonPropertyName("device_type")]                  string? DeviceType = null,
-    [property: JsonPropertyName("run")]                          AiInferenceRun? Run = null
+    [property: JsonPropertyName("run")]                          AiInferenceRun? Run = null,
+    /// <summary>True when Q1/Q2 answer was copied from the current-run AI benchmark instead of re-inferred.
+    /// Not serialised to JSON — runtime display hint only.</summary>
+    [property: System.Text.Json.Serialization.JsonIgnore]        bool IsReused = false
 );
 
 /// <summary>

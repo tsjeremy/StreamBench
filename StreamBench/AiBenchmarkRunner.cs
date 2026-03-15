@@ -665,7 +665,8 @@ public static class AiBenchmarkRunner
                                     Question: question,
                                     Answer: existingRun.ResponseText.Trim(),
                                     DeviceType: deviceType,
-                                    Run: existingRun));
+                                    Run: existingRun,
+                                    IsReused: true));
                                 continue;
                             }
 
