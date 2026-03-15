@@ -232,6 +232,8 @@ async Task<int> RunMainAsync(string[] args)
     int exitCode = 0;
     bool systemInfoPrinted = false;
     var savedMemoryJsonPaths = new List<string>();
+    var allMemoryResults = new List<BenchmarkResult>();
+    AiBenchmarkTwoPassResult? finalAiResults = null;
 
     if (wantCpu)
     {
@@ -274,6 +276,8 @@ async Task<int> RunMainAsync(string[] args)
         ConsoleOutput.WriteMarkup("[dim]  Rebuild with -p:EnableAI=true or use the pre-built binary with --ai.[/]");
 #endif
     }
+
+    ConsoleOutput.PrintFinalSummary(allMemoryResults, finalAiResults);
 
     return exitCode;
 
@@ -443,6 +447,7 @@ async Task<int> RunMainAsync(string[] args)
                 continue;
             }
 
+            allMemoryResults.Add(result);
             ConsoleOutput.PrintResults(result);
 
             if (!noSave)
@@ -470,6 +475,7 @@ async Task<int> RunMainAsync(string[] args)
     // ── Single result display + save ───────────────────────────────────────────
     void DisplayAndSave(BenchmarkResult result, bool noSave, string? outputDir, bool printSystemInfo = true)
     {
+        allMemoryResults.Add(result);
         ConsoleOutput.PrintBanner(result);
         if (printSystemInfo && !systemInfoPrinted)
         {
@@ -552,13 +558,13 @@ async Task<int> RunAiBenchmarkAsync(
         }
         else
         {
-            ConsoleOutput.WriteMarkup("[dim]  Ensure an AI backend is installed:[/]");
-            ConsoleOutput.WriteMarkup("[dim]  Foundry: winget install Microsoft.FoundryLocal[/]");
-            ConsoleOutput.WriteMarkup("[dim]  LM Studio: https://lmstudio.ai[/]");
+            // Install instructions already shown by AiBenchmarkRunner — keep only the summary.
         }
         if (aiSession is not null) await aiSession.StopAsync();
         return 1;
     }
+
+    finalAiResults = twoPassResult;
 
     foreach (var r in allResults.DistinctBy(r => (r.DeviceType, r.ModelId)))
         ConsoleOutput.PrintAiResult(r);

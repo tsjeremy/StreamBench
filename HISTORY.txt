@@ -1,5 +1,48 @@
 -------------------------------------------------------------------------
 
+Revisions as of Sat, Mar 15, 2026  (v5.10.28)
+
+  Fix LM Studio end-to-end setup, add final summary, reduce log noise
+
+  - Fixed setup.ps1 stale $LASTEXITCODE: added explicit `exit 0` on success
+    path so the caller no longer sees a false failure from a prior winget call.
+
+  - Fixed run_stream.ps1 output stream pollution: piped setup.ps1 output
+    through `| Out-Host` so native command stdout no longer contaminates the
+    function return value.
+
+  - Eliminated duplicate AI backend prompt: run_stream.ps1 now passes the
+    user's AI backend selection to setup.ps1 via the STREAMBENCH_AI_BACKEND
+    environment variable instead of re-prompting.
+
+  - Added recursive lms.exe search in setup.ps1 (initial detection and
+    post-install) and LmStudioAiBackend.cs FindLmsCli() to handle LM Studio
+    0.4.x directory layouts where the CLI is not at hardcoded well-known paths.
+
+  - Added automatic model download in setup.ps1: after the CLI is found,
+    `lms get` downloads phi-3.5-mini so the AI benchmark works without manual
+    intervention on a fresh install.
+
+  - Fixed LmStudioAiBackend.DownloadModelAsync: replaced stub that always
+    returned false with a real `lms get` CLI invocation.
+
+  - Changed AiBenchmarkRunner to show [WARN] (yellow) instead of [FAIL] (red)
+    when an AI backend is unavailable, since memory benchmarks still succeed.
+
+  - Removed duplicate install instructions from Program.cs that were already
+    shown by AiBenchmarkRunner.
+
+  - Added end-of-run summary (ConsoleOutput.PrintFinalSummary): prints a
+    compact table with system info (CPU, Memory, GPU) and key results
+    (STREAM Triad GB/s, AI tok/s) per device so the user doesn't have to
+    scroll back through verbose output.
+
+  - Spinner animation now writes directly to the original console, bypassing
+    the CLI transcript log tee. The log file no longer fills with hundreds
+    of overwritten spinner frames.
+
+-------------------------------------------------------------------------
+
 Revisions as of Sun, Mar 15, 2026  (v5.10.27)
 
   Q2 tok/s color highlight, inference timeout fix, and README NPU clarity
