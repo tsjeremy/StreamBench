@@ -299,7 +299,7 @@ internal sealed class FoundryAiBackend : IAiBackend
         if (completedTask == readTask)
             return await readTask;
 
-        TraceLog.Warn($"Timed out reading foundry {streamName} for command: {command} (timeout={timeoutMs}ms)");
+        TraceLog.Info($"Timed out reading foundry {streamName} for command: {command} (timeout={timeoutMs}ms)");
         return "";
     }
 

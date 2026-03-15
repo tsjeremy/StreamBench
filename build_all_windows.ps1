@@ -245,4 +245,29 @@ if ($Errors -gt 0) {
     Pop-Location; exit 1
 }
 Write-Host 'All builds succeeded!'
+
+# ── Create standalone ZIP for distribution ──
+$zipName = "StreamBench_v${Version}_win_standalone.zip"
+$zipPath = Join-Path $ScriptDir $zipName
+$zipItems = @(
+    'run_stream.cmd', 'run_stream_ai.cmd',
+    'run_stream.ps1', 'run_stream_ai.ps1',
+    'setup.ps1',
+    'stream_cpu_win_x64.exe', 'stream_gpu_win_x64.exe',
+    'stream_cpu_win_arm64.exe', 'stream_gpu_win_arm64.exe',
+    'StreamBench_win_x64.exe', 'StreamBench_win_arm64.exe',
+    'StreamBench_win_x64_ai.exe', 'StreamBench_win_arm64_ai.exe'
+)
+
+$existingItems = $zipItems | Where-Object { Test-Path (Join-Path $ScriptDir $_) }
+if ($existingItems.Count -ge 6) {
+    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+    $fullPaths = $existingItems | ForEach-Object { Join-Path $ScriptDir $_ }
+    Compress-Archive -Path $fullPaths -DestinationPath $zipPath -CompressionLevel Optimal
+    Write-Host ''
+    Write-Host "[OK] Standalone ZIP: $zipName ($($existingItems.Count) files)" -ForegroundColor Green
+} else {
+    Write-Host "[SKIP] Standalone ZIP: not enough files found ($($existingItems.Count)/12)" -ForegroundColor Yellow
+}
+
 Pop-Location

@@ -607,6 +607,21 @@ public static class AiBenchmarkRunner
             var selectedModels = new List<AiRelationModelSelection>();
             var existingResultsByDevice = BuildRelationSeedResults(existingAiResults);
 
+            // Skip devices that failed in the main AI benchmark — no point
+            // retrying NPU (etc.) if it already failed to load any model.
+            if (existingAiResults is not null)
+            {
+                var succeededDevices = existingResultsByDevice.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var skipped = targetDevices.Where(d => !succeededDevices.Contains(d)).ToList();
+                if (skipped.Count > 0)
+                {
+                    foreach (var d in skipped)
+                        ConsoleOutput.WriteMarkup(
+                            $"[yellow][SKIP][/] {d} had no results in AI benchmark — skipping relation summary.");
+                    targetDevices = targetDevices.Where(d => succeededDevices.Contains(d)).ToList();
+                }
+            }
+
             foreach (var deviceType in targetDevices)
             {
                 existingResultsByDevice.TryGetValue(deviceType, out var existingResult);
@@ -898,11 +913,10 @@ public static class AiBenchmarkRunner
             int completionTokens = (int)(response.Usage?.OutputTokenCount ?? EstimateTokens(content));
             int promptTokens = (int)(response.Usage?.InputTokenCount ?? EstimateTokens(prompt));
             double tokensPerSec = responseSec > 0 ? completionTokens / responseSec : 0;
-            if (response.Usage?.OutputTokenCount is null)
-                TraceLog.DiagnosticInfo($"Token count estimated (backend did not report usage): ~{promptTokens} prompt, ~{completionTokens} completion tokens");
+            string tokenSource = response.Usage?.OutputTokenCount is null ? " (estimated)" : "";
             string preview = content.Length > 200 ? content[..200] + "…" : content;
 
-            TraceLog.AiInferenceCompleted(sw.ElapsedMilliseconds, completionTokens);
+            TraceLog.Info($"AI inference completed. Duration: {sw.ElapsedMilliseconds}ms, Tokens: ~{completionTokens}{tokenSource}");
 
             return new AiInferenceRun(
                 ModelLoadSec:      modelLoadSec,
