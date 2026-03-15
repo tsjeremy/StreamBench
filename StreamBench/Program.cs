@@ -501,11 +501,10 @@ async Task<int> RunMainAsync(string[] args)
             Console.WriteLine();
         }
     }
-}
 
-// ── Helpers ────────────────────────────────────────────────────────────
+    // ── Helpers ────────────────────────────────────────────────────────────
 
-// ── AI inference benchmark ─────────────────────────────────────────────
+    // ── AI inference benchmark ─────────────────────────────────────────────
 #if ENABLE_AI
 async Task<int> RunAiBenchmarkAsync(
     AiExecutionOptions aiOptions,
@@ -655,6 +654,7 @@ async Task<int> RunAiBenchmarkAsync(
     return 0;
 }
 #endif
+}
 
 static long ParseSize(string s)
 {
