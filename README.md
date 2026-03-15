@@ -259,7 +259,7 @@ StreamBench includes an AI inference benchmark supporting two backends:
 
 | Backend | CPU | GPU | NPU |
 |---------|-----|-----|-----|
-| Microsoft Foundry Local | ✅ | ✅ | ✅ (Windows, Intel/Qualcomm NPU) |
+| Microsoft Foundry Local | ✅ | ✅ | ✅ (Windows, NPU via OpenVINO) |
 | LM Studio (llama.cpp) | ✅ | ✅ | ❌ (llama.cpp has no NPU backend) |
 
 > **NPU benchmarking requires Microsoft Foundry Local.** LM Studio uses llama.cpp which has no NPU/DirectML-NPU support on Windows.
@@ -387,28 +387,64 @@ continues with the devices that do have compatible models.
 For single-device runs, StreamBench uses device-specific priority lists and prefers
 cached models first to reduce download/startup time.
 
-### Example output
+### Example output — Foundry Local (CPU / GPU / NPU)
 
 ```
 ══════════════════════════════════════════════════════════════
-  AI Inference Benchmark — Microsoft.AI.Foundry.Local
+  AI Inference Benchmark — Foundry Local
 ══════════════════════════════════════════════════════════════
   Q1 (cold): Hello World!
   Q2 (warm): How to calculate memory bandwidth on different memory?
+  Q3 (relation): Summarize local memory bandwidth and AI benchmark results from saved JSON files.
 
-── AI Benchmark: CPU (qwen2.5-0.5b-instruct-generic-cpu) ──
-╭──────────────── Model Info ─────────────────╮
-│ Device             │ CPU                    │
-│ Model ID           │ qwen2.5-0.5b-instruct… │
-│ Execution Provider │ CPUExecutionProvider   │
-╰────────────────────┴────────────────────────╯
-╭────── Inference Timing ──────────────────────────────────────────────╮
-│ Run                   │ Load (s) │ Response (s) │ Total (s) │ Tok/s  │
-├───────────────────────┼──────────┼──────────────┼───────────┼────────┤
-│ Q1 (cold, incl. load) │    1.243 │        3.517 │     4.760 │  42.3  │
-│ Q2 (warm)             │       —  │        2.891 │     2.891 │  51.6  │
-╰───────────────────────┴──────────┴──────────────┴───────────┴────────╯
+── AI Benchmark: CPU (phi-4-mini-instruct-generic-cpu) ──
+
+╭──────────────────────── Model Info ────────────────────────╮
+│ Property               │ Value                             │
+├────────────────────────┼───────────────────────────────────┤
+│ Device                 │ CPU                               │
+│ Model ID               │ phi-4-mini-instruct-generic-cpu   │
+│ Alias                  │ phi-4-mini                        │
+╰────────────────────────┴───────────────────────────────────╯
+╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │   Tok/sec★ │
+├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
+│ Q1 (cold, incl. load)      │          151.036 │          3.226 │     154.262 │           95 │       29.5 │
+│ ★ Q2 (warm)                │                — │         27.554 │      27.554 │          567 │       20.6 │
+╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
+
+── AI Benchmark: GPU (phi-4-mini-instruct-generic-gpu) ──
+
+╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │   Tok/sec★ │
+├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
+│ Q1 (cold, incl. load)      │          104.848 │          1.139 │     105.987 │            8 │        7.0 │
+│ ★ Q2 (warm)                │                — │         19.326 │      19.326 │          744 │       38.5 │
+╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
+
+── AI Benchmark: NPU (phi-4-mini-instruct-openvino-npu) ──
+
+╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │   Tok/sec★ │
+├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
+│ Q1 (cold, incl. load)      │          154.216 │          3.968 │     158.183 │          102 │       25.7 │
+│ ★ Q2 (warm)                │                — │         17.062 │      17.062 │          472 │       27.7 │
+╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
+  ★ Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
+
+╭──────────────────────────────────────────────── Device Comparison ─────────────────────────────────────────────────╮
+│ Device   │ Model                          │   Load (s) │   Q1 Total (s) │   Q1 Tok/s │   Q2 Total (s) │  Q2 Tok/s★ │
+├──────────┼────────────────────────────────┼────────────┼────────────────┼────────────┼────────────────┼────────────┤
+│ CPU      │ phi-4-mini                     │    151.036 │        154.262 │       29.5 │         27.554 │       20.6 │
+│ GPU      │ phi-4-mini                     │    104.848 │        105.987 │        7.0 │         19.326 │       38.5 │
+│ NPU      │ phi-4-mini                     │    154.216 │        158.183 │       25.7 │         17.062 │       27.7 │
+╰──────────┴────────────────────────────────┴────────────┴────────────────┴────────────┴────────────────┴────────────╯
+  ★ Q2 (warm) tok/s = key metric — higher memory bandwidth → higher tok/s
 ```
+
+> Foundry Local runs the same model on CPU, GPU, and NPU for an apples-to-apples comparison.
+> NPU uses OpenVINO; GPU/CPU use generic execution providers.
+> GPU achieves the highest Q2 tok/s on this system because the discrete GPU has dedicated high-bandwidth VRAM.
 
 ### Example output — LM Studio (GPU)
 
@@ -446,6 +482,31 @@ Starting LM Studio AI service...
 > LM Studio runs a single GPU pass (no device targeting — llama.cpp has no NPU backend).
 > Use `--ai-backend lmstudio` to select it explicitly.
 > For NPU benchmarking, use Foundry Local instead (`--ai-backend foundry`).
+
+### Example output — Final Summary
+
+```
+══════════════════════════════════════════════════════════════
+  StreamBench — Summary
+══════════════════════════════════════════════════════════════
+
+  CPU    : 16-core SoC (16 cores)
+  Memory : 32 GB LPDDR5X @ 9600 MT/s
+  GPU    : Discrete GPU (96 CUs, 16.4 GiB)
+
+╭───────────────────────── Key Results ─────────────────────────╮
+│ Device   │   STREAM Triad │  AI Cold Tok/s │   AI Warm Tok/s★ │
+├──────────┼────────────────┼────────────────┼──────────────────┤
+│ CPU      │     90.72 GB/s │           29.5 │             20.6 │
+│ GPU      │    362.36 GB/s │            7.0 │             38.5 │
+│ NPU      │              — │           25.7 │             27.7 │
+╰──────────┴────────────────┴────────────────┴──────────────────╯
+  ★ Q2 (warm) = sustained throughput — memory-bandwidth limited
+```
+
+> The summary combines memory bandwidth and AI inference results in one table.
+> NPU has no STREAM Triad score (memory bandwidth is measured only on CPU and GPU).
+> GPU leads in warm tok/s because its dedicated VRAM provides the highest memory bandwidth.
 
 ### Key metrics
 
@@ -517,7 +578,7 @@ higher memory bandwidth → higher tokens/second (this is the point of the Strea
 ### GPU Backend (`stream_gpu.c`)
 
 - **Zero SDK dependency** — OpenCL loaded dynamically via `LoadLibrary` / `dlopen`
-- Works with any OpenCL-capable GPU: AMD, NVIDIA, Intel, and macOS built-in GPU
+- Works with any OpenCL-capable GPU: discrete, integrated, and macOS built-in GPU
 - Automatic GPU discovery and device info
 - Runtime `--array-size N` argument
 
@@ -551,7 +612,7 @@ For accurate bandwidth measurement, the total memory used should be **at least 4
 
 | System | Typical L3 Cache | Recommended `STREAM_ARRAY_SIZE` | Total Memory Used |
 |--------|------------------|--------------------------------|-------------------|
-| Desktop (Intel/AMD) | 16–64 MB | 100,000,000 (100M) | ~2.4 GB |
+| Desktop | 16–64 MB | 100,000,000 (100M) | ~2.4 GB |
 | Laptop | 8–32 MB | 50,000,000 (50M) | ~1.2 GB |
 | Workstation (64+ MB L3) | 64 MB | 200,000,000 (200M) | ~4.5 GB |
 | Memory-limited system | — | 10,000,000 (10M) | ~240 MB |

@@ -88,22 +88,22 @@
   <text x="688" y="60" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="12" font-weight="700" fill="#388bfd">CPU</text>
   <text x="748" y="60" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="12" font-weight="700" fill="#e6edf3">17.8 tok/s</text>
+        font-size="12" font-weight="700" fill="#e6edf3">20.6 tok/s</text>
 
   <text x="688" y="82" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="12" font-weight="700" fill="#3fb950">GPU</text>
   <text x="748" y="82" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="12" font-weight="700" fill="#e6edf3">40.0 tok/s</text>
+        font-size="12" font-weight="700" fill="#e6edf3">38.5 tok/s</text>
 
   <text x="688" y="104" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="12" font-weight="700" fill="#bc8cff">NPU</text>
   <text x="748" y="104" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="12" font-weight="700" fill="#e6edf3">8.2 tok/s</text>
+        font-size="12" font-weight="700" fill="#e6edf3">27.7 tok/s</text>
   <text x="815"  y="82" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="10" fill="#8b949e">← best</text>
 
   <text x="688" y="124" font-family="'Segoe UI',system-ui,sans-serif"
         font-size="9" fill="#484f58">Q1 cold start · Q2 warm run</text>
   <text x="688" y="138" font-family="'Segoe UI',system-ui,sans-serif"
-        font-size="9" fill="#484f58">Foundry Local · LM Studio</text>
+        font-size="9" fill="#484f58">phi-4-mini · Foundry Local · LM Studio</text>
 </svg>
