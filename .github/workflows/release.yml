@@ -399,12 +399,15 @@ jobs:
           cp release-assets/run_stream_ai.ps1 _zip/
           cd _zip && zip -9 "../release-assets/StreamBench_${TAG}_win_standalone.zip" * && cd ..
 
-      - name: Attach assets to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: release-assets/*
-          fail_on_unmatched_files: true
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          # Create release if it doesn't exist; ignore error if it already does
+          gh release create "$TAG" --title "$TAG" --generate-notes 2>/dev/null || true
+          # Upload all assets (--clobber replaces existing assets with same name)
+          gh release upload "$TAG" release-assets/* --clobber
 
       - name: Exclude source code archives from release
         env:
