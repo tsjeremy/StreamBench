@@ -131,7 +131,7 @@ jobs:
           cp stream_cpu_macos_arm64 stream_gpu_macos_arm64 StreamBench/backends/
           dotnet publish StreamBench/StreamBench.csproj \
             -c Release -r osx-arm64 --self-contained true \
-            -p:PublishSingleFile=true --nologo -v quiet \
+            -p:PublishSingleFile=true -p:EnableAI=true --nologo -v quiet \
             -o _pub/osx-arm64
           cp _pub/osx-arm64/StreamBench StreamBench_osx-arm64
           chmod +x StreamBench_osx-arm64
@@ -145,7 +145,7 @@ jobs:
           cp stream_cpu_macos_x64 stream_gpu_macos_x64 StreamBench/backends/
           dotnet publish StreamBench/StreamBench.csproj \
             -c Release -r osx-x64 --self-contained true \
-            -p:PublishSingleFile=true --nologo -v quiet \
+            -p:PublishSingleFile=true -p:EnableAI=true --nologo -v quiet \
             -o _pub/osx-x64
           cp _pub/osx-x64/StreamBench StreamBench_osx-x64
           chmod +x StreamBench_osx-x64

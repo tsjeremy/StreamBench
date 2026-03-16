@@ -35,14 +35,14 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.32).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.33).
 No compiler, .NET SDK, or build tools needed — just download and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
 so you only need a single download. The benchmarks still run as native C code for
 maximum performance — StreamBench extracts them automatically on first run.
 
-> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.32_win_standalone.zip`)
+> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.33_win_standalone.zip`)
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
@@ -83,8 +83,8 @@ flowchart TD
 
 ### Windows — Standalone ZIP (recommended)
 
-1. Go to the **[v5.10.32 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.32)**
-2. Download **`StreamBench_v5.10.32_win_standalone.zip`**
+1. Go to the **[v5.10.33 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.33)**
+2. Download **`StreamBench_v5.10.33_win_standalone.zip`**
 3. Extract to any folder and run the recommended Windows entrypoint:
 
 ```cmd
@@ -122,7 +122,7 @@ Optional manual / advanced path:
 
 ### Windows — Individual exe download
 
-1. Go to the **[v5.10.32 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.32)**
+1. Go to the **[v5.10.33 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.33)**
 2. Download the exe for your architecture:
 
 | File | Description |
@@ -154,12 +154,12 @@ Optional manual / advanced path:
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.32/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.33/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.32 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.32)**
+1. Go to the **[v5.10.33 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.33)**
 2. Download **`StreamBench_osx-arm64`** (Apple Silicon)
 3. Remove the macOS quarantine flag and make it executable:
 
@@ -177,7 +177,7 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.32/StreamBench_osx-arm64 && xattr -d com.apple.quarantine StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.33/StreamBench_osx-arm64 && xattr -d com.apple.quarantine StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 #### macOS — Full setup with AI benchmark
@@ -218,7 +218,7 @@ Xcode Command Line Tools, and libomp.
 ### Using the launcher scripts (alternative)
 
 The launcher files are available as separate downloads on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.32).
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.33).
 
 - **`setup.ps1`**: first-time setup — **Windows**: installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and AI backends via winget; **macOS**: installs Homebrew (if needed), AI backends (Foundry Local / LM Studio) via Homebrew, and downloads default AI model — standalone mode auto-detected on both platforms (source mode additionally installs .NET SDK and Xcode CLI tools)
 - **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass, lets you choose memory-only or memory + AI, prompts for AI backend when needed, and saves a full CLI transcript
