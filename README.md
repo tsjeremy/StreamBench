@@ -32,15 +32,15 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 
 ---
 
-## What's New vs. Original STREAM
+## What's New vs. STREAM
 
 StreamBench is a from-scratch rewrite for Windows and macOS, built on the measurement
-methodology of the [original STREAM benchmark](https://github.com/jeffhammond/STREAM) —
+methodology of [STREAM](https://github.com/jeffhammond/STREAM) —
 the industry standard for sustained memory bandwidth since 1991.
-It extends the original with a .NET 10 frontend, GPU support, and AI inference benchmarking
+It adds a .NET 10 frontend, GPU support, and AI inference benchmarking
 while preserving the core Copy / Scale / Add / Triad kernels.
 
-| Capability | [Original STREAM](https://github.com/jeffhammond/STREAM) | StreamBench |
+| Capability | [STREAM](https://github.com/jeffhammond/STREAM) | StreamBench |
 |------------|------------------|-------------|
 | **CPU bandwidth (Copy/Scale/Add/Triad)** | ✅ — the gold standard | ✅ Same kernels, same methodology |
 | **Language** | C and Fortran | C (backend) + .NET 10 (frontend) |
@@ -56,8 +56,8 @@ while preserving the core Copy / Scale / Add / Triad kernels.
 | **Fortran version** | ✅ | — |
 | **Array size** | Compile-time `STREAM_ARRAY_SIZE` | Runtime `--array-size N` argument |
 
-> The [original STREAM](https://github.com/jeffhammond/STREAM) remains the authoritative
-> reference for HPC environments, MPI clusters, and Fortran-based workflows.
+> [STREAM](https://github.com/jeffhammond/STREAM) remains the authoritative reference
+> for HPC environments, MPI clusters, and Fortran-based workflows.
 > StreamBench targets a different audience — users who want a quick, visual benchmark
 > with pre-built binaries, GPU coverage, and the ability to correlate memory bandwidth with
 > AI inference performance on modern hardware.
@@ -700,7 +700,7 @@ Additional guidance:
 
 ---
 
-## Original Project
+## Upstream Project
 
 STREAM is the de facto industry standard benchmark for measuring sustained memory bandwidth.
 
