@@ -35,14 +35,14 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.31).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.32).
 No compiler, .NET SDK, or build tools needed — just download and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
 so you only need a single download. The benchmarks still run as native C code for
 maximum performance — StreamBench extracts them automatically on first run.
 
-> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.31_win_standalone.zip`)
+> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.32_win_standalone.zip`)
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
@@ -83,8 +83,8 @@ flowchart TD
 
 ### Windows — Standalone ZIP (recommended)
 
-1. Go to the **[v5.10.31 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.31)**
-2. Download **`StreamBench_v5.10.31_win_standalone.zip`**
+1. Go to the **[v5.10.32 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.32)**
+2. Download **`StreamBench_v5.10.32_win_standalone.zip`**
 3. Extract to any folder and run the recommended Windows entrypoint:
 
 ```cmd
@@ -122,7 +122,7 @@ Optional manual / advanced path:
 
 ### Windows — Individual exe download
 
-1. Go to the **[v5.10.31 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.31)**
+1. Go to the **[v5.10.32 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.32)**
 2. Download the exe for your architecture:
 
 | File | Description |
@@ -154,33 +154,73 @@ Optional manual / advanced path:
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.31/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.32/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.31 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.31)**
-2. Download **`StreamBench_osx-arm64`** (ARM64) or **`StreamBench_osx-x64`** (x64)
-3. Run it:
+1. Go to the **[v5.10.32 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.32)**
+2. Download **`StreamBench_osx-arm64`** (Apple Silicon)
+3. Remove the macOS quarantine flag and make it executable:
 
 ```bash
+xattr -d com.apple.quarantine StreamBench_osx-arm64
 chmod +x StreamBench_osx-arm64
 ./StreamBench_osx-arm64 --cpu
 ./StreamBench_osx-arm64 --gpu
 ```
 
+> macOS blocks unsigned binaries downloaded from the internet.
+> The `xattr` command above removes this block. Alternatively, right-click the file
+> in Finder → Open, then confirm in the dialog.
+
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.31/StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.32/StreamBench_osx-arm64 && xattr -d com.apple.quarantine StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
+
+#### macOS — Full setup with AI benchmark
+
+For the AI inference benchmark (Foundry Local / LM Studio), use `setup.ps1` to
+auto-install all prerequisites (Homebrew, .NET, AI backends, models):
+
+```bash
+# 1. Install PowerShell (if not already installed)
+brew install powershell/tap/powershell
+
+# 2. Run setup — installs AI backends and downloads default model
+pwsh ./setup.ps1
+
+# 3. Run the benchmark (memory + AI)
+pwsh ./run_stream.ps1
+
+# Or run directly with AI:
+./StreamBench_osx-arm64 --ai
+./StreamBench_osx-arm64 --ai --ai-backend foundry
+./StreamBench_osx-arm64 --ai --ai-backend lmstudio
+```
+
+With a pre-built binary, `setup.ps1` auto-detects standalone mode and focuses on
+AI backend setup (no compiler or SDK needed — the binary is self-contained):
+- Installs **Homebrew** if not present (the macOS package manager)
+- Verifies **macOS OpenCL framework** (built-in, for GPU benchmark)
+- Installs **Foundry Local** via `brew tap microsoft/foundrylocal && brew install foundrylocal`
+- Installs **LM Studio** via `brew install --cask lm-studio`
+- Downloads default AI model (phi-3.5-mini) for immediate benchmarking
+
+When running from source, `setup.ps1` additionally installs .NET 10 SDK,
+Xcode Command Line Tools, and libomp.
+
+> **New MacBook?** Just install PowerShell (`brew install powershell/tap/powershell`),
+> then run `pwsh ./setup.ps1` — everything else is automatic.
 
 ### Using the launcher scripts (alternative)
 
 The launcher files are available as separate downloads on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.31).
+[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.32).
 
-- **`setup.ps1`**: optional first-time setup — installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and AI backends (Foundry Local and/or LM Studio) — all silent via winget; standalone mode auto-detected
+- **`setup.ps1`**: first-time setup — **Windows**: installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and AI backends via winget; **macOS**: installs Homebrew (if needed), AI backends (Foundry Local / LM Studio) via Homebrew, and downloads default AI model — standalone mode auto-detected on both platforms (source mode additionally installs .NET SDK and Xcode CLI tools)
 - **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass, lets you choose memory-only or memory + AI, prompts for AI backend when needed, and saves a full CLI transcript
 - **`run_stream.ps1`**: unified PowerShell launcher for Windows, macOS, and Linux — **auto-runs `setup.ps1`** on Windows if prerequisites are missing and saves a full CLI transcript
 - **`run_stream_ai.cmd`**: Windows compatibility shortcut that preselects AI mode and automatically uses PowerShell bypass
@@ -551,6 +591,7 @@ so Q1/Q2/Q3 (and future Qn) remain available in the same saved file:
 - **CPU, GPU, and NPU** with the *same underlying memory bandwidth* (e.g., unified LPDDR5X on a laptop SoC) typically produce **similar Q2 tok/s** even though their compute architectures differ — because throughput is bottlenecked by memory bandwidth, not TOPS
 - **NPU > GPU > CPU** in tokens/second is typical only when the NPU has a dedicated higher-bandwidth memory path
 - Compare Q1 total time vs Q2 time to understand the impact of model loading
+- **macOS note:** Foundry Local on macOS currently supports **GPU mode only** (no CPU/NPU device targeting), so you get a single GPU result per model. Both Foundry Local and LM Studio produce similar Q2 tok/s on the same Mac because they share the same unified memory bandwidth — this is the clearest validation of the memory-bandwidth-limited thesis
 
 The Q2 tokens/second metric is directly comparable to your memory bandwidth results:
 higher memory bandwidth → higher tokens/second (this is the point of the StreamBench correlation).

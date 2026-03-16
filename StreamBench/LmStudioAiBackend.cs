@@ -399,7 +399,8 @@ internal sealed class LmStudioAiBackend : IAiBackend
             var paths = new[]
             {
                 Path.Combine(home, ".lmstudio", "bin", "lms"),
-                "/usr/local/bin/lms",
+                "/opt/homebrew/bin/lms",   // Apple Silicon (ARM64) Homebrew
+                "/usr/local/bin/lms",      // Intel Homebrew / manual install
             };
             foreach (var path in paths)
             {

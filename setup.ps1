@@ -1,12 +1,11 @@
 #!/usr/bin/env pwsh
 # ============================================================
-# STREAM Benchmark - Windows Setup Script
+# STREAM Benchmark - Setup Script (Windows / macOS)
 # ============================================================
 # Installs prerequisites and prepares the environment so that
-# run_stream.ps1 (and the Windows wrapper run_stream.cmd) work on a
-# fresh Windows machine (no Visual Studio required for running).
+# run_stream.ps1 works on a fresh machine.
 #
-# What this script does:
+# Windows:
 #   1. Installs Visual C++ Redistributable 2015+ (for vcomp140.dll)
 #   2. Installs .NET 10 SDK (source) or .NET 10 Runtime (standalone)
 #   3. (Source mode only) Checks for MSVC Build Tools (cl.exe)
@@ -15,10 +14,20 @@
 #   6. (Optional) Checks / installs PowerShell 7
 #   7. (Optional) Installs AI backends (Microsoft Foundry Local and/or LM Studio)
 #
+# macOS (Apple Silicon):
+#   1. Checks / installs Homebrew
+#   2. Installs .NET 10 SDK (source) or .NET 10 Runtime (standalone)
+#   3. (Source mode only) Checks Xcode CLI tools + libomp for C backends
+#   4. (Source mode only) Runs "dotnet restore" for base + AI packages
+#   5. Checks GPU (Metal/OpenCL) availability for GPU benchmark
+#   6. PowerShell 7 -- already running if you see this
+#   7. (Optional) Installs AI backends (Foundry Local via brew, LM Studio via brew cask)
+#
 # Usage:
-#   .\setup.ps1
-#   pwsh -ExecutionPolicy Bypass -File .\setup.ps1
-#   powershell -ExecutionPolicy Bypass -File .\setup.ps1
+#   pwsh ./setup.ps1                                          # macOS / Linux
+#   .\setup.ps1                                               # Windows (PowerShell 7)
+#   pwsh -ExecutionPolicy Bypass -File .\setup.ps1            # Windows
+#   powershell -ExecutionPolicy Bypass -File .\setup.ps1      # Windows (5.1)
 # ============================================================
 
 $ErrorActionPreference = 'Continue'
@@ -60,9 +69,11 @@ try {
 }
 $archTag = if ($osArch -eq 'Arm64') { 'arm64' } else { 'x64' }
 
+$platformLabel = if ($IsMacOS) { 'macOS' } elseif ($IsLinux) { 'Linux' } else { 'Windows' }
+
 Write-Host ''
 Write-Host '  ========================================' -ForegroundColor DarkGray
-Write-Host '   STREAM Benchmark - Windows Setup' -ForegroundColor Cyan
+Write-Host "   STREAM Benchmark - $platformLabel Setup" -ForegroundColor Cyan
 Write-Host '  ========================================' -ForegroundColor DarkGray
 Write-Host ''
 Write-Host "  PowerShell version : $($PSVersionTable.PSVersion)" -ForegroundColor DarkGray
@@ -78,6 +89,7 @@ $errors = 0
 #  blocks unattended sleep; screen-off timeout is unaffected.
 # ------------------------------------------------------------------
 $sleepPrevented = $false
+$caffeinatePid = $null
 if ($IsWindows) {
     try {
         Add-Type -Namespace Win32 -Name PowerMgmt -MemberDefinition @'
@@ -87,6 +99,15 @@ if ($IsWindows) {
         [Win32.PowerMgmt]::SetThreadExecutionState(0x80000001) | Out-Null
         $sleepPrevented = $true
         Write-Host '  [OK] System sleep prevention active (screen-off timeout unchanged).' -ForegroundColor DarkGray
+    } catch {
+        Write-Host '  [!] Could not prevent system sleep (non-fatal).' -ForegroundColor DarkGray
+    }
+    Write-Host ''
+} elseif ($IsMacOS) {
+    try {
+        $caffeinatePid = (Start-Process caffeinate -ArgumentList '-dims' -PassThru -ErrorAction Stop).Id
+        $sleepPrevented = $true
+        Write-Host '  [OK] System sleep prevention active (caffeinate -dims).' -ForegroundColor DarkGray
     } catch {
         Write-Host '  [!] Could not prevent system sleep (non-fatal).' -ForegroundColor DarkGray
     }
@@ -106,52 +127,126 @@ if ($hasSource) {
 Write-Host ''
 
 # ------------------------------------------------------------------
-#  Helper: check winget availability
+#  Helper: check winget (Windows) / Homebrew (macOS) availability
 # ------------------------------------------------------------------
-$hasWinget = [bool](Get-Command winget -ErrorAction SilentlyContinue)
-if (-not $hasWinget) {
-    Write-Host '  [!] winget not found.' -ForegroundColor Yellow
-    Write-Host '      Install App Installer from the Microsoft Store, then re-run this script.'
-    Write-Host '      https://apps.microsoft.com/detail/9NBLGGH4NNS1'
-    Write-Host ''
+$hasWinget = $false
+$hasBrew = $false
+
+if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+    $hasWinget = [bool](Get-Command winget -ErrorAction SilentlyContinue)
+    if (-not $hasWinget) {
+        Write-Host '  [!] winget not found.' -ForegroundColor Yellow
+        Write-Host '      Install App Installer from the Microsoft Store, then re-run this script.'
+        Write-Host '      https://apps.microsoft.com/detail/9NBLGGH4NNS1'
+        Write-Host ''
+    }
+} elseif ($IsMacOS) {
+    $hasBrew = [bool](Get-Command brew -ErrorAction SilentlyContinue)
+    if (-not $hasBrew) {
+        Write-Host '  [!] Homebrew not found — installing...' -ForegroundColor Yellow
+        Write-Host '      Homebrew is the macOS package manager (like winget on Windows).' -ForegroundColor DarkGray
+        try {
+            # The official Homebrew installer
+            bash -c 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+            # Add Homebrew to PATH for this session (Apple Silicon default)
+            if (Test-Path '/opt/homebrew/bin/brew') {
+                $env:PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:$env:PATH"
+            }
+            $hasBrew = [bool](Get-Command brew -ErrorAction SilentlyContinue)
+            if ($hasBrew) {
+                Write-Host '  [OK] Homebrew installed.' -ForegroundColor Green
+            } else {
+                Write-Host '  [!] Homebrew install completed but brew not found on PATH.' -ForegroundColor Yellow
+                Write-Host '      Open a new terminal and re-run this script.' -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host '  [!] Homebrew installation failed.' -ForegroundColor Yellow
+            Write-Host '      Install manually: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"' -ForegroundColor Yellow
+        }
+        Write-Host ''
+    }
 }
 
 # ------------------------------------------------------------------
-#  1. Visual C++ Redistributable (vcomp140.dll for OpenMP)
+#  1. C runtime prerequisites
 # ------------------------------------------------------------------
-Write-Host '  [1/7] Checking Visual C++ Redistributable...' -ForegroundColor Cyan
+Write-Host '  [1/7] Checking C runtime prerequisites...' -ForegroundColor Cyan
 
-$vcRedistOk = (Test-Path "$env:SystemRoot\System32\vcomp140.dll") -or
-              (Test-Path "$env:SystemRoot\SysWOW64\vcomp140.dll")
+if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+    # Windows: Visual C++ Redistributable (vcomp140.dll for OpenMP)
+    $vcRedistOk = (Test-Path "$env:SystemRoot\System32\vcomp140.dll") -or
+                  (Test-Path "$env:SystemRoot\SysWOW64\vcomp140.dll")
 
-if ($vcRedistOk) {
-    Write-Host '  [OK] Visual C++ Redistributable (vcomp140.dll) found.' -ForegroundColor Green
-} else {
-    Write-Host '  [!] vcomp140.dll not found (required by CPU benchmark).' -ForegroundColor Yellow
-    if ($hasWinget) {
-        Write-Host "  Installing VC++ Redistributable ($archTag) via winget..." -ForegroundColor Yellow
-        winget install "Microsoft.VCRedist.2015+.$archTag" --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host '  [OK] Visual C++ Redistributable installed.' -ForegroundColor Green
+    if ($vcRedistOk) {
+        Write-Host '  [OK] Visual C++ Redistributable (vcomp140.dll) found.' -ForegroundColor Green
+    } else {
+        Write-Host '  [!] vcomp140.dll not found (required by CPU benchmark).' -ForegroundColor Yellow
+        if ($hasWinget) {
+            Write-Host "  Installing VC++ Redistributable ($archTag) via winget..." -ForegroundColor Yellow
+            winget install "Microsoft.VCRedist.2015+.$archTag" --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host '  [OK] Visual C++ Redistributable installed.' -ForegroundColor Green
+            } else {
+                Write-Host '  [!] Installation may have failed. Download manually:' -ForegroundColor Yellow
+                Write-Host "      https://aka.ms/vs/17/release/vc_redist.$archTag.exe"
+            }
         } else {
-            Write-Host '  [!] Installation may have failed. Download manually:' -ForegroundColor Yellow
-            Write-Host "      https://aka.ms/vs/17/release/vc_redist.$archTag.exe"
+            Write-Host "  Download manually: https://aka.ms/vs/17/release/vc_redist.$archTag.exe" -ForegroundColor Yellow
+        }
+    }
+} elseif ($IsMacOS) {
+    # macOS: libomp (for CPU OpenMP benchmark — pre-built binaries embed it, but source mode needs it)
+    if ($hasSource) {
+        $hasLibomp = (Test-Path '/opt/homebrew/opt/libomp') -or (Test-Path '/usr/local/opt/libomp')
+        if ($hasLibomp) {
+            Write-Host '  [OK] libomp found (OpenMP support for CPU benchmark).' -ForegroundColor Green
+        } else {
+            Write-Host '  [!] libomp not found (needed to build multi-threaded CPU backend).' -ForegroundColor Yellow
+            if ($hasBrew) {
+                Write-Host '  Installing libomp via Homebrew...' -ForegroundColor Yellow
+                brew install libomp
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host '  [OK] libomp installed.' -ForegroundColor Green
+                } else {
+                    Write-Host '  [!] libomp install failed. Install manually: brew install libomp' -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host '      Install with: brew install libomp' -ForegroundColor Yellow
+            }
         }
     } else {
-        Write-Host "  Download manually: https://aka.ms/vs/17/release/vc_redist.$archTag.exe" -ForegroundColor Yellow
+        Write-Host '  [OK] Pre-built binaries — no C runtime prerequisites needed.' -ForegroundColor Green
     }
+} else {
+    Write-Host '  [--] Linux: ensure libomp-dev / libomp is installed for CPU multi-threading.' -ForegroundColor DarkGray
 }
 Write-Host ''
 
 # ------------------------------------------------------------------
 #  2. .NET 10 SDK (source mode only)
 # ------------------------------------------------------------------
+
+# Helper: refresh PATH (cross-platform)
+function Refresh-SetupPath {
+    if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+        $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                    [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+    } else {
+        # On macOS/Linux, ensure common dotnet + Homebrew paths are in PATH
+        $extraPaths = @('/opt/homebrew/bin', '/usr/local/bin', '/usr/local/share/dotnet',
+                        "$HOME/.dotnet", "$HOME/.dotnet/tools")
+        foreach ($p in $extraPaths) {
+            if ((Test-Path $p) -and ($env:PATH -notlike "*$p*")) {
+                $env:PATH = "${p}:$env:PATH"
+            }
+        }
+    }
+}
+
 if ($hasSource) {
     Write-Host '  [2/7] Checking .NET 10 SDK...' -ForegroundColor Cyan
 
-    # Refresh PATH so we pick up dotnet even if it was installed in another session
-    $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
-                [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+    Refresh-SetupPath
 
     $dotnetOk = $false
     if (Get-Command dotnet -ErrorAction SilentlyContinue) {
@@ -168,10 +263,7 @@ if ($hasSource) {
             Write-Host '  Installing .NET 10 SDK via winget...' -ForegroundColor Yellow
             winget install Microsoft.DotNet.SDK.10 --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
             $wingetExit = $LASTEXITCODE
-            # Refresh PATH after install
-            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
-                        [System.Environment]::GetEnvironmentVariable('PATH', 'User')
-            # Verify dotnet 10 is now on PATH (winget returns non-zero for "already installed")
+            Refresh-SetupPath
             $sdks = $null
             if (Get-Command dotnet -ErrorAction SilentlyContinue) {
                 $sdks = & dotnet --list-sdks 2>$null
@@ -187,6 +279,22 @@ if ($hasSource) {
                 Write-Host '         Download manually: https://dot.net/download'
                 $errors++
             }
+        } elseif ($hasBrew) {
+            Write-Host '  Installing .NET 10 SDK via Homebrew...' -ForegroundColor Yellow
+            brew install --cask dotnet-sdk
+            Refresh-SetupPath
+            $sdks = $null
+            if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+                $sdks = & dotnet --list-sdks 2>$null
+            }
+            if ($sdks -match '^10\.') {
+                Write-Host '  [OK] .NET 10 SDK installed.' -ForegroundColor Green
+                $dotnetOk = $true
+            } else {
+                Write-Host '  [!] .NET SDK installed but version 10 not detected.' -ForegroundColor Yellow
+                Write-Host '      You may need to install the .NET 10 preview from https://dot.net/download' -ForegroundColor Yellow
+                $errors++
+            }
         } else {
             Write-Host '  Download .NET 10 SDK from: https://dot.net/download' -ForegroundColor Yellow
             $errors++
@@ -195,9 +303,7 @@ if ($hasSource) {
 } else {
     Write-Host '  [2/7] Checking .NET 10 Runtime...' -ForegroundColor Cyan
 
-    # Standalone mode requires .NET 10 Runtime (not the full SDK)
-    $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
-                [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+    Refresh-SetupPath
 
     $dotnetRuntimeOk = $false
     if (Get-Command dotnet -ErrorAction SilentlyContinue) {
@@ -214,9 +320,7 @@ if ($hasSource) {
             Write-Host '  Installing .NET 10 Runtime via winget...' -ForegroundColor Yellow
             winget install Microsoft.DotNet.Runtime.10 --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
             $wingetExit = $LASTEXITCODE
-            # Refresh PATH after install
-            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
-                        [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+            Refresh-SetupPath
             $runtimes = $null
             if (Get-Command dotnet -ErrorAction SilentlyContinue) {
                 $runtimes = & dotnet --list-runtimes 2>$null
@@ -232,6 +336,22 @@ if ($hasSource) {
                 Write-Host '         Download manually: https://dot.net/download' -ForegroundColor Yellow
                 $errors++
             }
+        } elseif ($hasBrew) {
+            Write-Host '  Installing .NET Runtime via Homebrew...' -ForegroundColor Yellow
+            brew install --cask dotnet-sdk
+            Refresh-SetupPath
+            $runtimes = $null
+            if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+                $runtimes = & dotnet --list-runtimes 2>$null
+            }
+            if ($runtimes -match 'Microsoft\.NETCore\.App 10\.') {
+                Write-Host '  [OK] .NET 10 Runtime installed.' -ForegroundColor Green
+                $dotnetRuntimeOk = $true
+            } else {
+                Write-Host '  [!] .NET Runtime installed but version 10 not detected.' -ForegroundColor Yellow
+                Write-Host '      Download manually: https://dot.net/download' -ForegroundColor Yellow
+                $errors++
+            }
         } else {
             Write-Host '  Download .NET 10 Runtime from: https://dot.net/download' -ForegroundColor Yellow
             $errors++
@@ -241,53 +361,80 @@ if ($hasSource) {
 Write-Host ''
 
 # ------------------------------------------------------------------
-#  3. MSVC Build Tools (source mode only — for building C backends)
+#  3. Build tools (source mode only — for building C backends)
 # ------------------------------------------------------------------
 if ($hasSource) {
-    Write-Host '  [3/7] Checking MSVC Build Tools (cl.exe)...' -ForegroundColor Cyan
+    if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+        Write-Host '  [3/7] Checking MSVC Build Tools (cl.exe)...' -ForegroundColor Cyan
 
-    # Look for vcvarsall.bat (same logic as build_all_windows.ps1)
-    $vcFound = $false
-    $editions = @('Enterprise','Professional','Community','BuildTools')
-    $versions = @('2022','2025','18')
-    $roots    = @($env:ProgramFiles, ${env:ProgramFiles(x86)})
-    foreach ($ver in $versions) {
-        foreach ($ed in $editions) {
-            foreach ($root in $roots) {
-                if (-not $root) { continue }
-                $candidate = Join-Path $root "Microsoft Visual Studio\$ver\$ed\VC\Auxiliary\Build\vcvarsall.bat"
-                if (Test-Path $candidate) { $vcFound = $true; break }
+        # Look for vcvarsall.bat (same logic as build_all_windows.ps1)
+        $vcFound = $false
+        $editions = @('Enterprise','Professional','Community','BuildTools')
+        $versions = @('2022','2025','18')
+        $roots    = @($env:ProgramFiles, ${env:ProgramFiles(x86)})
+        foreach ($ver in $versions) {
+            foreach ($ed in $editions) {
+                foreach ($root in $roots) {
+                    if (-not $root) { continue }
+                    $candidate = Join-Path $root "Microsoft Visual Studio\$ver\$ed\VC\Auxiliary\Build\vcvarsall.bat"
+                    if (Test-Path $candidate) { $vcFound = $true; break }
+                }
+                if ($vcFound) { break }
             }
             if ($vcFound) { break }
         }
-        if ($vcFound) { break }
-    }
-    if (-not $vcFound) {
-        # Fallback: vswhere
-        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-        if (Test-Path $vswhere) {
-            $installPath = & $vswhere -latest -property installationPath 2>$null
-            if ($installPath) {
-                $candidate = Join-Path $installPath 'VC\Auxiliary\Build\vcvarsall.bat'
-                if (Test-Path $candidate) { $vcFound = $true }
+        if (-not $vcFound) {
+            # Fallback: vswhere
+            $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+            if (Test-Path $vswhere) {
+                $installPath = & $vswhere -latest -property installationPath 2>$null
+                if ($installPath) {
+                    $candidate = Join-Path $installPath 'VC\Auxiliary\Build\vcvarsall.bat'
+                    if (Test-Path $candidate) { $vcFound = $true }
+                }
             }
         }
-    }
 
-    if ($vcFound) {
-        Write-Host '  [OK] MSVC Build Tools found (cl.exe available via vcvarsall.bat).' -ForegroundColor Green
-    } else {
-        Write-Host '  [!] MSVC Build Tools not found (needed to build C backends from source).' -ForegroundColor Yellow
-        if ($hasWinget) {
-            Write-Host '      Install with:' -ForegroundColor Yellow
-            Write-Host '        winget install Microsoft.VisualStudio.2022.Community --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --passive"' -ForegroundColor Yellow
+        if ($vcFound) {
+            Write-Host '  [OK] MSVC Build Tools found (cl.exe available via vcvarsall.bat).' -ForegroundColor Green
         } else {
-            Write-Host '      Install Visual Studio 2022 with "Desktop development with C++" workload.' -ForegroundColor Yellow
-            Write-Host '      https://visualstudio.microsoft.com/downloads/' -ForegroundColor Yellow
+            Write-Host '  [!] MSVC Build Tools not found (needed to build C backends from source).' -ForegroundColor Yellow
+            if ($hasWinget) {
+                Write-Host '      Install with:' -ForegroundColor Yellow
+                Write-Host '        winget install Microsoft.VisualStudio.2022.Community --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --passive"' -ForegroundColor Yellow
+            } else {
+                Write-Host '      Install Visual Studio 2022 with "Desktop development with C++" workload.' -ForegroundColor Yellow
+                Write-Host '      https://visualstudio.microsoft.com/downloads/' -ForegroundColor Yellow
+            }
+        }
+    } elseif ($IsMacOS) {
+        Write-Host '  [3/7] Checking Xcode Command Line Tools (clang)...' -ForegroundColor Cyan
+
+        $hasClang = [bool](Get-Command clang -ErrorAction SilentlyContinue)
+        if ($hasClang) {
+            Write-Host '  [OK] clang found (Xcode Command Line Tools installed).' -ForegroundColor Green
+        } else {
+            Write-Host '  [!] clang not found — installing Xcode Command Line Tools...' -ForegroundColor Yellow
+            try {
+                xcode-select --install 2>&1 | Out-Null
+                Write-Host '  [OK] Xcode Command Line Tools installation triggered.' -ForegroundColor Green
+                Write-Host '      Complete the installation dialog, then re-run this script.' -ForegroundColor Yellow
+            } catch {
+                Write-Host '  [!] Could not trigger Xcode CLI tools install.' -ForegroundColor Yellow
+                Write-Host '      Install manually: xcode-select --install' -ForegroundColor Yellow
+            }
+        }
+    } else {
+        Write-Host '  [3/7] Checking build tools (gcc/clang)...' -ForegroundColor Cyan
+        $hasCC = [bool](Get-Command gcc -ErrorAction SilentlyContinue) -or [bool](Get-Command clang -ErrorAction SilentlyContinue)
+        if ($hasCC) {
+            Write-Host '  [OK] C compiler found.' -ForegroundColor Green
+        } else {
+            Write-Host '  [!] No C compiler found. Install gcc or clang.' -ForegroundColor Yellow
         }
     }
 } else {
-    Write-Host '  [3/7] MSVC Build Tools -- [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
+    Write-Host '  [3/7] Build tools -- [SKIP] not needed for standalone exe' -ForegroundColor DarkGray
 }
 Write-Host ''
 
@@ -303,14 +450,27 @@ if ($hasSource) {
         dotnet restore "$csproj" --nologo
         $restoreBase = $LASTEXITCODE
 
-        dotnet restore "$csproj" -r win-x64 --nologo
-        $restoreX64 = $LASTEXITCODE
+        # Platform-specific RID restores
+        if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+            dotnet restore "$csproj" -r win-x64 --nologo
+            $restoreR1 = $LASTEXITCODE
+            dotnet restore "$csproj" -r win-arm64 --nologo
+            $restoreR2 = $LASTEXITCODE
+            $ridLabel = 'win-x64, win-arm64'
+        } elseif ($IsMacOS) {
+            dotnet restore "$csproj" -r osx-arm64 --nologo
+            $restoreR1 = $LASTEXITCODE
+            $restoreR2 = 0  # only one RID needed for Apple Silicon
+            $ridLabel = 'osx-arm64'
+        } else {
+            dotnet restore "$csproj" -r linux-x64 --nologo
+            $restoreR1 = $LASTEXITCODE
+            $restoreR2 = 0
+            $ridLabel = 'linux-x64'
+        }
 
-        dotnet restore "$csproj" -r win-arm64 --nologo
-        $restoreArm64 = $LASTEXITCODE
-
-        if ($restoreBase -eq 0 -and $restoreX64 -eq 0 -and $restoreArm64 -eq 0) {
-            Write-Host '  [OK] dotnet restore succeeded (base, win-x64, win-arm64).' -ForegroundColor Green
+        if ($restoreBase -eq 0 -and $restoreR1 -eq 0 -and $restoreR2 -eq 0) {
+            Write-Host "  [OK] dotnet restore succeeded (base, $ridLabel)." -ForegroundColor Green
         } else {
             Write-Host '  [FAIL] dotnet restore returned errors. Check the output above.' -ForegroundColor Red
             $errors++
@@ -334,19 +494,32 @@ Write-Host ''
 # ------------------------------------------------------------------
 #  5. GPU driver / OpenCL check (for GPU benchmark)
 # ------------------------------------------------------------------
-Write-Host '  [5/7] Checking GPU driver / OpenCL availability...' -ForegroundColor Cyan
+Write-Host '  [5/7] Checking GPU / OpenCL availability...' -ForegroundColor Cyan
 
-$openclDll = Join-Path $env:SystemRoot 'System32\OpenCL.dll'
-if (Test-Path $openclDll) {
-    Write-Host '  [OK] OpenCL.dll found -- GPU benchmark should work.' -ForegroundColor Green
+if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+    $openclDll = Join-Path $env:SystemRoot 'System32\OpenCL.dll'
+    if (Test-Path $openclDll) {
+        Write-Host '  [OK] OpenCL.dll found -- GPU benchmark should work.' -ForegroundColor Green
+    } else {
+        Write-Host '  [!] OpenCL.dll not found in System32.' -ForegroundColor Yellow
+        Write-Host '      GPU benchmark requires an OpenCL-capable GPU with up-to-date drivers.' -ForegroundColor Yellow
+        Write-Host '      Install or update your GPU driver:' -ForegroundColor Yellow
+        Write-Host '        NVIDIA : https://www.nvidia.com/drivers' -ForegroundColor Yellow
+        Write-Host '        AMD    : https://www.amd.com/en/support' -ForegroundColor Yellow
+        Write-Host '        Intel  : https://www.intel.com/content/www/us/en/download-center' -ForegroundColor Yellow
+        Write-Host '      (GPU benchmark is optional -- CPU benchmark will still work.)' -ForegroundColor DarkGray
+    }
+} elseif ($IsMacOS) {
+    # macOS has OpenCL built-in (via Metal/OpenCL compatibility layer)
+    $oclIcd = '/System/Library/Frameworks/OpenCL.framework'
+    if (Test-Path $oclIcd) {
+        Write-Host '  [OK] macOS OpenCL framework found -- GPU benchmark should work.' -ForegroundColor Green
+    } else {
+        Write-Host '  [!] OpenCL framework not found (unexpected on macOS).' -ForegroundColor Yellow
+        Write-Host '      GPU benchmark may not work. CPU benchmark will still work.' -ForegroundColor DarkGray
+    }
 } else {
-    Write-Host '  [!] OpenCL.dll not found in System32.' -ForegroundColor Yellow
-    Write-Host '      GPU benchmark requires an OpenCL-capable GPU with up-to-date drivers.' -ForegroundColor Yellow
-    Write-Host '      Install or update your GPU driver:' -ForegroundColor Yellow
-    Write-Host '        NVIDIA : https://www.nvidia.com/drivers' -ForegroundColor Yellow
-    Write-Host '        AMD    : https://www.amd.com/en/support' -ForegroundColor Yellow
-    Write-Host '        Intel  : https://www.intel.com/content/www/us/en/download-center' -ForegroundColor Yellow
-    Write-Host '      (GPU benchmark is optional -- CPU benchmark will still work.)' -ForegroundColor DarkGray
+    Write-Host '  [--] Linux: ensure OpenCL ICD (mesa-opencl-icd, nvidia-opencl, etc.) is installed for GPU benchmark.' -ForegroundColor DarkGray
 }
 Write-Host ''
 
@@ -360,19 +533,37 @@ if (Get-Command pwsh -ErrorAction SilentlyContinue) {
     Write-Host "  [OK] PowerShell 7 found (pwsh $pwshVer)." -ForegroundColor Green
 } else {
     Write-Host '  [!] PowerShell 7 (pwsh) not found.' -ForegroundColor Yellow
-    Write-Host '      Scripts work with PowerShell 5.1, but pwsh is recommended.' -ForegroundColor Yellow
-    if ($hasWinget) {
-        Write-Host '  Installing PowerShell 7 via winget...' -ForegroundColor Yellow
-        winget install Microsoft.PowerShell --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host '  [OK] PowerShell 7 installed.' -ForegroundColor Green
+    if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+        Write-Host '      Scripts work with PowerShell 5.1, but pwsh is recommended.' -ForegroundColor Yellow
+        if ($hasWinget) {
+            Write-Host '  Installing PowerShell 7 via winget...' -ForegroundColor Yellow
+            winget install Microsoft.PowerShell --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host '  [OK] PowerShell 7 installed.' -ForegroundColor Green
+            } else {
+                Write-Host '  [!] Installation may have failed.' -ForegroundColor Yellow
+                Write-Host '      Install manually: winget install Microsoft.PowerShell' -ForegroundColor Yellow
+            }
         } else {
-            Write-Host '  [!] Installation may have failed.' -ForegroundColor Yellow
-            Write-Host '      Install manually: winget install Microsoft.PowerShell' -ForegroundColor Yellow
+            Write-Host '      Install: winget install Microsoft.PowerShell' -ForegroundColor Yellow
+            Write-Host '      Or: https://github.com/PowerShell/PowerShell/releases/latest' -ForegroundColor Yellow
+        }
+    } elseif ($IsMacOS) {
+        if ($hasBrew) {
+            Write-Host '  Installing PowerShell 7 via Homebrew...' -ForegroundColor Yellow
+            brew install powershell/tap/powershell
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host '  [OK] PowerShell 7 installed.' -ForegroundColor Green
+            } else {
+                Write-Host '  [!] Installation may have failed.' -ForegroundColor Yellow
+                Write-Host '      Install manually: brew install powershell/tap/powershell' -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host '      Install: brew install powershell/tap/powershell' -ForegroundColor Yellow
+            Write-Host '      Or: https://github.com/PowerShell/PowerShell/releases/latest' -ForegroundColor Yellow
         }
     } else {
-        Write-Host '      Install: winget install Microsoft.PowerShell' -ForegroundColor Yellow
-        Write-Host '      Or: https://github.com/PowerShell/PowerShell/releases/latest' -ForegroundColor Yellow
+        Write-Host '      Install: https://github.com/PowerShell/PowerShell/releases/latest' -ForegroundColor Yellow
     }
 }
 Write-Host ''
@@ -412,6 +603,27 @@ if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEditi
     if ($foundryOk) {
         $foundryCmd = if (Get-Command foundry -ErrorAction SilentlyContinue) { 'foundry' } else { 'foundrylocal' }
     }
+} elseif ($IsMacOS) {
+    $foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
+                 [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
+
+    # Homebrew fallback: probe well-known Homebrew paths (ARM64 + Intel)
+    if (-not $foundryOk) {
+        foreach ($dir in @('/opt/homebrew/bin', '/usr/local/bin')) {
+            foreach ($name in @('foundry', 'foundrylocal')) {
+                $fullPath = Join-Path $dir $name
+                if (Test-Path $fullPath) {
+                    $foundryOk = $true
+                    $foundryCmd = $fullPath
+                    break
+                }
+            }
+            if ($foundryOk) { break }
+        }
+    }
+    if ($foundryOk -and -not $foundryCmd) {
+        $foundryCmd = if (Get-Command foundry -ErrorAction SilentlyContinue) { 'foundry' } else { 'foundrylocal' }
+    }
 }
 
 # LM Studio detection (cross-platform)
@@ -430,6 +642,7 @@ if (Get-Command lms -ErrorAction SilentlyContinue) {
         $lmsPaths += Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\lms.exe'
     } elseif ($IsMacOS) {
         $lmsPaths += Join-Path $HOME '.lmstudio/bin/lms'
+        $lmsPaths += '/opt/homebrew/bin/lms'
         $lmsPaths += '/usr/local/bin/lms'
     } else {
         $lmsPaths += Join-Path $HOME '.lmstudio/bin/lms'
@@ -616,9 +829,58 @@ if ($setupFoundry) {
                 Write-Host '  [!] Foundry install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
                 Write-Host '      Install manually: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
             }
+        } elseif ($IsMacOS -and $hasBrew) {
+            Write-Host '  Installing Microsoft Foundry Local via Homebrew...' -ForegroundColor Yellow
+            brew tap microsoft/foundrylocal 2>&1 | Out-Null
+            brew install foundrylocal
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host '  [OK] Foundry Local installed.' -ForegroundColor Green
+                Refresh-SetupPath
+                $foundryOk = [bool](Get-Command foundry -ErrorAction SilentlyContinue) -or
+                             [bool](Get-Command foundrylocal -ErrorAction SilentlyContinue)
+                if (-not $foundryOk) {
+                    foreach ($dir in @('/opt/homebrew/bin', '/usr/local/bin')) {
+                        foreach ($name in @('foundry', 'foundrylocal')) {
+                            $fullPath = Join-Path $dir $name
+                            if (Test-Path $fullPath) {
+                                $foundryOk = $true
+                                $foundryCmd = $fullPath
+                                break
+                            }
+                        }
+                        if ($foundryOk) { break }
+                    }
+                }
+                if ($foundryOk -and -not $foundryCmd) {
+                    $foundryCmd = if (Get-Command foundry -ErrorAction SilentlyContinue) { 'foundry' } else { 'foundrylocal' }
+                }
+                if ($foundryOk) {
+                    Write-Host '  Bootstrapping execution providers...' -ForegroundColor Cyan
+                    $epStart2 = Get-Date
+                    $epJob2 = Start-Job -ScriptBlock { param($cmd) & $cmd model list 2>&1 } -ArgumentList $foundryCmd
+                    while ($epJob2.State -eq 'Running') {
+                        if ([int]((Get-Date) - $epStart2).TotalSeconds -ge 300) { break }
+                        Write-Host '.' -NoNewline -ForegroundColor Cyan
+                        Start-Sleep -Seconds 5
+                    }
+                    Write-Host ''
+                    if ($epJob2.State -eq 'Running') {
+                        $epJob2 | Stop-Job -PassThru | Remove-Job -Force
+                    } else {
+                        Remove-Job $epJob2 -Force
+                    }
+                }
+            } else {
+                Write-Host '  [!] Foundry install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
+                Write-Host '      Install manually: brew tap microsoft/foundrylocal && brew install foundrylocal' -ForegroundColor Yellow
+            }
         } else {
-            Write-Host '  [!] winget not available. Install Foundry manually:' -ForegroundColor Yellow
-            Write-Host '      winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+            Write-Host '  [!] Package manager not available. Install Foundry manually:' -ForegroundColor Yellow
+            if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+                Write-Host '      winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
+            } elseif ($IsMacOS) {
+                Write-Host '      brew tap microsoft/foundrylocal && brew install foundrylocal' -ForegroundColor Yellow
+            }
         }
     }
 }
@@ -824,14 +1086,28 @@ if ($errors -eq 0) {
     Write-Host '   Setup complete!' -ForegroundColor Green
     Write-Host ''
     Write-Host '  You can now run:' -ForegroundColor Cyan
-    Write-Host '    .\run_stream.cmd        (recommended Windows launcher; choose memory or memory + AI)'
-    Write-Host '    .\run_stream.ps1        (same unified launcher inside PowerShell)'
-    Write-Host '    .\run_stream_ai.cmd     (Windows compatibility AI shortcut)'
-    Write-Host '    .\run_stream_ai.ps1     (compatibility AI shortcut)'
+    if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+        Write-Host '    .\run_stream.cmd        (recommended Windows launcher; choose memory or memory + AI)'
+        Write-Host '    .\run_stream.ps1        (same unified launcher inside PowerShell)'
+        Write-Host '    .\run_stream_ai.cmd     (Windows compatibility AI shortcut)'
+        Write-Host '    .\run_stream_ai.ps1     (compatibility AI shortcut)'
+    } else {
+        Write-Host '    pwsh ./run_stream.ps1   (unified launcher; choose memory or memory + AI)'
+        Write-Host '    pwsh ./run_stream_ai.ps1  (compatibility AI shortcut)'
+        Write-Host ''
+        Write-Host '  Or run directly:' -ForegroundColor Cyan
+        Write-Host '    ./StreamBench_osx-arm64 --cpu                (CPU benchmark)'
+        Write-Host '    ./StreamBench_osx-arm64 --gpu                (GPU benchmark)'
+        Write-Host '    ./StreamBench_osx-arm64 --ai                 (AI benchmark)'
+    }
 } else {
     Write-Host "   Setup finished with $errors issue(s). See messages above." -ForegroundColor Yellow
     Write-Host ''
-    Write-Host '  Resolve the issues above, then re-run .\setup.ps1' -ForegroundColor Yellow
+    if ($IsMacOS) {
+        Write-Host '  Resolve the issues above, then re-run: pwsh ./setup.ps1' -ForegroundColor Yellow
+    } else {
+        Write-Host '  Resolve the issues above, then re-run .\setup.ps1' -ForegroundColor Yellow
+    }
 }
 Write-Host '  ========================================' -ForegroundColor DarkGray
 Write-Host ''
@@ -840,7 +1116,11 @@ Write-Host ''
 #  Restore sleep settings (always, even if errors occurred above)
 # ------------------------------------------------------------------
 if ($sleepPrevented) {
-    try { [Win32.PowerMgmt]::SetThreadExecutionState(0x80000000) | Out-Null } catch {}
+    if ($IsWindows) {
+        try { [Win32.PowerMgmt]::SetThreadExecutionState(0x80000000) | Out-Null } catch {}
+    } elseif ($caffeinatePid) {
+        try { Stop-Process -Id $caffeinatePid -Force -ErrorAction SilentlyContinue } catch {}
+    }
 }
 
 if ($errors -gt 0) { exit 1 } else { exit 0 }

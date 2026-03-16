@@ -29,12 +29,13 @@ internal static class AiBackendFactory
 
     /// <summary>
     /// Auto-detects the best available backend.
-    /// Priority: Foundry (Windows, supports NPU) → LM Studio (cross-platform).
+    /// Priority: Foundry (Windows/macOS, supports NPU) → LM Studio (cross-platform).
     /// </summary>
     private static IAiBackend AutoDetect(AiBackendConfig config)
     {
-        // Try Foundry first on Windows (it supports NPU)
-        if (OperatingSystem.IsWindows())
+        // Try Foundry first on Windows and macOS (it supports NPU on Windows,
+        // and provides optimized CPU/GPU inference on both platforms).
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
             var foundry = CreateFoundry(config);
             if (foundry.IsAvailable())
@@ -56,17 +57,17 @@ internal static class AiBackendFactory
             return lmStudio;
         }
 
-        // On Windows, still return Foundry as it gives the best error message
-        // about how to install. On other platforms, return LM Studio.
-        if (OperatingSystem.IsWindows())
+        // On Windows/macOS, still return Foundry as it gives the best error message
+        // about how to install. On Linux, return LM Studio.
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
-            TraceLog.DiagnosticInfo("No AI backend detected; defaulting to Foundry (Windows)");
-            TraceLog.AiBackendAutoDetect("Foundry Local (default)", "No backend found, defaulting for Windows");
+            TraceLog.DiagnosticInfo("No AI backend detected; defaulting to Foundry (Windows/macOS)");
+            TraceLog.AiBackendAutoDetect("Foundry Local (default)", "No backend found, defaulting for Windows/macOS");
             return CreateFoundry(config);
         }
 
         TraceLog.DiagnosticInfo("No AI backend detected; defaulting to LM Studio");
-        TraceLog.AiBackendAutoDetect("LM Studio (default)", "No backend found, defaulting for non-Windows");
+        TraceLog.AiBackendAutoDetect("LM Studio (default)", "No backend found, defaulting for Linux");
         return CreateLmStudio(config);
     }
 
@@ -86,8 +87,13 @@ internal static class AiBackendFactory
     /// </summary>
     internal static string GetInstallInstructions(AiBackendType preferredBackend)
     {
-        if (preferredBackend == AiBackendType.Foundry || (preferredBackend == AiBackendType.Auto && OperatingSystem.IsWindows()))
+        if (preferredBackend == AiBackendType.Foundry || (preferredBackend == AiBackendType.Auto && (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())))
         {
+            if (OperatingSystem.IsMacOS())
+            {
+                return "Install Foundry Local: brew tap microsoft/foundrylocal && brew install foundrylocal\n" +
+                       "  Or install LM Studio: brew install --cask lm-studio";
+            }
             return "Install Foundry Local: winget install Microsoft.FoundryLocal\n" +
                    "  Or install LM Studio: https://lmstudio.ai/";
         }

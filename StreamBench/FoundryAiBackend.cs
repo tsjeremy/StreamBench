@@ -217,6 +217,19 @@ internal sealed class FoundryAiBackend : IAiBackend
                 }
             }
         }
+        else if (OperatingSystem.IsMacOS())
+        {
+            // macOS: Homebrew installs to /opt/homebrew/bin (ARM64) or /usr/local/bin (x64)
+            var macPaths = new[] { "/opt/homebrew/bin", "/usr/local/bin" };
+            foreach (var dir in macPaths)
+            {
+                foreach (var name in triedNames)
+                {
+                    var fullPath = Path.Combine(dir, name);
+                    if (File.Exists(fullPath) && TryProbeCli(fullPath) is string found3) return found3;
+                }
+            }
+        }
 
         TraceLog.AiCliNotFound(string.Join(", ", triedNames));
         return null;
