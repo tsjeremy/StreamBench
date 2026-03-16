@@ -32,6 +32,38 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 
 ---
 
+## What's New vs. Original STREAM
+
+This project builds on the foundational work of the
+[original STREAM benchmark](https://github.com/jeffhammond/STREAM) by Dr. John D. McCalpin —
+the industry standard for sustained memory bandwidth measurement since 1991.
+The original STREAM is an elegantly simple, portable benchmark that has stood the test of time.
+StreamBench extends it with additional capabilities while preserving the core measurement methodology.
+
+| Capability | [Original STREAM](https://github.com/jeffhammond/STREAM) | StreamBench |
+|------------|------------------|-------------|
+| **CPU bandwidth (Copy/Scale/Add/Triad)** | ✅ — the gold standard | ✅ Same kernels, same methodology |
+| **Language** | C and Fortran | C (backend) + .NET 10 (frontend) |
+| **GPU bandwidth** | — | ✅ OpenCL-based GPU STREAM (zero SDK dependency) |
+| **AI inference benchmark** | — | ✅ LLM tok/s on CPU, GPU, NPU — correlates bandwidth with AI throughput |
+| **Output format** | Plain text to stdout | Colored tables + JSON + CSV (machine-readable) |
+| **Pre-built binaries** | Compile from source | ✅ Download-and-run binaries for Windows and macOS |
+| **Platform support** | Portable C — runs anywhere with a compiler | Windows, macOS, Linux — with automated setup |
+| **System info detection** | — | ✅ CPU model, memory type/speed, cache hierarchy, GPU device |
+| **Setup automation** | — | ✅ `setup.ps1` auto-installs prerequisites and AI backends |
+| **OpenMP threading** | ✅ | ✅ Same approach |
+| **MPI support** | ✅ (`stream_mpi.c` for distributed systems) | — (focused on single-node) |
+| **Fortran version** | ✅ | — |
+| **Array size** | Compile-time `STREAM_ARRAY_SIZE` | Runtime `--array-size N` argument |
+
+> **The original STREAM remains the authoritative reference** for memory bandwidth measurement
+> and is the right choice for HPC environments, MPI clusters, and Fortran-based workflows.
+> StreamBench is designed for a different audience — users who want a quick, visual benchmark
+> with pre-built binaries, GPU coverage, and the ability to correlate memory bandwidth with
+> AI inference performance on modern hardware.
+
+---
+
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
