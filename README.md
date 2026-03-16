@@ -34,11 +34,11 @@ displays color-formatted results, saves files, and runs the AI inference benchma
 
 ## What's New vs. Original STREAM
 
-This project builds on the foundational work of the
-[original STREAM benchmark](https://github.com/jeffhammond/STREAM) by Dr. John D. McCalpin —
-the industry standard for sustained memory bandwidth measurement since 1991.
-The original STREAM is an elegantly simple, portable benchmark that has stood the test of time.
-StreamBench extends it with additional capabilities while preserving the core measurement methodology.
+StreamBench is a from-scratch rewrite for Windows and macOS, built on the measurement
+methodology of the [original STREAM benchmark](https://github.com/jeffhammond/STREAM) —
+the industry standard for sustained memory bandwidth since 1991.
+It extends the original with a .NET 10 frontend, GPU support, and AI inference benchmarking
+while preserving the core Copy / Scale / Add / Triad kernels.
 
 | Capability | [Original STREAM](https://github.com/jeffhammond/STREAM) | StreamBench |
 |------------|------------------|-------------|
@@ -56,9 +56,9 @@ StreamBench extends it with additional capabilities while preserving the core me
 | **Fortran version** | ✅ | — |
 | **Array size** | Compile-time `STREAM_ARRAY_SIZE` | Runtime `--array-size N` argument |
 
-> **The original STREAM remains the authoritative reference** for memory bandwidth measurement
-> and is the right choice for HPC environments, MPI clusters, and Fortran-based workflows.
-> StreamBench is designed for a different audience — users who want a quick, visual benchmark
+> The [original STREAM](https://github.com/jeffhammond/STREAM) remains the authoritative
+> reference for HPC environments, MPI clusters, and Fortran-based workflows.
+> StreamBench targets a different audience — users who want a quick, visual benchmark
 > with pre-built binaries, GPU coverage, and the ability to correlate memory bandwidth with
 > AI inference performance on modern hardware.
 
@@ -703,10 +703,9 @@ Additional guidance:
 ## Original Project
 
 STREAM is the de facto industry standard benchmark for measuring sustained memory bandwidth.
-Original code and documentation by **John D. McCalpin, Ph.D.**
 
+*   **Repository**: https://github.com/jeffhammond/STREAM
 *   **Website**: http://www.cs.virginia.edu/stream/ref.html
-*   **Original Source**: `stream.c` and `stream.f`
 
 ## License
 
