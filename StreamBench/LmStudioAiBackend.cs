@@ -86,45 +86,29 @@ internal sealed class LmStudioAiBackend : IAiBackend
         TraceLog.AiServiceStarting();
         ConsoleOutput.WriteMarkup("[dim]  Starting LM Studio server (may take up to 90 s)...[/]");
 
-        // Launch `lms server start` without blocking on process exit.
-        // Newer LM Studio versions keep this process alive while the server
-        // runs.  The previous approach (RunLmsAsync with a 60 s timeout)
-        // killed the entire process tree on timeout — tearing down the server
-        // before it had a chance to initialise.
-        Process? serverProcess = null;
-        StringBuilder? procStdout = null, procStderr = null;
-        try
+        _serviceUrl ??= DefaultEndpoint;
+
+        // Try to start the server, with automatic daemon recovery if needed.
+        var result = await TryStartServerProcess(_cli, ct);
+
+        // If `lms server start` failed because the daemon isn't running,
+        // launch the LM Studio desktop app to start the daemon, then retry.
+        if (result.DaemonNotRunning)
         {
-            var psi = new ProcessStartInfo(_cli, "server start")
+            TraceLog.DiagnosticInfo("LM Studio daemon not running — attempting to launch desktop app");
+            if (TryLaunchLmStudioApp(_cli))
             {
-                RedirectStandardOutput = true,
-                RedirectStandardError  = true,
-                UseShellExecute        = false,
-                CreateNoWindow         = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding  = Encoding.UTF8,
-            };
-            serverProcess = Process.Start(psi);
+                // Give the app/daemon time to initialise before retrying
+                ConsoleOutput.WriteMarkup("[dim]  Launching LM Studio app to start daemon...[/]");
+                await Task.Delay(8_000, ct);
+                MinimizeLmStudioWindows();
 
-            if (serverProcess is not null)
-            {
-                TraceLog.LmStudioServerProcessSpawned(serverProcess.Id);
-
-                // Drain pipes asynchronously to prevent buffer deadlocks.
-                // Capture output for diagnostics if the server fails to start.
-                procStdout = new StringBuilder();
-                procStderr = new StringBuilder();
-                serverProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) procStdout.AppendLine(e.Data); };
-                serverProcess.ErrorDataReceived  += (_, e) => { if (e.Data is not null) procStderr.AppendLine(e.Data); };
-                serverProcess.BeginOutputReadLine();
-                serverProcess.BeginErrorReadLine();
+                result = await TryStartServerProcess(_cli, ct);
             }
-        }
-        catch (Exception ex)
-        {
-            TraceLog.LmStudioServerProcessSpawnFailed(ex.Message);
-            TraceLog.AiServiceStartFailed($"Failed to launch lms: {ex.Message}", "LmStudioAiBackend.cs", 0);
-            return null;
+            else
+            {
+                TraceLog.DiagnosticInfo("Could not find LM Studio desktop app to launch");
+            }
         }
 
         // Minimize LM Studio GUI windows so they don't cover the terminal
@@ -132,19 +116,35 @@ internal sealed class LmStudioAiBackend : IAiBackend
 
         // Poll for readiness — up to 90 seconds.
         // First-time LM Studio starts can be slow (app init, model loading).
-        _serviceUrl ??= DefaultEndpoint;
         const int maxAttempts = 90;
         for (int i = 1; i <= maxAttempts; i++)
         {
             // If the spawned process exited early, log its output for diagnostics.
-            if (serverProcess is not null && serverProcess.HasExited)
+            if (result.ServerProcess is not null && result.ServerProcess.HasExited)
             {
                 TraceLog.LmStudioServerProcessExited(
-                    serverProcess.ExitCode,
-                    procStdout?.ToString() ?? "",
-                    procStderr?.ToString() ?? "");
-                serverProcess.Dispose();
-                serverProcess = null;
+                    result.ServerProcess.ExitCode,
+                    result.Stdout?.ToString() ?? "",
+                    result.Stderr?.ToString() ?? "");
+
+                // If the process exited with an error and the server isn't
+                // running, there's no point polling for 90 seconds.
+                if (result.ServerProcess.ExitCode != 0 && !IsServerRunning(_serviceUrl))
+                {
+                    string errText = result.Stderr?.ToString() ?? "";
+                    TraceLog.DiagnosticInfo($"Server process exited with code {result.ServerProcess.ExitCode} — aborting poll");
+                    result.ServerProcess.Dispose();
+
+                    TraceLog.AiServiceStartFailed("LM Studio server failed to start", "LmStudioAiBackend.cs", 0);
+                    ConsoleOutput.WriteMarkup(
+                        "[yellow]  [!] LM Studio daemon is not running. Please open LM Studio once, then re-run.[/]");
+                    if (!string.IsNullOrWhiteSpace(errText))
+                        ConsoleOutput.WriteMarkup($"[dim]      {errText.Trim().ReplaceLineEndings(" ")}[/]");
+                    return null;
+                }
+
+                result.ServerProcess.Dispose();
+                result = result with { ServerProcess = null };
             }
 
             if (IsServerRunning(_serviceUrl))
@@ -166,21 +166,21 @@ internal sealed class LmStudioAiBackend : IAiBackend
         // Server never became ready — log diagnostics and clean up.
         TraceLog.LmStudioServerPollTimeout(maxAttempts);
 
-        if (serverProcess is not null)
+        if (result.ServerProcess is not null)
         {
-            if (serverProcess.HasExited)
+            if (result.ServerProcess.HasExited)
             {
                 TraceLog.LmStudioServerProcessExited(
-                    serverProcess.ExitCode,
-                    procStdout?.ToString() ?? "",
-                    procStderr?.ToString() ?? "");
+                    result.ServerProcess.ExitCode,
+                    result.Stdout?.ToString() ?? "",
+                    result.Stderr?.ToString() ?? "");
             }
             else
             {
                 TraceLog.Warn("LM Studio server process still running after poll timeout — killing");
-                try { serverProcess.Kill(entireProcessTree: true); } catch { }
+                try { result.ServerProcess.Kill(entireProcessTree: true); } catch { }
             }
-            serverProcess.Dispose();
+            result.ServerProcess.Dispose();
         }
 
         TraceLog.AiServiceStartFailed("LM Studio server failed to start", "LmStudioAiBackend.cs", 0);
@@ -688,6 +688,136 @@ internal sealed class LmStudioAiBackend : IAiBackend
             return true;
 
         return false;
+    }
+
+    // ── Server process helpers ─────────────────────────────────────────────
+
+    private sealed record ServerStartResult(
+        Process? ServerProcess,
+        StringBuilder? Stdout,
+        StringBuilder? Stderr,
+        bool DaemonNotRunning);
+
+    /// <summary>
+    /// Launches <c>lms server start</c> as a fire-and-forget process.
+    /// If the process exits immediately with "daemon is not running",
+    /// <see cref="ServerStartResult.DaemonNotRunning"/> is set to <c>true</c>.
+    /// </summary>
+    private static async Task<ServerStartResult> TryStartServerProcess(string cli, CancellationToken ct)
+    {
+        Process? serverProcess = null;
+        StringBuilder? procStdout = null, procStderr = null;
+        try
+        {
+            var psi = new ProcessStartInfo(cli, "server start")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding  = Encoding.UTF8,
+            };
+            serverProcess = Process.Start(psi);
+
+            if (serverProcess is not null)
+            {
+                TraceLog.LmStudioServerProcessSpawned(serverProcess.Id);
+
+                procStdout = new StringBuilder();
+                procStderr = new StringBuilder();
+                serverProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) procStdout.AppendLine(e.Data); };
+                serverProcess.ErrorDataReceived  += (_, e) => { if (e.Data is not null) procStderr.AppendLine(e.Data); };
+                serverProcess.BeginOutputReadLine();
+                serverProcess.BeginErrorReadLine();
+
+                // Wait briefly to see if the process exits immediately with an error
+                await Task.Delay(5_000, ct);
+                if (serverProcess.HasExited && serverProcess.ExitCode != 0)
+                {
+                    string stderr = procStderr.ToString();
+                    TraceLog.LmStudioServerProcessExited(serverProcess.ExitCode, procStdout.ToString(), stderr);
+
+                    bool daemonError = stderr.Contains("daemon is not running", StringComparison.OrdinalIgnoreCase);
+                    TraceLog.DiagnosticInfo($"lms server start exited with code {serverProcess.ExitCode}, daemonError={daemonError}");
+
+                    serverProcess.Dispose();
+                    return new ServerStartResult(null, procStdout, procStderr, daemonError);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            TraceLog.LmStudioServerProcessSpawnFailed(ex.Message);
+            return new ServerStartResult(null, null, null, false);
+        }
+
+        return new ServerStartResult(serverProcess, procStdout, procStderr, DaemonNotRunning: false);
+    }
+
+    /// <summary>
+    /// Attempts to launch the LM Studio desktop app (Electron) to start its daemon.
+    /// Returns true if the app was launched successfully.
+    /// </summary>
+    private static bool TryLaunchLmStudioApp(string lmsCli)
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+
+        // Derive the app path from the CLI path.
+        // CLI is typically at: .../LM Studio/resources/app/.webpack/lms.exe
+        // Desktop app is at:   .../LM Studio/LM Studio.exe
+        string? installDir = null;
+        try
+        {
+            var dir = Path.GetDirectoryName(lmsCli);
+            while (dir is not null)
+            {
+                string candidate = Path.Combine(dir, "LM Studio.exe");
+                if (File.Exists(candidate))
+                {
+                    installDir = dir;
+                    break;
+                }
+                dir = Path.GetDirectoryName(dir);
+            }
+        }
+        catch { }
+
+        // Fallback: well-known install directory
+        installDir ??= Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Programs", "LM Studio");
+
+        string appExe = Path.Combine(installDir, "LM Studio.exe");
+        if (!File.Exists(appExe))
+        {
+            TraceLog.DiagnosticInfo($"LM Studio desktop app not found at: {appExe}");
+            return false;
+        }
+
+        try
+        {
+            // Check if the app is already running
+            if (Process.GetProcessesByName("LM Studio").Length > 0)
+            {
+                TraceLog.DiagnosticInfo("LM Studio desktop app is already running");
+                return true;
+            }
+
+            TraceLog.DiagnosticInfo($"Launching LM Studio desktop app: {appExe}");
+            var psi = new ProcessStartInfo(appExe)
+            {
+                UseShellExecute = true,
+                WindowStyle = ProcessWindowStyle.Minimized,
+            };
+            Process.Start(psi);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            TraceLog.DiagnosticInfo($"Failed to launch LM Studio app: {ex.Message}");
+            return false;
+        }
     }
 
     // ── Window management helpers ──────────────────────────────────────────

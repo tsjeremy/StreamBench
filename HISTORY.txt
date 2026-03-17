@@ -9,6 +9,11 @@ Revisions as of Mon, Mar 17, 2026  (v5.10.35)
     the CLI process alive while the server runs; the previous 60 s
     timeout killed the entire process tree (including the server) before
     it could initialise.
+  - Auto-recover when LM Studio daemon is not running: detect the
+    "daemon is not running" error from `lms server start`, automatically
+    launch the LM Studio desktop app to start the daemon, then retry.
+  - Fail fast when `lms server start` exits with an error instead of
+    polling uselessly for 90 seconds; show actionable user message.
   - Extend readiness polling from 30 s to 90 s for slow first-time starts.
   - TraceLog: add diagnostic methods for LM Studio server process lifecycle
     (spawn, exit with stdout/stderr, poll progress, poll timeout) so
