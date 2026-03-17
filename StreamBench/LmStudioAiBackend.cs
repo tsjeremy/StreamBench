@@ -807,10 +807,21 @@ internal sealed class LmStudioAiBackend : IAiBackend
             TraceLog.DiagnosticInfo($"Launching LM Studio desktop app: {appExe}");
             var psi = new ProcessStartInfo(appExe)
             {
-                UseShellExecute = true,
-                WindowStyle = ProcessWindowStyle.Minimized,
+                // UseShellExecute = false so the Electron app does NOT
+                // inherit our console and flood it with internal logs.
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
             };
-            Process.Start(psi);
+            var proc = Process.Start(psi);
+            if (proc is not null)
+            {
+                // Drain pipes asynchronously so the app doesn't block,
+                // but discard the output — it's LM Studio internal diagnostics.
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+            }
             return true;
         }
         catch (Exception ex)
