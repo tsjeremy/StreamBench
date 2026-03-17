@@ -237,6 +237,27 @@ public static class TraceLog
     public static void LmStudioServerStopFailed(string error)
         => Warn($"LM Studio server stop failed. Error: {error}");
 
+    public static void LmStudioServerProcessSpawned(int pid)
+        => Info($"LM Studio server process spawned. PID: {pid}");
+
+    public static void LmStudioServerProcessExited(int exitCode, string stdout, string stderr)
+    {
+        Info($"LM Studio server process exited. ExitCode: {exitCode}");
+        if (!string.IsNullOrWhiteSpace(stdout))
+            Info($"LM Studio server stdout: {stdout.Trim()}");
+        if (!string.IsNullOrWhiteSpace(stderr))
+            Info($"LM Studio server stderr: {stderr.Trim()}");
+    }
+
+    public static void LmStudioServerProcessSpawnFailed(string error)
+        => Error($"LM Studio server process spawn failed. Error: {error}");
+
+    public static void LmStudioServerPollProgress(int attempt, int maxAttempts)
+        => Info($"LM Studio server poll progress. Attempt: {attempt}/{maxAttempts}");
+
+    public static void LmStudioServerPollTimeout(int maxAttempts)
+        => Warn($"LM Studio server poll exhausted. Attempts: {maxAttempts}");
+
     public static void LmStudioModelListed(int count)
         => Info($"LM Studio models listed. Count: {count}");
 

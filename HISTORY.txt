@@ -1,5 +1,21 @@
 -------------------------------------------------------------------------
 
+Revisions as of Mon, Mar 17, 2026  (v5.10.35)
+
+  Fix: LM Studio server startup fails on newer LM Studio versions
+
+  - LmStudioAiBackend: launch `lms server start` as a fire-and-forget
+    process instead of blocking via RunLmsAsync.  Newer LM Studio keeps
+    the CLI process alive while the server runs; the previous 60 s
+    timeout killed the entire process tree (including the server) before
+    it could initialise.
+  - Extend readiness polling from 30 s to 90 s for slow first-time starts.
+  - TraceLog: add diagnostic methods for LM Studio server process lifecycle
+    (spawn, exit with stdout/stderr, poll progress, poll timeout) so
+    future failures are fully diagnosable from the trace log alone.
+
+-------------------------------------------------------------------------
+
 Revisions as of Mon, Mar 17, 2026  (v5.10.34)
 
   Fix: CMD launcher fallback for new Windows PCs

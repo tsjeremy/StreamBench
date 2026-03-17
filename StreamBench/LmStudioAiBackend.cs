@@ -84,17 +84,69 @@ internal sealed class LmStudioAiBackend : IAiBackend
 
         TraceLog.LmStudioServerStarting(DefaultPort);
         TraceLog.AiServiceStarting();
-        ConsoleOutput.WriteMarkup("[dim]  Starting LM Studio server (may take up to 60 s)...[/]");
+        ConsoleOutput.WriteMarkup("[dim]  Starting LM Studio server (may take up to 90 s)...[/]");
 
-        var (exitCode, stdout, stderr) = await RunLmsAsync(_cli, "server start", 60_000);
+        // Launch `lms server start` without blocking on process exit.
+        // Newer LM Studio versions keep this process alive while the server
+        // runs.  The previous approach (RunLmsAsync with a 60 s timeout)
+        // killed the entire process tree on timeout — tearing down the server
+        // before it had a chance to initialise.
+        Process? serverProcess = null;
+        StringBuilder? procStdout = null, procStderr = null;
+        try
+        {
+            var psi = new ProcessStartInfo(_cli, "server start")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding  = Encoding.UTF8,
+            };
+            serverProcess = Process.Start(psi);
+
+            if (serverProcess is not null)
+            {
+                TraceLog.LmStudioServerProcessSpawned(serverProcess.Id);
+
+                // Drain pipes asynchronously to prevent buffer deadlocks.
+                // Capture output for diagnostics if the server fails to start.
+                procStdout = new StringBuilder();
+                procStderr = new StringBuilder();
+                serverProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) procStdout.AppendLine(e.Data); };
+                serverProcess.ErrorDataReceived  += (_, e) => { if (e.Data is not null) procStderr.AppendLine(e.Data); };
+                serverProcess.BeginOutputReadLine();
+                serverProcess.BeginErrorReadLine();
+            }
+        }
+        catch (Exception ex)
+        {
+            TraceLog.LmStudioServerProcessSpawnFailed(ex.Message);
+            TraceLog.AiServiceStartFailed($"Failed to launch lms: {ex.Message}", "LmStudioAiBackend.cs", 0);
+            return null;
+        }
 
         // Minimize LM Studio GUI windows so they don't cover the terminal
         MinimizeLmStudioWindows();
 
-        // Wait for server to become ready (LM Studio can take 20-30 s to initialise)
+        // Poll for readiness — up to 90 seconds.
+        // First-time LM Studio starts can be slow (app init, model loading).
         _serviceUrl ??= DefaultEndpoint;
-        for (int i = 0; i < 30; i++)
+        const int maxAttempts = 90;
+        for (int i = 1; i <= maxAttempts; i++)
         {
+            // If the spawned process exited early, log its output for diagnostics.
+            if (serverProcess is not null && serverProcess.HasExited)
+            {
+                TraceLog.LmStudioServerProcessExited(
+                    serverProcess.ExitCode,
+                    procStdout?.ToString() ?? "",
+                    procStderr?.ToString() ?? "");
+                serverProcess.Dispose();
+                serverProcess = null;
+            }
+
             if (IsServerRunning(_serviceUrl))
             {
                 _ownedServer = true;
@@ -103,18 +155,32 @@ internal sealed class LmStudioAiBackend : IAiBackend
                 TraceLog.LmStudioServerStarted(_serviceUrl);
                 return _serviceUrl;
             }
+
+            // Log progress every 15 seconds so trace shows the poll is alive
+            if (i % 15 == 0)
+                TraceLog.LmStudioServerPollProgress(i, maxAttempts);
+
             await Task.Delay(1_000, ct);
         }
 
-        // Try extracting URL from output
-        var url = ExtractUrl(stdout + "\n" + stderr);
-        if (url is not null)
+        // Server never became ready — log diagnostics and clean up.
+        TraceLog.LmStudioServerPollTimeout(maxAttempts);
+
+        if (serverProcess is not null)
         {
-            _serviceUrl = url;
-            _ownedServer = true;
-            TraceLog.AiServiceStarted();
-            TraceLog.LmStudioServerStarted(_serviceUrl);
-            return _serviceUrl;
+            if (serverProcess.HasExited)
+            {
+                TraceLog.LmStudioServerProcessExited(
+                    serverProcess.ExitCode,
+                    procStdout?.ToString() ?? "",
+                    procStderr?.ToString() ?? "");
+            }
+            else
+            {
+                TraceLog.Warn("LM Studio server process still running after poll timeout — killing");
+                try { serverProcess.Kill(entireProcessTree: true); } catch { }
+            }
+            serverProcess.Dispose();
         }
 
         TraceLog.AiServiceStartFailed("LM Studio server failed to start", "LmStudioAiBackend.cs", 0);
