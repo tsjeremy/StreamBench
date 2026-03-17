@@ -574,7 +574,7 @@ function Ensure-StreamBenchPrerequisites {
         Write-Host ''
         # Pass the AI backend choice so setup.ps1 doesn't prompt again
         if ($AiBackend) { $env:STREAMBENCH_AI_BACKEND = $AiBackend }
-        & $setupScript | Out-Host
+        & $setupScript
         if ($AiBackend) { Remove-Item Env:\STREAMBENCH_AI_BACKEND -ErrorAction SilentlyContinue }
         if ($LASTEXITCODE -ne 0) {
             Write-Host '  [FAIL] setup.ps1 finished with errors. Please resolve and re-run.' -ForegroundColor Red
