@@ -557,6 +557,8 @@ Starting LM Studio AI service...
 
 ### Example output — Final Summary
 
+**LPDDR5X quad-channel system (high bandwidth):**
+
 ```
 ══════════════════════════════════════════════════════════════
   StreamBench — Summary
@@ -576,9 +578,35 @@ Starting LM Studio AI service...
   Q2 (warm) = sustained throughput — memory-bandwidth limited
 ```
 
+**DDR5 single-channel system (discrete + integrated GPU):**
+
+```
+══════════════════════════════════════════════════════════════
+  StreamBench — Summary
+══════════════════════════════════════════════════════════════
+
+  CPU    : 16-core Mobile Processor (16 cores)
+  Memory : 32 GB DDR5 @ 5600 MT/s
+  GPU    : Discrete Laptop GPU (36 CUs, 8.0 GiB)
+
+╭───────────────────────── Key Results ─────────────────────────╮
+│ Device   │   STREAM Triad │  AI Cold Tok/s │   AI Warm Tok/s│
+├──────────┼────────────────┼────────────────┼──────────────────┤
+│ CPU      │     29.70 GB/s │           15.5 │             10.5 │
+│ GPU      │    346.23 GB/s │            0.0 │             35.1 │
+│ GPU      │    136.76 GB/s │              — │                — │
+│ NPU      │              — │           11.6 │             11.5 │
+╰──────────┴────────────────┴────────────────┴──────────────────╯
+  Q2 (warm) = sustained throughput — memory-bandwidth limited
+```
+
 > The summary combines memory bandwidth and AI inference results in one table.
 > NPU has no STREAM Triad score (memory bandwidth is measured only on CPU and GPU).
-> GPU leads in warm tok/s because its dedicated VRAM provides the highest memory bandwidth.
+> When a system has both discrete and integrated GPUs, two GPU rows appear — the first
+> is the discrete GPU (high VRAM bandwidth, runs AI inference), the second is the iGPU
+> (shares system memory, no separate AI run).
+> Single-channel DDR5 delivers roughly half the CPU bandwidth of dual-channel, while
+> the discrete GPU's dedicated VRAM is unaffected by system memory configuration.
 
 ### Key metrics
 
@@ -661,15 +689,22 @@ higher memory bandwidth → higher tokens/second (this is the point of the Strea
 
 The results depend on your memory type, number of channels, and frequency:
 
-| Memory Type | Typical Config | Theoretical Max | Expected CPU STREAM | Expected GPU STREAM |
+| Memory Type | Typical Config | Theoretical Max | Expected CPU STREAM | Expected GPU STREAM (iGPU) |
 |-------------|---------------|-----------------|--------------------|--------------------|
 | DDR4-3200 | Dual-channel | ~51 GB/s | ~35–45 GB/s | N/A (no iGPU BW advantage) |
+| DDR5-5600 | Single-channel | ~45 GB/s | ~26–37 GB/s | ~75–137 GB/s ¹ |
 | DDR5-5600 | Dual-channel | ~90 GB/s | ~55–70 GB/s | ~60–80 GB/s |
 | DDR5-6400 | Dual-channel | ~102 GB/s | ~65–80 GB/s | ~70–90 GB/s |
 | LPDDR5X-7500 | Quad-channel | ~120 GB/s | ~70–90 GB/s | ~90–110 GB/s |
 | LPDDR5X-8000 | 8-channel | ~256 GB/s | ~90–110 GB/s | ~180–220 GB/s |
 | LPDDR5-6400 (unified, 1024-bit) | 1024-bit unified | ~819 GB/s | ~300–310 GB/s (20-thread) | ~670–700 GB/s |
 
+> ¹ Modern iGPUs use hardware lossless compression (e.g. Delta Color Compression, Unified
+> Lossless Compression) that reduces bytes moved on the memory bus — so the GPU processes more
+> useful data per transfer. The DRAM bus still runs at ~45 GB/s (single-channel DDR5-5600),
+> but STREAM's uniform float patterns compress well, making the *reported* effective bandwidth
+> appear well above the raw DRAM limit.
+>
 > **Tip:** If your results are significantly below these ranges, check that all memory channels are
 > populated, XMP/EXPO profiles are enabled in BIOS, and the system is plugged in (not on battery).
 > Laptops on balanced/battery-saver power plans may achieve 40–60% of the listed ranges.
