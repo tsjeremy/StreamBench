@@ -1,5 +1,18 @@
 -------------------------------------------------------------------------
 
+Revisions as of Mon, Mar 17, 2026  (v5.10.34)
+
+  Fix: CMD launcher fallback for new Windows PCs
+
+  - run_stream.cmd / run_stream_ai.cmd: add fallback to directly launch
+    StreamBench exe when .ps1 files are missing (Windows Smart App Control
+    on new PCs can quarantine .ps1 scripts extracted from downloaded ZIPs).
+  - CI: update workflow triggers from master to main branch.
+  - CI: replace softprops/action-gh-release with gh CLI to fix Node.js 20
+    deprecation warning.
+
+-------------------------------------------------------------------------
+
 Revisions as of Sun, Mar 15, 2026  (v5.10.31)
 
   Bug fix & docs update

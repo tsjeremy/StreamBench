@@ -1,6 +1,6 @@
 # Building StreamBench from Source
 
-This guide covers building StreamBench from source. If you just want to run benchmarks, see the [pre-built binaries](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.33) — no build required.
+This guide covers building StreamBench from source. If you just want to run benchmarks, see the [pre-built binaries](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.34) — no build required.
 
 ## Build from Source
 
