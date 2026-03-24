@@ -32,3 +32,5 @@ StreamBench/backends/
 *.log
 *.pptx
 *.pptx.bak
+StreamBench_osx-arm64
+StreamBench_osx-x64

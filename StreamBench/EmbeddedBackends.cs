@@ -65,6 +65,13 @@ public static class EmbeddedBackends
         {
             TraceLog.BackendCacheHit(targetPath);
             EnsureExecutable(targetPath);
+
+            // On macOS, ensure bundled libomp.dylib is also present (needed by CPU backends)
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && !isGpu)
+            {
+                ExtractSupportLibrary(assembly, "libomp.dylib", CacheDir);
+            }
+
             return targetPath;
         }
 
