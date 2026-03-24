@@ -195,27 +195,23 @@ if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEditi
         }
     }
 } elseif ($IsMacOS) {
-    # macOS: libomp (for CPU OpenMP benchmark — pre-built binaries embed it, but source mode needs it)
-    if ($hasSource) {
-        $hasLibomp = (Test-Path '/opt/homebrew/opt/libomp') -or (Test-Path '/usr/local/opt/libomp')
-        if ($hasLibomp) {
-            Write-Host '  [OK] libomp found (OpenMP support for CPU benchmark).' -ForegroundColor Green
-        } else {
-            Write-Host '  [!] libomp not found (needed to build multi-threaded CPU backend).' -ForegroundColor Yellow
-            if ($hasBrew) {
-                Write-Host '  Installing libomp via Homebrew...' -ForegroundColor Yellow
-                brew install libomp
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host '  [OK] libomp installed.' -ForegroundColor Green
-                } else {
-                    Write-Host '  [!] libomp install failed. Install manually: brew install libomp' -ForegroundColor Yellow
-                }
-            } else {
-                Write-Host '      Install with: brew install libomp' -ForegroundColor Yellow
-            }
-        }
+    # macOS: libomp (for CPU OpenMP benchmark — needed at runtime for multi-threaded CPU backend)
+    $hasLibomp = (Test-Path '/opt/homebrew/opt/libomp') -or (Test-Path '/usr/local/opt/libomp')
+    if ($hasLibomp) {
+        Write-Host '  [OK] libomp found (OpenMP support for CPU benchmark).' -ForegroundColor Green
     } else {
-        Write-Host '  [OK] Pre-built binaries — no C runtime prerequisites needed.' -ForegroundColor Green
+        Write-Host '  [!] libomp not found (needed for multi-threaded CPU benchmark).' -ForegroundColor Yellow
+        if ($hasBrew) {
+            Write-Host '  Installing libomp via Homebrew...' -ForegroundColor Yellow
+            & brew install libomp
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host '  [OK] libomp installed.' -ForegroundColor Green
+            } else {
+                Write-Host '  [!] libomp install failed. Install manually: brew install libomp' -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host '      Install with: brew install libomp' -ForegroundColor Yellow
+        }
     }
 } else {
     Write-Host '  [--] Linux: ensure libomp-dev / libomp is installed for CPU multi-threading.' -ForegroundColor DarkGray
@@ -551,15 +547,15 @@ if (Get-Command pwsh -ErrorAction SilentlyContinue) {
     } elseif ($IsMacOS) {
         if ($hasBrew) {
             Write-Host '  Installing PowerShell 7 via Homebrew...' -ForegroundColor Yellow
-            brew install powershell/tap/powershell
+            & brew install powershell
             if ($LASTEXITCODE -eq 0) {
                 Write-Host '  [OK] PowerShell 7 installed.' -ForegroundColor Green
             } else {
                 Write-Host '  [!] Installation may have failed.' -ForegroundColor Yellow
-                Write-Host '      Install manually: brew install powershell/tap/powershell' -ForegroundColor Yellow
+                Write-Host '      Install manually: brew install powershell' -ForegroundColor Yellow
             }
         } else {
-            Write-Host '      Install: brew install powershell/tap/powershell' -ForegroundColor Yellow
+            Write-Host '      Install: brew install powershell' -ForegroundColor Yellow
             Write-Host '      Or: https://github.com/PowerShell/PowerShell/releases/latest' -ForegroundColor Yellow
         }
     } else {
@@ -576,8 +572,12 @@ Write-Host '  [7/7] Setting up AI backend (AI benchmark)...' -ForegroundColor Cy
 # ── Detect available backends ──
 
 # Refresh PATH before checking — catches installs done in other sessions
-$env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
-            [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+    $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+} else {
+    Refresh-SetupPath
+}
 
 # Foundry detection (Windows / macOS)
 $foundryOk = $false
@@ -829,10 +829,10 @@ if ($setupFoundry) {
                 Write-Host '  [!] Foundry install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
                 Write-Host '      Install manually: winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
             }
-        } elseif ($IsMacOS -and $hasBrew) {
+        } elseif ($IsMacOS -and (Get-Command brew -ErrorAction SilentlyContinue)) {
             Write-Host '  Installing Microsoft Foundry Local via Homebrew...' -ForegroundColor Yellow
-            brew tap microsoft/foundrylocal 2>&1 | Out-Null
-            brew install foundrylocal
+            & brew tap microsoft/foundrylocal 2>&1 | Out-Null
+            & brew install foundrylocal
             if ($LASTEXITCODE -eq 0) {
                 Write-Host '  [OK] Foundry Local installed.' -ForegroundColor Green
                 Refresh-SetupPath

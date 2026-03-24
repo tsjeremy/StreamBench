@@ -218,13 +218,19 @@ For the AI inference benchmark (Foundry Local / LM Studio), use `setup.ps1` to
 auto-install all prerequisites (Homebrew, .NET, AI backends, models):
 
 ```bash
-# 1. Install PowerShell (if not already installed)
-brew install powershell/tap/powershell
+# 1. Install Homebrew (if not already installed — the macOS package manager)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# 2. Run setup — installs AI backends and downloads default model
+# 2. Add Homebrew to PATH (Apple Silicon Macs — restart terminal or run this)
+eval "$(/opt/homebrew/bin/brew shellenv)"
+
+# 3. Install PowerShell (if not already installed)
+brew install powershell
+
+# 4. Run setup — installs libomp, AI backends, and downloads default model
 pwsh ./setup.ps1
 
-# 3. Run the benchmark (memory + AI)
+# 5. Run the benchmark (memory + AI)
 pwsh ./run_stream.ps1
 
 # Or run directly with AI:
@@ -234,17 +240,19 @@ pwsh ./run_stream.ps1
 ```
 
 With a pre-built binary, `setup.ps1` auto-detects standalone mode and focuses on
-AI backend setup (no compiler or SDK needed — the binary is self-contained):
+runtime dependencies and AI backend setup:
 - Installs **Homebrew** if not present (the macOS package manager)
+- Installs **libomp** (OpenMP runtime for multi-threaded CPU benchmark)
 - Verifies **macOS OpenCL framework** (built-in, for GPU benchmark)
 - Installs **Foundry Local** via `brew tap microsoft/foundrylocal && brew install foundrylocal`
 - Installs **LM Studio** via `brew install --cask lm-studio`
 - Downloads default AI model (phi-3.5-mini) for immediate benchmarking
 
 When running from source, `setup.ps1` additionally installs .NET 10 SDK,
-Xcode Command Line Tools, and libomp.
+Xcode Command Line Tools, and build dependencies.
 
-> **New MacBook?** Just install PowerShell (`brew install powershell/tap/powershell`),
+> **New MacBook?** First install [Homebrew](https://brew.sh) (`/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`),
+> then PowerShell (`brew install powershell`),
 > then run `pwsh ./setup.ps1` — everything else is automatic.
 
 ### Using the launcher scripts (alternative)

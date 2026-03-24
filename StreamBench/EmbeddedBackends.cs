@@ -84,6 +84,13 @@ public static class EmbeddedBackends
 
             EnsureExecutable(targetPath);
             TraceLog.BackendExtracted(targetPath);
+
+            // On macOS, also extract bundled libomp.dylib if present (needed by CPU backends)
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && !isGpu)
+            {
+                ExtractSupportLibrary(assembly, "libomp.dylib", CacheDir);
+            }
+
             return targetPath;
         }
         catch (Exception ex)
@@ -104,6 +111,30 @@ public static class EmbeddedBackends
         string cpuName = $"stream_cpu_{os}_{arch}";
         return FindResourceName(assembly, cpuName) is not null
             || FindResourceName(assembly, cpuName + ".exe") is not null;
+    }
+
+    /// <summary>
+    /// Extracts a support library (e.g., libomp.dylib) from embedded resources to the given directory.
+    /// </summary>
+    private static void ExtractSupportLibrary(Assembly assembly, string fileName, string targetDir)
+    {
+        string? resName = FindResourceName(assembly, fileName);
+        if (resName is null) return;
+
+        string targetPath = Path.Combine(targetDir, fileName);
+        if (File.Exists(targetPath) && IsUpToDate(assembly, resName, targetPath)) return;
+
+        try
+        {
+            using var stream = assembly.GetManifestResourceStream(resName);
+            if (stream is null) return;
+            using var fs = File.Create(targetPath);
+            stream.CopyTo(fs);
+        }
+        catch (Exception ex)
+        {
+            DiagnosticHelper.LogWarning($"Failed to extract {fileName}: {ex.Message}");
+        }
     }
 
     /// <summary>

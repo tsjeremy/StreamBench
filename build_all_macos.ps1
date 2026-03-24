@@ -88,6 +88,14 @@ foreach ($b in $builds) {
                 continue
             }
         }
+        # Fix libomp rpath so binary works without Homebrew at runtime
+        if (($LASTEXITCODE -eq 0) -and $OmpPrefix -and (Test-Path $out)) {
+            $ompLib = "$OmpPrefix/lib/libomp.dylib"
+            if (Test-Path $ompLib) {
+                bash -c "install_name_tool -change '$ompLib' '@rpath/libomp.dylib' '$out'" 2>$null
+                bash -c "install_name_tool -add_rpath '@loader_path' '$out'" 2>$null
+            }
+        }
     } else {
         $cmd = "clang -arch $($b.Arch) -O2 $defs -o $out $($b.Src) $($b.Extra)"
         bash -c $cmd 2>$null
@@ -161,6 +169,15 @@ foreach ($tag in @('arm64','x64')) {
     foreach ($type in @('cpu','gpu')) {
         $src = Join-Path $ScriptDir "stream_${type}_macos_${tag}"
         if (Test-Path $src) { Copy-Item $src $backendDir }
+    }
+
+    # Bundle libomp.dylib so CPU backend works without Homebrew at runtime
+    if ($OmpPrefix) {
+        $ompLib = "$OmpPrefix/lib/libomp.dylib"
+        if (Test-Path $ompLib) {
+            Copy-Item $ompLib $backendDir
+            Write-Host "  Bundled libomp.dylib for $rid" -ForegroundColor DarkGray
+        }
     }
 
     dotnet publish "$ScriptDir/StreamBench/StreamBench.csproj" `

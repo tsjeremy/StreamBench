@@ -101,6 +101,17 @@ public static class BenchmarkRunner
             StandardErrorEncoding  = Encoding.UTF8,
         };
 
+        // On macOS, ensure the dynamic linker can find libomp.dylib for CPU backends.
+        // Look next to the backend binary (bundled), then fall back to Homebrew paths.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            var backendDir = Path.GetDirectoryName(executablePath) ?? "";
+            var existing = psi.Environment.TryGetValue("DYLD_LIBRARY_PATH", out var val) ? val : "";
+            var paths = new[] { backendDir, "/opt/homebrew/opt/libomp/lib", "/usr/local/opt/libomp/lib" };
+            psi.Environment["DYLD_LIBRARY_PATH"] = string.Join(":",
+                paths.Concat(new[] { existing }).Where(p => !string.IsNullOrEmpty(p)));
+        }
+
         Process process;
         try
         {
