@@ -652,6 +652,11 @@ so Q1/Q2/Q3 (and future Qn) remain available in the same saved file:
 - `ai_inference_benchmark` (Q1/Q2 runs)
 - `ai_relation_summary` (device-tagged relation question answers and timing)
 
+> Privacy note: the JSON and CLI summary may include hardware details such as CPU model,
+> memory type / speed, GPU name, and hostname. That information is meant for local
+> benchmarking and diagnostics — if you share screenshots or result files publicly,
+> review them first and trim anything you do not want to expose.
+
 ### Interpreting results
 
 - **Higher Q2 tokens/second** = better inference throughput (memory-bandwidth limited — the key metric)
@@ -660,6 +665,7 @@ so Q1/Q2/Q3 (and future Qn) remain available in the same saved file:
 - **NPU > GPU > CPU** in tokens/second is typical only when the NPU has a dedicated higher-bandwidth memory path
 - Compare Q1 total time vs Q2 time to understand the impact of model loading
 - **macOS note:** Foundry Local on macOS currently supports **GPU mode only** (no CPU/NPU device targeting), so you get a single GPU result per model. Both Foundry Local and LM Studio produce similar Q2 tok/s on the same Mac because they share the same unified memory bandwidth — this is the clearest validation of the memory-bandwidth-limited thesis
+- If your screenshots or shared JSON show more system detail than you want, you can redact hostname / model strings before sharing; the benchmark itself does not require public sharing of that information
 
 The Q2 tokens/second metric is directly comparable to your memory bandwidth results:
 higher memory bandwidth → higher tokens/second (this is the point of the StreamBench correlation).
