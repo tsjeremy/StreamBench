@@ -1,12 +1,29 @@
-<p align="center">
-  <img src="banner.svg" alt="StreamBench — Memory bandwidth and AI inference benchmark" width="900"/>
-</p>
+![StreamBench — Memory bandwidth and AI inference benchmark](banner.svg)
 
 # STREAM Memory Bandwidth Benchmark
 
 A cross-platform **memory bandwidth benchmark** with both **CPU** and **GPU** versions, based on the
 industry-standard [STREAM benchmark](http://www.cs.virginia.edu/stream/ref.html) by John D. McCalpin.
 Also includes an **AI inference benchmark** supporting [Microsoft AI Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/) and [LM Studio](https://lmstudio.ai) to measure LLM response time and tokens/second on CPU, GPU, and NPU.
+
+## Quick Start
+
+- **Windows:** run `run_stream.cmd`
+- **Windows (PowerShell):** run `./run_stream.ps1`
+- **macOS:** download the Apple Silicon binary, remove quarantine if needed, then run `./StreamBench_osx-arm64 --cpu`
+- **AI mode:** add `--ai` or use the AI-enabled launcher/binary
+
+## Contents
+
+- [Architecture](#architecture)
+- [What's New vs. STREAM](#whats-new-vs-stream)
+- [Download & Run (Pre-built Binaries — No Build Required)](#download--run-pre-built-binaries--no-build-required)
+- [Build from Source](#build-from-source)
+- [AI Inference Benchmark (`--ai`)](#ai-inference-benchmark---ai)
+- [What Bandwidth Should I Expect?](#what-bandwidth-should-i-expect)
+- [Array Size Guidelines](#array-size-guidelines)
+- [Upstream Project](#upstream-project)
+- [License](#license)
 
 ## Architecture
 
@@ -30,9 +47,20 @@ displays color-formatted results, saves files, and runs the AI inference benchma
                         <- display inference timing, tokens/sec, save .json
 ```
 
+**Key capabilities:**
+
+- **Rich colored output** with formatted tables — works on Windows Terminal, macOS Terminal, Linux
+- **JSON and CSV file saving** — consistent format for analysis and archiving
+- **Range testing** — sweep multiple array sizes, save consolidated CSV
+- **OpenMP multi-threading** with automatic core detection, x64 and ARM64 support
+- **Tuned kernel variants** (`/DTUNED`) for optimized bandwidth measurement
+- **Zero GPU SDK dependency** — OpenCL loaded dynamically via `LoadLibrary` / `dlopen`
+
 ---
 
 ## What's New vs. STREAM
+
+### Comparison with upstream STREAM benchmark
 
 StreamBench is a from-scratch rewrite for Windows and macOS, built on the measurement
 methodology of [STREAM](https://github.com/jeffhammond/STREAM) —
@@ -67,18 +95,18 @@ while preserving the core Copy / Scale / Add / Triad kernels.
 ## Download & Run (Pre-built Binaries — No Build Required)
 
 Pre-built binaries for **Windows** and **macOS** (x64 + ARM64) are available on the
-[Releases page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.37).
+[Releases page](https://github.com/tsjeremy/StreamBench/releases/latest).
 No compiler, .NET SDK, or build tools needed — just download and run.
 
 Each `StreamBench` binary has the CPU and GPU benchmark engines **embedded inside**,
 so you only need a single download. The benchmarks still run as native C code for
 maximum performance — StreamBench extracts them automatically on first run.
 
-> **Windows users**: A standalone **zip package** (`StreamBench_v5.10.37_win_standalone.zip`)
+> **Windows users**: A standalone **zip package** (`StreamBench_<version>_win_standalone.zip`)
 > is also available — download one file, extract, and run. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
 
-### Setup & run flow
+### Setup & run flow (diagram)
 
 ```mermaid
 flowchart TD
@@ -115,8 +143,8 @@ flowchart TD
 
 ### Windows — Standalone ZIP (recommended)
 
-1. Go to the **[v5.10.37 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.37)**
-2. Download **`StreamBench_v5.10.37_win_standalone.zip`**
+1. Go to the **[Latest Release](https://github.com/tsjeremy/StreamBench/releases/latest)**
+2. Download the standalone zip (e.g. `StreamBench_v<version>_win_standalone.zip`)
 3. Extract to any folder and run the recommended Windows entrypoint:
 
 ```cmd
@@ -154,7 +182,7 @@ Optional manual / advanced path:
 
 ### Windows — Individual exe download
 
-1. Go to the **[v5.10.37 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.37)**
+1. Go to the **[Latest Release](https://github.com/tsjeremy/StreamBench/releases/latest)**
 2. Download the exe for your architecture:
 
 | File | Description |
@@ -191,7 +219,7 @@ Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.
 
 ### macOS — Download and run
 
-1. Go to the **[v5.10.37 Release](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.37)**
+1. Go to the **[Latest Release](https://github.com/tsjeremy/StreamBench/releases/latest)**
 2. Download **`StreamBench_osx-arm64`** (Apple Silicon)
 3. Remove the macOS quarantine flag and make it executable:
 
@@ -239,57 +267,47 @@ pwsh ./run_stream.ps1
 ./StreamBench_osx-arm64 --ai --ai-backend lmstudio
 ```
 
-With a pre-built binary, `setup.ps1` auto-detects standalone mode and focuses on
-runtime dependencies and AI backend setup:
-- Installs **Homebrew** if not present (the macOS package manager)
-- Installs **libomp** (OpenMP runtime for multi-threaded CPU benchmark)
-- Verifies **macOS OpenCL framework** (built-in, for GPU benchmark)
-- Installs **Foundry Local** via `brew tap microsoft/foundrylocal && brew install foundrylocal`
-- Installs **LM Studio** via `brew install --cask lm-studio`
-- Downloads default AI model (phi-3.5-mini) for immediate benchmarking
-
-When running from source, `setup.ps1` additionally installs .NET 10 SDK,
-Xcode Command Line Tools, and build dependencies.
-
 > **New MacBook?** First install [Homebrew](https://brew.sh) (`/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`),
 > then PowerShell (`brew install powershell`),
 > then run `pwsh ./setup.ps1` — everything else is automatic.
 
-### Using the launcher scripts (alternative)
+### Launcher scripts
 
-The launcher files are available as separate downloads on the
-[release page](https://github.com/tsjeremy/StreamBench/releases/tag/v5.10.37).
+The launcher files are included in the standalone ZIP and also available as separate
+downloads on the [release page](https://github.com/tsjeremy/StreamBench/releases/latest).
 
-- **`setup.ps1`**: first-time setup — **Windows**: installs VC++ Redistributable, .NET 10 Runtime, PowerShell 7, and AI backends via winget; **macOS**: installs Homebrew (if needed), AI backends (Foundry Local / LM Studio) via Homebrew, and downloads default AI model — standalone mode auto-detected on both platforms (source mode additionally installs .NET SDK and Xcode CLI tools)
-- **`run_stream.cmd`**: recommended Windows launcher — automatically uses PowerShell bypass, lets you choose memory-only or memory + AI, prompts for AI backend when needed, and saves a full CLI transcript
-- **`run_stream.ps1`**: unified PowerShell launcher for Windows, macOS, and Linux — **auto-runs `setup.ps1`** on Windows if prerequisites are missing and saves a full CLI transcript
-- **`run_stream_ai.cmd`**: Windows compatibility shortcut that preselects AI mode and automatically uses PowerShell bypass
-- **`run_stream_ai.ps1`**: compatibility shortcut that forwards into the unified launcher with AI mode preselected
+| Script | Description |
+|--------|-------------|
+| `setup.ps1` | First-time setup — installs runtime dependencies and AI backends (VC++ Redist, .NET, Foundry Local, LM Studio). Auto-detects standalone vs. source mode. |
+| `run_stream.cmd` | Recommended Windows entrypoint — PowerShell bypass, mode selection, CLI transcript. |
+| `run_stream.ps1` | Unified PowerShell launcher (Windows/macOS/Linux) — auto-runs `setup.ps1` if needed. |
+| `run_stream_ai.cmd` | Windows shortcut that preselects AI mode. |
+| `run_stream_ai.ps1` | Cross-platform shortcut that preselects AI mode. |
 
-Download the script(s) alongside the `StreamBench_*` binary and run:
+**Usage:**
 
-- **Windows**:
-  ```cmd
-  rem Recommended: unified launcher + automatic execution-policy bypass
-  run_stream.cmd
+```cmd
+rem Windows (recommended)
+run_stream.cmd
 
-  rem Compatibility AI shortcut
-  run_stream_ai.cmd
-  ```
+rem Windows AI shortcut
+run_stream_ai.cmd
+```
 
-  ```powershell
-  # Same unified launcher inside PowerShell
-  .\run_stream.ps1
+```powershell
+# PowerShell (any platform)
+.\run_stream.ps1
 
-  # Compatibility AI shortcut
-  .\run_stream_ai.ps1
+# AI shortcut
+.\run_stream_ai.ps1
+```
 
-  # Fallback if you prefer to invoke the script explicitly with bypass
-  pwsh -ExecutionPolicy Bypass -File .\run_stream.ps1
-  ```
-- **macOS/Linux**: `pwsh ./run_stream.ps1` (choose mode) or `pwsh ./run_stream_ai.ps1` (compatibility AI shortcut)
+```bash
+# macOS/Linux
+pwsh ./run_stream.ps1
+```
 
-Launcher environment overrides:
+### Launcher environment overrides
 
 ```powershell
 # Override default 200M array size for both launchers
@@ -307,7 +325,7 @@ $env:STREAMBENCH_AI_NO_DOWNLOAD = "1"     # cached models only
 
 When running from source (`StreamBench.csproj`) instead of a standalone package,
 the launcher expects local native backends (`stream_cpu_*`, `stream_gpu_*`) for
-the memory benchmark. If they are not built yet, the launcher now warns clearly
+the memory benchmark. If they are not built yet, the launcher warns clearly
 and continues with **AI-only mode** so local backend validation can still run.
 Q3 still requires at least one saved `stream_*_results_*.json` file.
 
@@ -340,9 +358,9 @@ StreamBench includes an AI inference benchmark supporting two backends:
 | Backend | CPU | GPU | NPU |
 |---------|-----|-----|-----|
 | Microsoft Foundry Local | ✅ | ✅ | ✅ (Windows, NPU via OpenVINO) |
-| LM Studio (llama.cpp) | ✅ | ✅ | ❌ (llama.cpp has no NPU backend) |
+| LM Studio (llama.cpp) | ✅ | ✅ | ❌ (no NPU backend) |
 
-> **NPU benchmarking requires Microsoft Foundry Local.** LM Studio uses llama.cpp which has no NPU/DirectML-NPU support on Windows.
+> **NPU benchmarking requires Foundry Local.** LM Studio uses llama.cpp which has no NPU support. This is stated once here and applies throughout.
 
 Both backends expose OpenAI-compatible REST APIs. StreamBench uses a lightweight `DirectOpenAiChatClient` (custom `IChatClient` implementation) to avoid compatibility issues with SDK response parsing from local backends.
 
@@ -392,8 +410,6 @@ brew install --cask lm-studio
 ```
 
 Then open LM Studio, download a model (e.g. phi-3.5-mini-instruct GGUF), and **load it into the server before running StreamBench** (LM Studio → Developer tab → Load a model).
-
-> ⚠️ **LM Studio does not support NPU.** It uses llama.cpp which has no NPU backend. For NPU benchmarking use Foundry Local instead.
 
 ### Running the AI benchmark
 
@@ -559,9 +575,8 @@ Starting LM Studio AI service...
   Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
 ```
 
-> LM Studio runs a single GPU pass (no device targeting — llama.cpp has no NPU backend).
+> LM Studio runs a single GPU pass (no device targeting).
 > Use `--ai-backend lmstudio` to select it explicitly.
-> For NPU benchmarking, use Foundry Local instead (`--ai-backend foundry`).
 
 ### Example output — Final Summary
 
@@ -652,50 +667,23 @@ so Q1/Q2/Q3 (and future Qn) remain available in the same saved file:
 - `ai_inference_benchmark` (Q1/Q2 runs)
 - `ai_relation_summary` (device-tagged relation question answers and timing)
 
-> Privacy note: the JSON and CLI summary may include hardware details such as CPU model,
+
+> **Privacy note:** the JSON and CLI summary may include hardware details such as CPU model,
 > memory type / speed, GPU name, and hostname. That information is meant for local
 > benchmarking and diagnostics — if you share screenshots or result files publicly,
-> review them first and trim anything you do not want to expose.
+> review them first and redact anything you do not want to expose.
 
 ### Interpreting results
 
-- **Higher Q2 tokens/second** = better inference throughput (memory-bandwidth limited — the key metric)
+- **Higher Q2 tokens/second** = better inference throughput (the key metric)
 - **Lower model load time** = faster cold start (depends on storage speed and model size)
 - **CPU, GPU, and NPU** with the *same underlying memory bandwidth* (e.g., unified LPDDR5X on a laptop SoC) typically produce **similar Q2 tok/s** even though their compute architectures differ — because throughput is bottlenecked by memory bandwidth, not TOPS
 - **NPU > GPU > CPU** in tokens/second is typical only when the NPU has a dedicated higher-bandwidth memory path
 - Compare Q1 total time vs Q2 time to understand the impact of model loading
-- **macOS note:** Foundry Local on macOS currently supports **GPU mode only** (no CPU/NPU device targeting), so you get a single GPU result per model. Both Foundry Local and LM Studio produce similar Q2 tok/s on the same Mac because they share the same unified memory bandwidth — this is the clearest validation of the memory-bandwidth-limited thesis
-- If your screenshots or shared JSON show more system detail than you want, you can redact hostname / model strings before sharing; the benchmark itself does not require public sharing of that information
+- **macOS note:** Foundry Local on macOS currently supports **GPU mode only** (no CPU/NPU device targeting), so you get a single GPU result per model. Both Foundry Local and LM Studio produce similar Q2 tok/s on the same Mac because they share the same unified memory bandwidth
 
 The Q2 tokens/second metric is directly comparable to your memory bandwidth results:
 higher memory bandwidth → higher tokens/second (this is the point of the StreamBench correlation).
-
----
-
-## Features
-
-### .NET 10 Frontend (`StreamBench/`)
-
-- **Rich colored output** using platform-native .NET Console API — works on Windows Terminal, macOS Terminal, Linux
-- **Formatted tables** for system info, memory modules, cache hierarchy, and benchmark results
-- **JSON and CSV file saving** — consistent format for analysis and archiving
-- **Range testing** — sweep multiple array sizes, save consolidated CSV
-- **AI-extensible** — .NET 10 platform for future analysis and AI features
-
-### CPU Backend (`stream.c`)
-
-- OpenMP multi-threading with automatic core detection
-- Native Windows support (`QueryPerformanceCounter`, `GetSystemInfo`)
-- Tuned kernel variants (`/DTUNED`)
-- x64 and ARM64 support
-- Runtime `--array-size N` argument
-
-### GPU Backend (`stream_gpu.c`)
-
-- **Zero SDK dependency** — OpenCL loaded dynamically via `LoadLibrary` / `dlopen`
-- Works with any OpenCL-capable GPU: discrete, integrated, and macOS built-in GPU
-- Automatic GPU discovery and device info
-- Runtime `--array-size N` argument
 
 ---
 
@@ -725,8 +713,8 @@ The results depend on your memory type, number of channels, and frequency:
 > Also note that Windows may report LPDDR5X as "LPDDR5" in system info — check your memory speed
 > (MT/s) to identify the actual type.
 
----
 
+---
 
 ## Array Size Guidelines
 
