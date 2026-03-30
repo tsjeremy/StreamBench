@@ -22,7 +22,6 @@ Also includes an **AI inference benchmark** supporting [Microsoft AI Foundry Loc
 - [AI Inference Benchmark (`--ai`)](#ai-inference-benchmark---ai)
 - [What Bandwidth Should I Expect?](#what-bandwidth-should-i-expect)
 - [Array Size Guidelines](#array-size-guidelines)
-- [Upstream Project](#upstream-project)
 - [License](#license)
 
 ## Architecture
@@ -736,13 +735,6 @@ Additional guidance:
   `--array-size` (CLI) or `STREAMBENCH_ARRAY_SIZE` (launcher scripts).
 
 ---
-
-## Upstream Project
-
-STREAM is the de facto industry standard benchmark for measuring sustained memory bandwidth.
-
-*   **Repository**: https://github.com/jeffhammond/STREAM
-*   **Website**: http://www.cs.virginia.edu/stream/ref.html
 
 ## License
 
