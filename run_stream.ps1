@@ -422,6 +422,12 @@ function Show-StreamBenchLauncherHeader {
         Write-Host "  [OK] AI device(s): $(if ($AiSettings.Devices) { $AiSettings.Devices } else { '(all detected)' })" -ForegroundColor Green
         Write-Host '  [OK] Q3 local summary: auto (when memory JSON exists)' -ForegroundColor Green
 
+        if ($AiSettings.NoDownload) {
+            Write-Host ''
+            Write-Host '  [!] Cached-only AI mode is enabled — the benchmark will skip any model that is not already local.' -ForegroundColor Yellow
+            Write-Host '      If nothing is cached for the requested model, AI will be skipped instead of downloading.' -ForegroundColor Yellow
+        }
+
         # Warn if user requested NPU with LM Studio (llama.cpp has no NPU backend)
         if ($AiSettings.Backend -eq 'lmstudio' -and $AiSettings.Devices -match '(?i)npu') {
             Write-Host ''

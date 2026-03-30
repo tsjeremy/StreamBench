@@ -17,4 +17,6 @@ if (-not (Test-Path $launcher)) {
 }
 
 . $launcher
+Write-Host ''
+Write-Host '  [!] AI compatibility shortcut selected. If cached-only mode is enabled, uncached models will be skipped rather than downloaded.' -ForegroundColor Yellow
 exit (Invoke-StreamBenchLauncher -SelectedMode 'ai')
