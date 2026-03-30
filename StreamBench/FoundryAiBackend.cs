@@ -102,7 +102,7 @@ internal sealed class FoundryAiBackend : IAiBackend
     public async Task<string?> LoadModelAsync(string modelIdOrAlias, CancellationToken ct = default)
     {
         if (_cli is null) return null;
-        bool ok = await LoadFoundryModelAsync(_cli, modelIdOrAlias);
+        bool ok = await LoadFoundryModelAsync(_cli, modelIdOrAlias, noDownload: false, timeoutMs: 600_000, device: "");
         return ok ? modelIdOrAlias : null;
     }
 

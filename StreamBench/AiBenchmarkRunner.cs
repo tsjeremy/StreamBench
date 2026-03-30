@@ -328,7 +328,7 @@ public static class AiBenchmarkRunner
 
                         foreach (var deviceType in sharedPassDevices.ToList())
                         {
-                            var model = FindBestModel(backend, allModels, deviceType, sharedAlias, strictAlias);
+                            var model = FindBestModel(backend, allModels, deviceType, sharedAlias, strictAlias, cachedOnly: sharedNoDownload);
                             if (model is null)
                             {
                                 TraceLog.DiagnosticInfo($"Shared alias '{sharedAlias}' not available for {deviceType}");
@@ -455,7 +455,7 @@ public static class AiBenchmarkRunner
 
                     for (int attempt = 0; attempt < maxRetries; attempt++)
                     {
-                        var model = FindBestModel(backend, allModels, deviceType, effectiveAlias, strictAlias, triedIds);
+                        var model = FindBestModel(backend, allModels, deviceType, effectiveAlias, strictAlias, triedIds, cachedOnly: noDownload);
                         if (model is null)
                         {
                             if (attempt == 0)
@@ -640,7 +640,8 @@ public static class AiBenchmarkRunner
                         existingResult,
                         options.ModelAlias,
                         strictAlias,
-                        triedModelIds);
+                        triedModelIds,
+                        cachedOnly: options.NoDownload);
                     if (model is null)
                     {
                         if (attempt == 0)
@@ -964,13 +965,16 @@ public static class AiBenchmarkRunner
         string deviceLabel,
         string? aliasHint,
         bool strictAlias,
-        IReadOnlySet<string>? excludeIds = null)
+        IReadOnlySet<string>? excludeIds = null,
+        bool cachedOnly = false)
     {
-        // Filter: correct device, not excluded, and not an embedding/non-chat model
+        // Filter: correct device, not excluded, and not an embedding/non-chat model.
+        // In cached-only mode, only consider models already present locally.
         var candidates = allModels
             .Where(m => m.DeviceType.Equals(deviceLabel, StringComparison.OrdinalIgnoreCase))
             .Where(m => excludeIds is null || !excludeIds.Contains(m.Id))
             .Where(m => !IsNonChatModelId(m.Id) && !IsNonChatModelId(m.Alias))
+            .Where(m => !cachedOnly || m.IsCached)
             .ToList();
 
         if (candidates.Count == 0)
@@ -1676,12 +1680,14 @@ public static class AiBenchmarkRunner
         AiDeviceBenchmarkResult? existingResult,
         string? aliasHint,
         bool strictAlias,
-        IReadOnlySet<string>? excludeIds = null)
+        IReadOnlySet<string>? excludeIds = null,
+        bool cachedOnly = false)
     {
         var candidates = allModels
             .Where(m => m.DeviceType.Equals(deviceLabel, StringComparison.OrdinalIgnoreCase))
             .Where(m => excludeIds is null || !excludeIds.Contains(m.Id))
             .Where(m => !IsNonChatModelId(m.Id) && !IsNonChatModelId(m.Alias))
+            .Where(m => !cachedOnly || m.IsCached)
             .ToList();
         if (candidates.Count == 0)
             return null;
@@ -1709,7 +1715,7 @@ public static class AiBenchmarkRunner
             }
         }
 
-        return FindBestModel(backend, allModels, deviceLabel, aliasHint, strictAlias, excludeIds);
+        return FindBestModel(backend, allModels, deviceLabel, aliasHint, strictAlias, excludeIds, cachedOnly: cachedOnly);
     }
 
     /// <summary>Rough token count estimate: ~4 chars per token on average.</summary>
