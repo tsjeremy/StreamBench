@@ -64,7 +64,7 @@ public static class SystemInfoDetector
     {
         if (IsOSX)
         {
-            string v = Run("sw_vers", "-productVersion").Trim();
+            string v = RunMac("sw_vers", "-productVersion").Trim();
             return string.IsNullOrEmpty(v) ? "macOS" : $"macOS {v}";
         }
         if (IsLinux)
@@ -80,7 +80,14 @@ public static class SystemInfoDetector
     private static string GetCpuModel()
     {
         if (IsOSX)
-            return Run("sysctl", "-n machdep.cpu.brand_string").Trim();
+        {
+            // Prefer the human-friendly CPU brand string, but fall back to the
+            // machine model if that lookup is empty or unavailable.
+            string cpu = RunMac("sysctl", "-n machdep.cpu.brand_string").Trim();
+            if (string.IsNullOrWhiteSpace(cpu))
+                cpu = RunMac("sysctl", "-n hw.model").Trim();
+            return string.IsNullOrWhiteSpace(cpu) ? "Unknown" : cpu;
+        }
 
         if (IsLinux)
         {
@@ -93,14 +100,15 @@ public static class SystemInfoDetector
             return "Unknown";
         }
         // Windows: WMI via PowerShell
-        return RunPowerShell("(Get-WmiObject Win32_Processor | Select-Object -First 1).Name").Trim();
+        var winCpu = RunPowerShell("(Get-WmiObject Win32_Processor | Select-Object -First 1).Name").Trim();
+        return string.IsNullOrWhiteSpace(winCpu) ? "Unknown" : winCpu;
     }
 
     private static double GetTotalRamGb()
     {
         if (IsOSX)
         {
-            if (long.TryParse(Run("sysctl", "-n hw.memsize").Trim(), out long b))
+            if (long.TryParse(RunMac("sysctl", "-n hw.memsize").Trim(), out long b))
                 return b / (1024.0 * 1024.0 * 1024.0);
         }
         else if (IsLinux)
@@ -570,6 +578,19 @@ $mems | ConvertTo-Json -Depth 1
             return output;
         }
         catch { return ""; }
+    }
+
+    private static string RunMac(string cmd, string args, int timeoutMs = 5000)
+    {
+        // macOS system utilities usually live in /usr/bin or /usr/sbin.
+        // Try the common absolute paths first so we don't depend on PATH.
+        foreach (var path in new[] { $"/usr/bin/{cmd}", $"/usr/sbin/{cmd}", cmd })
+        {
+            var output = Run(path, args, timeoutMs);
+            if (!string.IsNullOrWhiteSpace(output))
+                return output;
+        }
+        return "";
     }
 
     // Uses -EncodedCommand (base64 UTF-16LE) to avoid shell escaping issues

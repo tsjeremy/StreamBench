@@ -904,18 +904,27 @@ public static class ConsoleOutput
         var first = memoryResults.FirstOrDefault();
         if (first?.System is { } sys)
         {
-            WriteMarkup($"  [cyan]CPU[/]    : [white]{sys.CpuModel} ({sys.LogicalCpus} cores)[/]");
+            string cpuLabel = string.IsNullOrWhiteSpace(sys.CpuModel)
+                ? "Unknown CPU"
+                : sys.CpuModel;
+            WriteMarkup($"  [cyan]CPU[/]    : [white]{cpuLabel} ({sys.LogicalCpus} cores)[/]");
+
+            string? memoryLabel = null;
+            if (sys.TotalRamGb > 0)
+                memoryLabel = $"{sys.TotalRamGb:F0} GB";
+
             if (first.Memory is { Type: not null } mem)
             {
-                string ram = $"{sys.TotalRamGb:F0} GB";
-                if (!string.IsNullOrWhiteSpace(mem.Type)) ram += $" {mem.Type}";
-                if (mem.SpeedMts > 0) ram += $" @ {mem.SpeedMts} MT/s";
-                WriteMarkup($"  [cyan]Memory[/] : [white]{ram}[/]");
+                if (memoryLabel is null && mem.Available == true)
+                    memoryLabel = "Available";
+
+                if (memoryLabel is not null && !string.IsNullOrWhiteSpace(mem.Type))
+                    memoryLabel += $" {mem.Type}";
+                if (memoryLabel is not null && mem.SpeedMts > 0)
+                    memoryLabel += $" @ {mem.SpeedMts} MT/s";
             }
-            else
-            {
-                WriteMarkup($"  [cyan]Memory[/] : [white]{sys.TotalRamGb:F0} GB[/]");
-            }
+
+            WriteMarkup($"  [cyan]Memory[/] : [white]{memoryLabel ?? "Unknown"}[/]");
         }
 
         var gpuResult = memoryResults.FirstOrDefault(r => r.Device is not null);

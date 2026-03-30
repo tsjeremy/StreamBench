@@ -60,10 +60,19 @@ public static class BenchmarkRunner
 
             try
             {
-                dirs.Add(Path.GetFullPath(dir));
-                var parent = Directory.GetParent(dir)?.FullName;
-                if (!string.IsNullOrWhiteSpace(parent))
-                    dirs.Add(Path.GetFullPath(parent));
+                string full = Path.GetFullPath(dir);
+                dirs.Add(full);
+
+                // Directory.GetParent on a path with a trailing separator
+                // (e.g. AppContext.BaseDirectory) just strips the separator
+                // instead of moving up.  Trim it so we get the real parent.
+                string trimmed = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (trimmed.Length > 0)
+                {
+                    var parent = Directory.GetParent(trimmed)?.FullName;
+                    if (!string.IsNullOrWhiteSpace(parent))
+                        dirs.Add(parent);
+                }
             }
             catch
             {
