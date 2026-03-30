@@ -44,12 +44,35 @@ public static class BenchmarkRunner
             $"{prefix}_win_x64{ext}",
         ];
 
-        // Search directories: next to binary, then project root (dev scenario)
-        string[] searchDirs =
-        [
-            AppContext.BaseDirectory,
-            Directory.GetCurrentDirectory(),
-        ];
+        // Search directories: next to the binary, the current directory,
+        // and one level up from each of those.
+        //
+        // This matters when running StreamBench from source:
+        //   - AppContext.BaseDirectory points to bin/Debug|Release/net10.0/
+        //   - Directory.GetCurrentDirectory() often points to StreamBench/
+        //   - the native backends are usually written to the repo root
+        //     (one level above StreamBench/) by the build scripts.
+        var searchDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        static void AddDirAndParent(HashSet<string> dirs, string? dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return;
+
+            try
+            {
+                dirs.Add(Path.GetFullPath(dir));
+                var parent = Directory.GetParent(dir)?.FullName;
+                if (!string.IsNullOrWhiteSpace(parent))
+                    dirs.Add(Path.GetFullPath(parent));
+            }
+            catch
+            {
+                // Ignore malformed/invalid paths and keep searching.
+            }
+        }
+
+        AddDirAndParent(searchDirs, AppContext.BaseDirectory);
+        AddDirAndParent(searchDirs, Directory.GetCurrentDirectory());
 
         foreach (var dir in searchDirs)
             foreach (var name in candidates)
