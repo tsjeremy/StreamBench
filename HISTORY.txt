@@ -1,5 +1,22 @@
 -------------------------------------------------------------------------
 
+Revisions as of Mon, Mar 30, 2026  (v5.10.37)
+
+  Fix: AI cached-only selection and launcher UX
+
+  - AI benchmark: honor --ai-no-download / cached-only mode in model
+    selection so uncached models are skipped instead of being selected
+    and downloaded later.
+  - AI benchmark: apply cached-only filtering to relation summary model
+    selection as well, keeping the behavior consistent across Q1/Q2/Q3.
+  - Launcher UX: add a clear warning in run_stream.ps1 and run_stream_ai.ps1
+    when cached-only AI mode is enabled so users know uncached models will
+    be skipped instead of downloaded.
+  - Memory benchmark / backend discovery: previous fixes remain intact;
+    source builds can now find the native backends correctly.
+
+-------------------------------------------------------------------------
+
 Revisions as of Mon, Mar 17, 2026  (v5.10.35)
 
   Fix: LM Studio server startup fails on newer LM Studio versions

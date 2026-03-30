@@ -1,6 +1,6 @@
 /*-----------------------------------------------------------------------*/
 /* Program: STREAM (GPU Version)                                         */
-/* Revision: $Id: stream_gpu.c,v 5.10.36 2026/03/24 jtsai Exp $         */
+/* Revision: $Id: stream_gpu.c,v 5.10.37 2026/03/30 jtsai Exp $         */
 /* Original CPU code developed by John D. McCalpin                       */
 /* GPU/OpenCL version by Jeremy Tsai                                     */
 /*                                                                       */
