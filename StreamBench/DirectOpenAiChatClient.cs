@@ -96,13 +96,74 @@ internal sealed class DirectOpenAiChatClient : IChatClient, IDisposable
         };
     }
 
-    // TODO: Implement streaming support (SSE) for real-time token output during inference,
-    //       which would improve UX for long-running Q2/Q3 prompts on slower models.
-    public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> chatMessages,
         ChatOptions? options = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation]
         CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("Streaming is not used in benchmarks");
+    {
+        var messages = new List<object>();
+        foreach (var msg in chatMessages)
+            messages.Add(new { role = msg.Role.Value, content = msg.Text });
+
+        var requestBody = new Dictionary<string, object?>
+        {
+            ["model"] = options?.ModelId ?? _defaultModel,
+            ["messages"] = messages,
+            ["temperature"] = options?.Temperature ?? 0.7f,
+            ["stream"] = true,
+        };
+
+        if (options?.MaxOutputTokens is int maxTokens)
+            requestBody["max_tokens"] = maxTokens;
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/chat/completions")
+        {
+            Content = JsonContent.Create(requestBody)
+        };
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new System.IO.StreamReader(stream, System.Text.Encoding.UTF8);
+
+        string? line;
+        while ((line = await reader.ReadLineAsync(cancellationToken)) is not null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            if (!line.StartsWith("data: ", StringComparison.Ordinal)) continue;
+
+            var data = line["data: ".Length..];
+            if (data == "[DONE]") break;
+
+            string? contentChunk = null;
+            try
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(data);
+                var choices = json.GetProperty("choices");
+                if (choices.GetArrayLength() == 0) continue;
+
+                var delta = choices[0].GetProperty("delta");
+                contentChunk = delta.TryGetProperty("content", out var contentProp)
+                    ? contentProp.GetString()
+                    : null;
+            }
+            catch (JsonException)
+            {
+                // Skip malformed SSE chunks
+            }
+
+            if (!string.IsNullOrEmpty(contentChunk))
+            {
+                yield return new ChatResponseUpdate(
+                    ChatRole.Assistant,
+                    contentChunk);
+            }
+        }
+    }
 
     public object? GetService(Type serviceType, object? serviceKey = null) => null;
 

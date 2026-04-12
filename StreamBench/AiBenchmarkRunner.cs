@@ -100,6 +100,7 @@ public static class AiBenchmarkRunner
             options.NoDownload,
             options.QuickMode,
             options.BackendType,
+            options.Endpoint,
             cancellationToken);
     }
 
@@ -109,6 +110,7 @@ public static class AiBenchmarkRunner
         bool noDownload = false,
         bool quickMode = false,
         AiBackendType backendType = AiBackendType.Auto,
+        string? endpoint = null,
         CancellationToken cancellationToken = default)
     {
         // Defence-in-depth: prevent sleep even when called outside the normal Program.cs flow.
@@ -117,10 +119,21 @@ public static class AiBenchmarkRunner
         var sharedResults = new List<AiDeviceBenchmarkResult>();
         var bestPerDeviceResults = new List<AiDeviceBenchmarkResult>();
 
-        // Create backend via factory
+        // Create backend via factory — apply CLI overrides for backend type and endpoint
         var config = AiBackendConfig.Load();
         if (backendType != AiBackendType.Auto)
             config = config with { Backend = backendType };
+        if (!string.IsNullOrWhiteSpace(endpoint))
+        {
+            config = backendType switch
+            {
+                AiBackendType.Ollama => config with { OllamaEndpoint = endpoint },
+                AiBackendType.LmStudio => config with { LmStudioEndpoint = endpoint },
+                AiBackendType.Foundry => config with { FoundryEndpoint = endpoint },
+                _ => config with { OllamaEndpoint = endpoint, LmStudioEndpoint = endpoint }
+            };
+            TraceLog.DiagnosticInfo($"CLI endpoint override: {endpoint}");
+        }
 
         var backend = AiBackendFactory.Create(config);
         TraceLog.DiagnosticInfo($"AI backend selected: {backend.Name}");

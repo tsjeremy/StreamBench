@@ -84,7 +84,8 @@ async Task<int> RunMainAsync(string[] args)
     bool   aiOnly      = false;   // --ai-only (skip default CPU/GPU passes)
     string? aiModel   = null;    // --ai-model ALIAS
     string? aiDevices = null;    // --ai-device cpu,gpu,npu (comma-separated)
-    string? aiBackend = null;    // --ai-backend foundry|lmstudio|auto
+    string? aiBackend = null;    // --ai-backend foundry|lmstudio|ollama|auto
+    string? aiEndpoint = null;   // --ai-endpoint URL (custom backend endpoint)
     long?  arraySize  = null;
     bool   noSave     = false;
     string? outputDir = null;
@@ -118,6 +119,10 @@ async Task<int> RunMainAsync(string[] args)
 
                 case "--ai-backend" when i + 1 < args.Length:
                     aiBackend = args[++i];
+                    break;
+
+                case "--ai-endpoint" when i + 1 < args.Length:
+                    aiEndpoint = args[++i];
                     break;
 
                 case "--array-size"when i + 1 < args.Length:
@@ -173,19 +178,22 @@ async Task<int> RunMainAsync(string[] args)
         aiModel,
         aiNoDownload,
         aiQuick,
-        aiBackend);
+        aiBackend,
+        aiEndpoint);
 
     if (!wantAi && aiOptions.HasExplicitSelection)
         wantAi = true;
 #else
     _ = aiNoDownload;
     _ = aiQuick;
+    _ = aiEndpoint;
 
     // If user provided AI-specific options, enable AI mode automatically.
     if (!wantAi
         && (!string.IsNullOrWhiteSpace(aiModel)
             || !string.IsNullOrWhiteSpace(aiDevices)
             || !string.IsNullOrWhiteSpace(aiBackend)
+            || !string.IsNullOrWhiteSpace(aiEndpoint)
             || aiNoDownload
             || aiQuick))
     {
@@ -697,6 +705,7 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--ai-no-download[/]         Only use cached models (skip downloads for fast repeat runs)");
     ConsoleOutput.WriteMarkup("  [cyan]--quick-ai[/]               Fast CI mode: cached models only, 1 model per device");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-backend[/] TYPE        AI backend: auto (default), foundry, lmstudio, ollama");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-endpoint[/] URL        Custom endpoint URL (e.g. http://remote:11434)");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Diagnostics:[/]");

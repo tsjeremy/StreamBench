@@ -473,6 +473,9 @@ ollama serve              # Start server (runs automatically on macOS after inst
 # Use only cached models (no downloads)
 .\StreamBench.exe --ai --ai-no-download
 
+# Use a custom endpoint (e.g. remote Ollama server)
+.\StreamBench.exe --ai --ai-backend ollama --ai-endpoint http://192.168.1.100:11434
+
 # Don't save the JSON result file
 .\StreamBench.exe --ai --no-save
 ```
@@ -604,7 +607,7 @@ Starting LM Studio AI service...
 > LM Studio runs a single GPU pass (no device targeting).
 > Use `--ai-backend lmstudio` to select it explicitly.
 
-### Example output — Ollama (GPU — gemma4:26b)
+### Example output — Ollama (GPU — llama2:13b on Apple M5 Max)
 
 ```
 ══════════════════════════════════════════════════════════════
@@ -618,29 +621,31 @@ Starting Ollama AI service...
   Ollama does not support device targeting; using single-device GPU mode.
   Querying model catalog from backend...
 
-── AI Benchmark: GPU (gemma4:26b) ──
+── AI Benchmark: GPU (llama2:13b) ──
 
 ╭───────────────────── Model Info ──────────────────────╮
 │ Property               │ Value                        │
 ├────────────────────────┼──────────────────────────────┤
 │ Device                 │ GPU                          │
-│ Model ID               │ gemma4:26b                   │
-│ Alias                  │ gemma4-26b                   │
-│ Execution Provider     │ ollama                       │
+│ Model ID               │ llama2:13b                   │
+│ Alias                  │ llama2-13b                   │
+│ Execution Provider     │ ollama-metal                 │
 ╰────────────────────────┴──────────────────────────────╯
-╭────────────────────────────────── Inference Timing ───────────────────────────────────╮
-│ Run                        │ Model Load (s) │ Response (s) │ Total (s) │ Tok/sec   │
-├────────────────────────────┼────────────────┼──────────────┼───────────┼─────────────┤
-│ Q1 (cold, incl. load)      │          4.210 │        1.844 │     6.054 │        13.6 │
-│ Q2 (warm)                  │              — │       13.542 │    13.542 │        52.8 │
-╰────────────────────────────┴────────────────┴──────────────┴───────────┴─────────────╯
-  Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
+╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │    Tok/sec │
+├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
+│ Q1 (cold, incl. load)      │            0.004 │          1.500 │       1.503 │            5 │        3.3 │
+│ Q2 (warm)                  │                — │         10.988 │      10.988 │          647 │       58.9 │
+╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
+  Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited (higher bandwidth → higher tok/s)
 ```
 
 > Ollama runs a single inference pass (no per-device targeting). On macOS Apple Silicon,
-> it uses Metal for GPU acceleration. The `gemma4:26b` model is a 26B MoE (Mixture of
-> Experts) with 4B active parameters, offering high quality at efficient throughput.
-> Use `--ai-backend ollama --ai-model gemma4:26b` to select it explicitly.
+> it uses Metal for GPU acceleration — the execution provider shows `ollama-metal`.
+> Q2 58.9 tok/s on llama2:13b is consistent with the Apple M5 Max's ~546 GB/s unified
+> memory bandwidth (same pool shared by CPU, GPU, and Neural Engine).
+> Use `--ai-backend ollama --ai-model llama2:13b` to select it explicitly.
+> For a larger MoE model, try `gemma4:26b` (26B params, 4B active).
 
 ### Example output — Final Summary
 

@@ -120,8 +120,9 @@ AI Inference Benchmark:
 --ai                     Add AI inference benchmark (memory benchmarks still run by default)
 --ai-only                Run AI inference only without default CPU/GPU memory passes
 --ai-backend TYPE        AI backend: auto (default), foundry, lmstudio, ollama
+--ai-endpoint URL        Custom endpoint URL (e.g. http://remote:11434)
 --ai-device LIST         Comma-separated devices: cpu, gpu, npu (default: all)
---ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)
+--ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b, llama2:13b)
 --ai-no-download         Only use cached models (skip downloads for fast repeat runs)
 --quick-ai               Fast CI mode: cached models only, 1 model per device
 ```

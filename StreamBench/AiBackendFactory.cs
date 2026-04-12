@@ -34,11 +34,9 @@ internal static class AiBackendFactory
         };
     }
 
-    // TODO: Auto-detect Ollama as a higher priority than LM Studio on Linux,
-    //       since Ollama has a simpler install path on headless Linux servers.
     /// <summary>
     /// Auto-detects the best available backend.
-    /// Priority: Foundry (Windows/macOS, supports NPU) → LM Studio (cross-platform).
+    /// Priority: Foundry (Windows/macOS) → Ollama (Linux) → LM Studio → Ollama (other).
     /// </summary>
     private static IAiBackend AutoDetect(AiBackendConfig config)
     {
@@ -56,6 +54,19 @@ internal static class AiBackendFactory
             }
         }
 
+        // On Linux, try Ollama before LM Studio (simpler install, better headless support)
+        if (OperatingSystem.IsLinux())
+        {
+            var ollama = CreateOllama(config);
+            if (ollama.IsAvailable())
+            {
+                TraceLog.DiagnosticInfo("Auto-detected: Ollama (Linux priority)");
+                TraceLog.AiBackendAutoDetect("Ollama", "Ollama CLI found on PATH (Linux priority)");
+                ConsoleOutput.WriteMarkup("[dim]  Auto-detected AI backend: [white]Ollama[/][/]");
+                return ollama;
+            }
+        }
+
         // Try LM Studio (cross-platform)
         var lmStudio = CreateLmStudio(config);
         if (lmStudio.IsAvailable())
@@ -66,18 +77,19 @@ internal static class AiBackendFactory
             return lmStudio;
         }
 
-        // Try Ollama (cross-platform)
-        var ollama = CreateOllama(config);
-        if (ollama.IsAvailable())
+        // Try Ollama (cross-platform, fallback for Windows/macOS)
         {
-            TraceLog.DiagnosticInfo("Auto-detected: Ollama");
-            TraceLog.AiBackendAutoDetect("Ollama", "Ollama CLI found on PATH");
-            ConsoleOutput.WriteMarkup("[dim]  Auto-detected AI backend: [white]Ollama[/][/]");
-            return ollama;
+            var ollama = CreateOllama(config);
+            if (ollama.IsAvailable())
+            {
+                TraceLog.DiagnosticInfo("Auto-detected: Ollama");
+                TraceLog.AiBackendAutoDetect("Ollama", "Ollama CLI found on PATH");
+                ConsoleOutput.WriteMarkup("[dim]  Auto-detected AI backend: [white]Ollama[/][/]");
+                return ollama;
+            }
         }
 
-        // On Windows/macOS, still return Foundry as it gives the best error message
-        // about how to install. On Linux, return LM Studio.
+        // No backend found — return sensible default with install instructions
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
             TraceLog.DiagnosticInfo("No AI backend detected; defaulting to Foundry (Windows/macOS)");
@@ -85,9 +97,9 @@ internal static class AiBackendFactory
             return CreateFoundry(config);
         }
 
-        TraceLog.DiagnosticInfo("No AI backend detected; defaulting to LM Studio");
-        TraceLog.AiBackendAutoDetect("LM Studio (default)", "No backend found, defaulting for Linux");
-        return CreateLmStudio(config);
+        TraceLog.DiagnosticInfo("No AI backend detected; defaulting to Ollama (Linux)");
+        TraceLog.AiBackendAutoDetect("Ollama (default)", "No backend found, defaulting for Linux");
+        return CreateOllama(config);
     }
 
     private static FoundryAiBackend CreateFoundry(AiBackendConfig config)

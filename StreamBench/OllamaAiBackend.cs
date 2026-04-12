@@ -116,11 +116,10 @@ internal sealed class OllamaAiBackend : IAiBackend
         return Task.CompletedTask;
     }
 
-    // TODO: Detect Ollama GPU backend type (Metal, CUDA, ROCm, CPU-only fallback)
-    //       and report it in DeviceType/ExecutionProvider for more accurate device comparison.
     public async Task<List<AiModelInfo>> ListModelsAsync(CancellationToken ct = default)
     {
         var models = new List<AiModelInfo>();
+        string gpuBackendType = await DetectGpuBackendAsync(ct);
 
         try
         {
@@ -146,8 +145,8 @@ internal sealed class OllamaAiBackend : IAiBackend
                     models.Add(new AiModelInfo(
                         Id: name,
                         Alias: alias,
-                        DeviceType: "GPU", // Ollama uses GPU by default on macOS/CUDA
-                        ExecutionProvider: "ollama",
+                        DeviceType: "GPU",
+                        ExecutionProvider: gpuBackendType,
                         FileSizeMb: sizeMb,
                         IsCached: true,
                         BackendName: Name));
@@ -212,9 +211,97 @@ internal sealed class OllamaAiBackend : IAiBackend
         return Task.CompletedTask;
     }
 
-    // TODO: Add download progress reporting via Ollama REST API (/api/pull with streaming)
-    //       to give users a progress bar instead of a silent wait during large model pulls.
     public async Task<bool> DownloadModelAsync(string modelIdOrAlias, CancellationToken ct = default)
+    {
+        TraceLog.AiModelDownloadStarted(modelIdOrAlias, 0);
+        ConsoleOutput.WriteMarkup($"[dim]  Pulling {modelIdOrAlias} via Ollama...[/]");
+
+        // Try REST API streaming pull first (provides progress reporting)
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+            var requestBody = new { name = modelIdOrAlias, stream = true };
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{_serviceUrl}/api/pull")
+            {
+                Content = JsonContent.Create(requestBody)
+            };
+
+            var sw = Stopwatch.StartNew();
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                TraceLog.DiagnosticInfo($"Ollama REST pull returned {response.StatusCode}; falling back to CLI");
+                return await DownloadModelViaCliAsync(modelIdOrAlias, ct);
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var reader = new System.IO.StreamReader(stream, Encoding.UTF8);
+
+            string lastStatus = "";
+            long lastReportedPct = -1;
+            string? line;
+
+            while ((line = await reader.ReadLineAsync(ct)) is not null)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                try
+                {
+                    var json = JsonSerializer.Deserialize<JsonElement>(line);
+                    string status = json.TryGetProperty("status", out var s) ? s.GetString() ?? "" : "";
+
+                    // Report download progress percentage
+                    if (json.TryGetProperty("total", out var total) &&
+                        json.TryGetProperty("completed", out var completed) &&
+                        total.GetInt64() > 0)
+                    {
+                        long pct = completed.GetInt64() * 100 / total.GetInt64();
+                        if (pct != lastReportedPct && pct % 10 == 0)
+                        {
+                            ConsoleOutput.WriteMarkup($"[dim]  {status}: {pct}%[/]");
+                            lastReportedPct = pct;
+                        }
+                    }
+                    else if (status != lastStatus && !string.IsNullOrEmpty(status))
+                    {
+                        ConsoleOutput.WriteMarkup($"[dim]  {status}[/]");
+                        lastStatus = status;
+                    }
+
+                    // Check for error
+                    if (json.TryGetProperty("error", out var err))
+                    {
+                        string errMsg = err.GetString() ?? "unknown error";
+                        TraceLog.AiModelDownloadFailed(modelIdOrAlias, errMsg);
+                        ConsoleOutput.WriteMarkup($"[red]  Pull failed: {errMsg}[/]");
+                        return false;
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Skip malformed lines
+                }
+            }
+
+            sw.Stop();
+            TraceLog.AiModelDownloadCompleted(modelIdOrAlias, sw.ElapsedMilliseconds);
+            ConsoleOutput.WriteMarkup($"[dim]  Pull complete ({sw.Elapsed.TotalSeconds:F1}s)[/]");
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            TraceLog.DiagnosticInfo($"Ollama REST pull failed ({ex.Message}); falling back to CLI");
+            return await DownloadModelViaCliAsync(modelIdOrAlias, ct);
+        }
+    }
+
+    private async Task<bool> DownloadModelViaCliAsync(string modelIdOrAlias, CancellationToken ct)
     {
         string? cli = FindOllamaCli();
         if (cli is null)
@@ -227,9 +314,8 @@ internal sealed class OllamaAiBackend : IAiBackend
             return false;
         }
 
-        TraceLog.AiModelDownloadStarted(modelIdOrAlias, 0);
         TraceLog.DiagnosticInfo($"Pulling model via ollama pull: {modelIdOrAlias}");
-        ConsoleOutput.WriteMarkup($"[dim]  Pulling {modelIdOrAlias} via Ollama (this may take several minutes)...[/]");
+        ConsoleOutput.WriteMarkup($"[dim]  Pulling {modelIdOrAlias} via CLI (this may take several minutes)...[/]");
 
         var sw = Stopwatch.StartNew();
         var (exitCode, _, stderr) = await RunOllamaAsync(cli, $"pull {modelIdOrAlias}", 600_000);
@@ -257,9 +343,59 @@ internal sealed class OllamaAiBackend : IAiBackend
 
     // ── Ollama CLI helpers ──────────────────────────────────────────────────
 
-    // TODO: Add Windows well-known paths for Ollama CLI detection
-    //       (e.g. %LOCALAPPDATA%\Programs\Ollama\ollama.exe, %ProgramFiles%\Ollama\ollama.exe)
-    //       to improve first-run UX when PATH is not refreshed after install.
+    /// <summary>
+    /// Detects the GPU acceleration backend Ollama is using (Metal, CUDA, ROCm, or CPU).
+    /// Uses platform heuristics since Ollama doesn't expose this directly via REST.
+    /// </summary>
+    private async Task<string> DetectGpuBackendAsync(CancellationToken ct)
+    {
+        // macOS always uses Metal on Apple Silicon
+        if (OperatingSystem.IsMacOS())
+        {
+            TraceLog.DiagnosticInfo("Ollama GPU backend: Metal (macOS Apple Silicon)");
+            return "ollama-metal";
+        }
+
+        // Check if Ollama reports GPU usage via /api/ps (running models show GPU layers)
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            var psResp = await http.GetAsync($"{_serviceUrl}/api/ps", ct);
+            if (psResp.IsSuccessStatusCode)
+            {
+                var psJson = await psResp.Content.ReadFromJsonAsync<JsonElement>(ct);
+                if (psJson.TryGetProperty("models", out var runningModels) &&
+                    runningModels.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var m in runningModels.EnumerateArray())
+                    {
+                        if (m.TryGetProperty("size_vram", out var vram) && vram.GetInt64() > 0)
+                        {
+                            // GPU is being used — determine CUDA vs ROCm
+                            string backend = OperatingSystem.IsLinux() ? "ollama-gpu" : "ollama-cuda";
+                            TraceLog.DiagnosticInfo($"Ollama GPU backend detected: {backend} (VRAM in use)");
+                            return backend;
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort detection
+        }
+
+        // Fallback: check platform for likely backend
+        if (OperatingSystem.IsWindows())
+        {
+            TraceLog.DiagnosticInfo("Ollama GPU backend: likely CUDA (Windows)");
+            return "ollama-cuda";
+        }
+
+        TraceLog.DiagnosticInfo("Ollama GPU backend: unknown (defaulting to ollama)");
+        return "ollama";
+    }
+
     private static string? FindOllamaCli()
     {
         try
@@ -285,32 +421,64 @@ internal sealed class OllamaAiBackend : IAiBackend
             TraceLog.DiagnosticInfo($"Ollama CLI probe failed: {ex.Message}");
         }
 
-        // macOS well-known paths
+        // Platform-specific well-known paths
+        var wellKnownPaths = new List<string>();
+
         if (OperatingSystem.IsMacOS())
         {
-            var paths = new[] { "/usr/local/bin/ollama", "/opt/homebrew/bin/ollama" };
-            foreach (var path in paths)
+            wellKnownPaths.Add("/usr/local/bin/ollama");
+            wellKnownPaths.Add("/opt/homebrew/bin/ollama");
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            if (!string.IsNullOrEmpty(localAppData))
+                wellKnownPaths.Add(Path.Combine(localAppData, "Programs", "Ollama", "ollama.exe"));
+            if (!string.IsNullOrEmpty(programFiles))
+                wellKnownPaths.Add(Path.Combine(programFiles, "Ollama", "ollama.exe"));
+        }
+
+        foreach (var path in wellKnownPaths)
+        {
+            if (File.Exists(path))
             {
-                if (File.Exists(path))
-                {
-                    TraceLog.DiagnosticInfo($"Ollama CLI found at {path}");
-                    return path;
-                }
+                TraceLog.DiagnosticInfo($"Ollama CLI found at {path}");
+                return path;
             }
         }
 
+        TraceLog.DiagnosticInfo($"Ollama CLI not found in well-known paths: {string.Join(", ", wellKnownPaths)}");
         return null;
     }
 
-    // TODO: Surface the Ollama server version in diagnostics via /api/version
-    //       to help debug backend-specific issues in trace logs.
     private bool IsServerRunning()
     {
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+
+            // Check server reachability via /api/tags
             var response = http.GetAsync($"{_serviceUrl}/api/tags").GetAwaiter().GetResult();
-            return response.IsSuccessStatusCode;
+            if (!response.IsSuccessStatusCode) return false;
+
+            // Query server version for diagnostics
+            try
+            {
+                var versionResp = http.GetAsync($"{_serviceUrl}/api/version").GetAwaiter().GetResult();
+                if (versionResp.IsSuccessStatusCode)
+                {
+                    var versionJson = versionResp.Content.ReadFromJsonAsync<JsonElement>().GetAwaiter().GetResult();
+                    if (versionJson.TryGetProperty("version", out var ver))
+                        TraceLog.DiagnosticInfo($"Ollama server version: {ver.GetString()}");
+                }
+            }
+            catch
+            {
+                // Version query is best-effort — don't fail the availability check
+            }
+
+            return true;
         }
         catch
         {
