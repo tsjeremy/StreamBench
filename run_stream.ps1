@@ -11,7 +11,7 @@
 # Advanced overrides:
 #   $env:STREAMBENCH_LAUNCH_MODE = 'memory' | 'ai'
 #   $env:STREAMBENCH_ARRAY_SIZE
-#   $env:STREAMBENCH_AI_BACKEND = 'auto' | 'lmstudio' | 'foundry'
+#   $env:STREAMBENCH_AI_BACKEND = 'auto' | 'lmstudio' | 'foundry' | 'ollama'
 #   $env:STREAMBENCH_AI_MODEL
 #   $env:STREAMBENCH_AI_DEVICES
 #   $env:STREAMBENCH_AI_NO_DOWNLOAD = '1'
@@ -299,8 +299,9 @@ function Normalize-StreamBenchAiBackend {
         'foundry' { return 'foundry' }
         'foundrylocal' { return 'foundry' }
         'foundry-local' { return 'foundry' }
+        'ollama' { return 'ollama' }
         default {
-            Write-Host "  [!] Ignoring invalid $SourceName value '$Backend'. Valid values: auto, lmstudio, foundry." -ForegroundColor Yellow
+            Write-Host "  [!] Ignoring invalid $SourceName value '$Backend'. Valid values: auto, lmstudio, foundry, ollama." -ForegroundColor Yellow
             return $null
         }
     }
@@ -312,6 +313,7 @@ function Get-StreamBenchAiBackendLabel {
     switch ($Backend) {
         'lmstudio' { return 'LM Studio' }
         'foundry' { return 'Foundry Local' }
+        'ollama' { return 'Ollama' }
         default { return 'Auto-detect' }
     }
 }
@@ -381,13 +383,15 @@ function Select-StreamBenchAiBackend {
     Write-Host '    1. Auto-detect (Recommended)' -ForegroundColor Green
     Write-Host '    2. LM Studio' -ForegroundColor Green
     Write-Host '    3. Foundry Local' -ForegroundColor Green
+    Write-Host '    4. Ollama' -ForegroundColor Green
     Write-Host ''
 
-    $choice = Read-Host '  Select 1, 2, or 3 (press Enter for 1)'
+    $choice = Read-Host '  Select 1, 2, 3, or 4 (press Enter for 1)'
     $choiceText = if ($null -eq $choice) { '' } else { $choice.ToString().Trim() }
     switch ($choiceText) {
         '2' { return 'lmstudio' }
         '3' { return 'foundry' }
+        '4' { return 'ollama' }
         default { return 'auto' }
     }
 }
@@ -495,9 +499,19 @@ function Test-StreamBenchAiBackendAvailable {
             }
             return $false
         }
+        'ollama' {
+            if ([bool](Get-Command ollama -ErrorAction SilentlyContinue)) { return $true }
+            if (Test-StreamBenchTcpEndpoint -Hostname '127.0.0.1' -Port 11434) { return $true }
+            # macOS well-known paths
+            foreach ($p in @('/usr/local/bin/ollama', '/opt/homebrew/bin/ollama')) {
+                if (Test-Path $p) { return $true }
+            }
+            return $false
+        }
         default {
             return (Test-StreamBenchAiBackendAvailable -Backend 'foundry') -or
-                   (Test-StreamBenchAiBackendAvailable -Backend 'lmstudio')
+                   (Test-StreamBenchAiBackendAvailable -Backend 'lmstudio') -or
+                   (Test-StreamBenchAiBackendAvailable -Backend 'ollama')
         }
     }
 }

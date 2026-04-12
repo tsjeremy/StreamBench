@@ -42,6 +42,7 @@ internal sealed record AiExecutionOptions(
         {
             AiBackendType.Foundry => "Foundry Local",
             AiBackendType.LmStudio => "LM Studio",
+            AiBackendType.Ollama => "Ollama",
             _ => "Auto-detect"
         };
 
@@ -71,6 +72,7 @@ internal sealed record AiExecutionOptions(
         {
             "foundry" => AiBackendType.Foundry,
             "lmstudio" or "lm-studio" => AiBackendType.LmStudio,
+            "ollama" => AiBackendType.Ollama,
             _ => AiBackendType.Auto,
         };
     }

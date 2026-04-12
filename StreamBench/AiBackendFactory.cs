@@ -12,9 +12,15 @@ internal static class AiBackendFactory
     /// </summary>
     internal static IAiBackend Create(AiBackendConfig config)
     {
-        if (config.Backend is AiBackendType.Foundry or AiBackendType.LmStudio)
+        if (config.Backend is AiBackendType.Foundry or AiBackendType.LmStudio or AiBackendType.Ollama)
         {
-            var name = config.Backend == AiBackendType.Foundry ? "Foundry Local" : "LM Studio";
+            var name = config.Backend switch
+            {
+                AiBackendType.Foundry => "Foundry Local",
+                AiBackendType.LmStudio => "LM Studio",
+                AiBackendType.Ollama => "Ollama",
+                _ => "Unknown"
+            };
             TraceLog.AiBackendSelected(name, "User selected via --ai-backend");
         }
 
@@ -22,6 +28,7 @@ internal static class AiBackendFactory
         {
             AiBackendType.Foundry => CreateFoundry(config),
             AiBackendType.LmStudio => CreateLmStudio(config),
+            AiBackendType.Ollama => CreateOllama(config),
             AiBackendType.Auto => AutoDetect(config),
             _ => AutoDetect(config),
         };
@@ -57,6 +64,16 @@ internal static class AiBackendFactory
             return lmStudio;
         }
 
+        // Try Ollama (cross-platform)
+        var ollama = CreateOllama(config);
+        if (ollama.IsAvailable())
+        {
+            TraceLog.DiagnosticInfo("Auto-detected: Ollama");
+            TraceLog.AiBackendAutoDetect("Ollama", "Ollama CLI found on PATH");
+            ConsoleOutput.WriteMarkup("[dim]  Auto-detected AI backend: [white]Ollama[/][/]");
+            return ollama;
+        }
+
         // On Windows/macOS, still return Foundry as it gives the best error message
         // about how to install. On Linux, return LM Studio.
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
@@ -81,6 +98,11 @@ internal static class AiBackendFactory
         return new LmStudioAiBackend(config.LmStudioEndpoint);
     }
 
+    private static OllamaAiBackend CreateOllama(AiBackendConfig config)
+    {
+        return new OllamaAiBackend(config.OllamaEndpoint);
+    }
+
     /// <summary>
     /// Returns a user-friendly message about how to install an AI backend
     /// based on the current platform.
@@ -100,6 +122,7 @@ internal static class AiBackendFactory
 
         return "Install LM Studio: https://lmstudio.ai/\n" +
                "  macOS: brew install --cask lm-studio\n" +
+               "  Or install Ollama: https://ollama.com/\n" +
                "  Then start the server and load a model.";
     }
 }

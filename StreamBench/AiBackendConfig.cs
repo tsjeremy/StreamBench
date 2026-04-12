@@ -20,6 +20,8 @@ internal enum AiBackendType
     Foundry,
     /// <summary>LM Studio (cross-platform, supports CPU/GPU).</summary>
     LmStudio,
+    /// <summary>Ollama (cross-platform, supports CPU/GPU).</summary>
+    Ollama,
 }
 
 /// <summary>
@@ -36,6 +38,9 @@ internal sealed record AiBackendConfig
 
     [JsonPropertyName("lmstudio_endpoint")]
     public string? LmStudioEndpoint { get; init; }
+
+    [JsonPropertyName("ollama_endpoint")]
+    public string? OllamaEndpoint { get; init; }
 
     [JsonPropertyName("preferred_model")]
     public string? PreferredModel { get; init; }
