@@ -11,12 +11,14 @@ using System.Text.Json;
 
 namespace StreamBench;
 
-internal sealed class OllamaAiBackend : IAiBackend
+internal sealed class OllamaAiBackend : IAiBackend, IDisposable
 {
     public string Name => "Ollama";
     public bool SupportsDeviceTargeting => false;
 
     private string _serviceUrl;
+    // TODO: Consider adding device targeting support when Ollama exposes GPU layer control via REST API
+    private readonly HttpClient _http;
 
     private const string DefaultEndpoint = "http://127.0.0.1:11434";
 
@@ -39,7 +41,10 @@ internal sealed class OllamaAiBackend : IAiBackend
     public OllamaAiBackend(string? endpoint = null)
     {
         _serviceUrl = endpoint?.TrimEnd('/') ?? DefaultEndpoint;
+        _http = new HttpClient { BaseAddress = new Uri(_serviceUrl), Timeout = TimeSpan.FromSeconds(10) };
     }
+
+    public void Dispose() => _http.Dispose();
 
     // ── IAiBackend implementation ───────────────────────────────────────────
 
@@ -123,9 +128,8 @@ internal sealed class OllamaAiBackend : IAiBackend
 
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            var response = await http.GetFromJsonAsync<JsonElement>(
-                $"{_serviceUrl}/api/tags", ct);
+            var response = await _http.GetFromJsonAsync<JsonElement>(
+                "/api/tags", ct);
 
             if (response.TryGetProperty("models", out var modelsArr) && modelsArr.ValueKind == JsonValueKind.Array)
             {
@@ -219,15 +223,17 @@ internal sealed class OllamaAiBackend : IAiBackend
         // Try REST API streaming pull first (provides progress reporting)
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+            // Use a dedicated HttpClient for downloads — they need a much longer timeout
+            // than the shared _http instance used for quick API calls.
+            using var downloadHttp = new HttpClient { BaseAddress = new Uri(_serviceUrl), Timeout = TimeSpan.FromMinutes(15) };
             var requestBody = new { name = modelIdOrAlias, stream = true };
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{_serviceUrl}/api/pull")
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/pull")
             {
                 Content = JsonContent.Create(requestBody)
             };
 
             var sw = Stopwatch.StartNew();
-            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var response = await downloadHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -359,8 +365,7 @@ internal sealed class OllamaAiBackend : IAiBackend
         // Check if Ollama reports GPU usage via /api/ps (running models show GPU layers)
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            var psResp = await http.GetAsync($"{_serviceUrl}/api/ps", ct);
+            var psResp = await _http.GetAsync("/api/ps", ct);
             if (psResp.IsSuccessStatusCode)
             {
                 var psJson = await psResp.Content.ReadFromJsonAsync<JsonElement>(ct);
@@ -452,23 +457,25 @@ internal sealed class OllamaAiBackend : IAiBackend
         return null;
     }
 
+    // TODO: Convert IsServerRunning to async to eliminate sync-over-async pattern.
+    // Blocked by IAiBackend.IsAvailable() being synchronous — consider making it async.
     private bool IsServerRunning()
     {
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
-
             // Check server reachability via /api/tags
-            var response = http.GetAsync($"{_serviceUrl}/api/tags").GetAwaiter().GetResult();
+            // Note: sync-over-async here because IAiBackend.IsAvailable() is synchronous.
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var response = _http.GetAsync("/api/tags", cts.Token).GetAwaiter().GetResult();
             if (!response.IsSuccessStatusCode) return false;
 
             // Query server version for diagnostics
             try
             {
-                var versionResp = http.GetAsync($"{_serviceUrl}/api/version").GetAwaiter().GetResult();
+                var versionResp = _http.GetAsync("/api/version", cts.Token).GetAwaiter().GetResult();
                 if (versionResp.IsSuccessStatusCode)
                 {
-                    var versionJson = versionResp.Content.ReadFromJsonAsync<JsonElement>().GetAwaiter().GetResult();
+                    var versionJson = versionResp.Content.ReadFromJsonAsync<JsonElement>(cts.Token).GetAwaiter().GetResult();
                     if (versionJson.TryGetProperty("version", out var ver))
                         TraceLog.DiagnosticInfo($"Ollama server version: {ver.GetString()}");
                 }

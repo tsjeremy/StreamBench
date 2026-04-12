@@ -204,11 +204,11 @@ public static class AiBenchmarkRunner
                 {
                     ConsoleOutput.WriteMarkup("[yellow][INFO][/] No chat/instruct models found in LM Studio.");
                     ConsoleOutput.WriteMarkup("[dim]  Embedding and non-chat models are not supported for AI benchmark.[/]");
-                    ConsoleOutput.WriteMarkup("[dim]  Please download a chat model in LM Studio (e.g. phi-3.5-mini, llama, qwen).[/]");
+                    ConsoleOutput.WriteMarkup("[dim]  Please download a chat model in LM Studio (e.g. phi-4-mini, llama, qwen).[/]");
 
                     // Try auto-loading recommended model
-                    ConsoleOutput.WriteMarkup("[dim]  Attempting to auto-load phi-3.5-mini (this may take several minutes)...[/]");
-                    var loaded = await backend.LoadModelAsync("phi-3.5-mini", cancellationToken);
+                    ConsoleOutput.WriteMarkup("[dim]  Attempting to auto-load phi-4-mini (this may take several minutes)...[/]");
+                    var loaded = await backend.LoadModelAsync("phi-4-mini", cancellationToken);
                     if (loaded is not null)
                     {
                         allModels = await backend.ListModelsAsync(cancellationToken);
@@ -221,7 +221,7 @@ public static class AiBenchmarkRunner
                 TraceLog.AiCatalogUnavailable("No models found in catalog after retry and bootstrap");
                 ConsoleOutput.WriteMarkup($"[yellow][WARN][/] No chat models found in {backend.Name} catalog.");
                 ConsoleOutput.WriteMarkup($"[dim]  Embedding/rerank models cannot be used for AI benchmark.[/]");
-                ConsoleOutput.WriteMarkup($"[dim]  Please download a chat/instruct model (e.g. phi-3.5-mini, llama, qwen).[/]");
+                ConsoleOutput.WriteMarkup($"[dim]  Please download a chat/instruct model (e.g. phi-4-mini, llama, qwen).[/]");
                 await backend.StopAsync(cancellationToken);
                 return (new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults), null);
             }

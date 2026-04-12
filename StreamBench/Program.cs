@@ -558,7 +558,7 @@ async Task<int> RunAiBenchmarkAsync(
         {
             ConsoleOutput.WriteMarkup($"[dim]  Cached-only mode was enabled, but no requested model was available in the local {(aiSession?.BackendName ?? aiOptions.BackendLabel)} cache.[/]");
             ConsoleOutput.WriteMarkup("[dim]  Re-run without --quick-ai / --ai-no-download, or pre-download a model first:[/]");
-            ConsoleOutput.WriteMarkup("[dim]  foundry model run phi-3.5-mini[/]");
+            ConsoleOutput.WriteMarkup("[dim]  foundry model run phi-4-mini[/]");
         }
         else if (aiOptions.DeviceFilter.Count == 1 && aiOptions.DeviceFilter[0].Equals("NPU", StringComparison.OrdinalIgnoreCase))
         {
@@ -701,7 +701,7 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--ai[/]                     Run AI inference benchmark on all available devices");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-only[/]                Run AI inference only without default CPU/GPU memory passes");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
-    ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-4-mini, phi-3.5-mini)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-no-download[/]         Only use cached models (skip downloads for fast repeat runs)");
     ConsoleOutput.WriteMarkup("  [cyan]--quick-ai[/]               Fast CI mode: cached models only, 1 model per device");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-backend[/] TYPE        AI backend: auto (default), foundry, lmstudio, ollama");
@@ -722,7 +722,7 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("[bold white]AI benchmark examples:[/]");
     ConsoleOutput.WriteMarkup("  StreamBench --ai                          AI benchmark on all devices (CPU/GPU/NPU)");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-device cpu,npu      AI benchmark on CPU and NPU only");
-    ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-model phi-3.5-mini  Use a specific model");
+    ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-model phi-4-mini    Use a specific model");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --no-save                Run without saving JSON");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --quick-ai               CI: fast, cached models only");
 }

@@ -8,7 +8,7 @@ internal static class AiBackendFactory
 {
     /// <summary>
     /// Creates an AI backend based on configuration and availability.
-    /// Auto mode: tries Foundry first (Windows), then LM Studio.
+    /// Auto mode: tries Foundry first (Windows/macOS), then Ollama (Linux), then LM Studio.
     /// </summary>
     internal static IAiBackend Create(AiBackendConfig config)
     {

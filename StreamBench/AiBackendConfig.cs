@@ -14,7 +14,7 @@ namespace StreamBench;
 [JsonConverter(typeof(JsonStringEnumConverter))]
 internal enum AiBackendType
 {
-    /// <summary>Auto-detect: try Foundry first (Windows), then LM Studio.</summary>
+    /// <summary>Auto-detect: try Foundry first (Windows/macOS), then Ollama (Linux), then LM Studio.</summary>
     Auto,
     /// <summary>Microsoft Foundry Local (Windows-only, supports CPU/GPU/NPU).</summary>
     Foundry,

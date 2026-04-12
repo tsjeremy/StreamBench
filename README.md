@@ -136,8 +136,15 @@ flowchart TD
         LI --> LJ["🟣 Q3  relation summary"]
     end
 
+    subgraph ai_ollama ["🤖 AI  —  Ollama  (GPU)"]
+        BE -->|"Ollama"| OH["🟠 Q1  cold start latency"]
+        OH --> OI["🟠 Q2  tokens per second"]
+        OI --> OJ["🟠 Q3  relation summary"]
+    end
+
     FJ --> K(["📊 CLI summary displayed<br/>JSON result files saved to folder"])
     LJ --> K
+    OJ --> K
 ```
 
 ### Windows — Standalone ZIP (recommended)
@@ -158,8 +165,9 @@ This opens a simple launcher where you can choose:
 If you choose AI mode, the launcher also prompts for the backend:
 
 - **Auto-detect**
-- **LM Studio**
 - **Foundry Local**
+- **LM Studio**
+- **Ollama**
 
 Each launcher-driven run also writes a full CLI transcript beside the launcher,
 for example `StreamBench_cli_20260314_221646.log`.
@@ -200,7 +208,7 @@ Optional manual / advanced path:
 # GPU benchmark
 .\StreamBench_win_x64.exe --gpu
 
-# AI inference benchmark (requires AI-enabled exe + Foundry Local or LM Studio)
+# AI inference benchmark (requires AI-enabled exe + Foundry Local, LM Studio, or Ollama)
 # The _ai binary auto-runs memory (CPU/GPU) + AI (CPU/GPU/NPU) with no flags needed:
 .\StreamBench_win_x64_ai.exe
 
@@ -213,7 +221,7 @@ Optional manual / advanced path:
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.37/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/latest/download/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
@@ -236,12 +244,12 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.37/StreamBench_osx-arm64 && xattr -d com.apple.quarantine StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/latest/download/StreamBench_osx-arm64 && xattr -d com.apple.quarantine StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 #### macOS — Full setup with AI benchmark
 
-For the AI inference benchmark (Foundry Local / LM Studio), use `setup.ps1` to
+For the AI inference benchmark (Foundry Local / LM Studio / Ollama), use `setup.ps1` to
 auto-install all prerequisites (Homebrew, .NET, AI backends, models):
 
 ```bash
@@ -264,6 +272,7 @@ pwsh ./run_stream.ps1
 ./StreamBench_osx-arm64 --ai
 ./StreamBench_osx-arm64 --ai --ai-backend foundry
 ./StreamBench_osx-arm64 --ai --ai-backend lmstudio
+./StreamBench_osx-arm64 --ai --ai-backend ollama
 ```
 
 > **New MacBook?** First install [Homebrew](https://brew.sh) (`/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`),
@@ -277,7 +286,7 @@ downloads on the [release page](https://github.com/tsjeremy/StreamBench/releases
 
 | Script | Description |
 |--------|-------------|
-| `setup.ps1` | First-time setup — installs runtime dependencies and AI backends (VC++ Redist, .NET, Foundry Local, LM Studio). Auto-detects standalone vs. source mode. |
+| `setup.ps1` | First-time setup — installs runtime dependencies and AI backends (VC++ Redist, .NET, Foundry Local, LM Studio, Ollama). Auto-detects standalone vs. source mode. |
 | `run_stream.cmd` | Recommended Windows entrypoint — PowerShell bypass, mode selection, CLI transcript. |
 | `run_stream.ps1` | Unified PowerShell launcher (Windows/macOS/Linux) — auto-runs `setup.ps1` if needed. |
 | `run_stream_ai.cmd` | Windows shortcut that preselects AI mode. |
@@ -403,7 +412,7 @@ brew tap microsoft/foundrylocal && brew install foundrylocal
 **LM Studio (Windows/macOS/Linux):**
 
 ```powershell
-# Windows
+# Windows (use --scope user on new Windows 11 PCs if default install fails)
 winget install ElementLabs.LMStudio
 ```
 
@@ -412,12 +421,12 @@ winget install ElementLabs.LMStudio
 brew install --cask lm-studio
 ```
 
-Then open LM Studio, download a model (e.g. phi-3.5-mini-instruct GGUF), and **load it into the server before running StreamBench** (LM Studio → Developer tab → Load a model).
+Then open LM Studio, download a model (e.g. phi-4-mini-instruct GGUF), and **load it into the server before running StreamBench** (LM Studio → Developer tab → Load a model).
 
 **Ollama (Windows/macOS/Linux):**
 
 ```powershell
-# Windows
+# Windows (use --scope user on new Windows 11 PCs if default install fails)
 winget install Ollama.Ollama
 ```
 
@@ -429,12 +438,12 @@ brew install ollama
 Then pull a model and start the server:
 
 ```bash
-ollama pull gemma4:26b    # 26B MoE model (4B active params, ~18 GB)
-ollama serve              # Start server (runs automatically on macOS after install)
+ollama pull phi4-mini    # 3.8B params (~2.5 GB) — fast, efficient default
+ollama serve             # Start server (runs automatically on macOS after install)
 ```
 
 > **Tip:** Ollama manages model lifecycle automatically — no manual model loading step required.
-> For a smaller model, try `ollama pull phi4-mini` or `ollama pull gemma2:2b`.
+> For a larger model, try `ollama pull gemma4:26b` (26B MoE, 4B active params, ~18 GB).
 
 ### Running the AI benchmark
 
@@ -451,7 +460,7 @@ ollama serve              # Start server (runs automatically on macOS after inst
 .\StreamBench.exe --ai --ai-device cpu,gpu
 
 # Use a specific model
-.\StreamBench.exe --ai --ai-model phi-3.5-mini
+.\StreamBench.exe --ai --ai-model phi-4-mini
 
 # Select AI backend explicitly
 .\StreamBench.exe --ai --ai-backend lmstudio
@@ -459,7 +468,7 @@ ollama serve              # Start server (runs automatically on macOS after inst
 .\StreamBench.exe --ai --ai-backend ollama
 
 # Use Ollama with a specific model
-.\StreamBench.exe --ai --ai-backend ollama --ai-model gemma4:26b
+.\StreamBench.exe --ai --ai-backend ollama --ai-model phi4-mini
 
 # Run AI only (skip default CPU/GPU memory passes)
 .\StreamBench.exe --ai-only
@@ -512,7 +521,7 @@ continues with the devices that do have compatible models.
 For single-device runs, StreamBench uses device-specific priority lists and prefers
 cached models first to reduce download/startup time.
 
-### Example output — Foundry Local (CPU / GPU / NPU)
+### Example output — Foundry Local (CPU)
 
 ```
 ══════════════════════════════════════════════════════════════
@@ -521,55 +530,40 @@ cached models first to reduce download/startup time.
   Q1 (cold): Hello World!
   Q2 (warm): How to calculate memory bandwidth on different memory?
   Q3 (relation): Summarize local memory bandwidth and AI benchmark results from saved JSON files.
+Starting Foundry Local AI service...
+  Service URL: http://127.0.0.1:54797
+  Loading model catalog (first run may download execution providers)...
+  Catalog models by device: CPU (19), GPU (36), NPU (11)
 
-── AI Benchmark: CPU (phi-4-mini-instruct-generic-cpu) ──
+── AI Benchmark: CPU (Phi-4-mini-instruct-generic-cpu:5) ──
 
 ╭──────────────────────── Model Info ────────────────────────╮
 │ Property               │ Value                             │
 ├────────────────────────┼───────────────────────────────────┤
 │ Device                 │ CPU                               │
-│ Model ID               │ phi-4-mini-instruct-generic-cpu   │
+│ Model ID               │ Phi-4-mini-instruct-generic-cpu:5 │
 │ Alias                  │ phi-4-mini                        │
 ╰────────────────────────┴───────────────────────────────────╯
 ╭──────────────────────────────── Inference Timing ─────────────────────────────────╮
 │ Run                   │ Load (s) │ Response (s) │ Total (s) │ Tokens │   Tok/s │
 ├───────────────────────┼──────────┼──────────────┼───────────┼────────┼─────────┤
-│ Q1 (cold, incl. load) │  151.036 │        3.226 │   154.262 │     95 │    29.5 │
-│ Q2 (warm)             │        — │       27.554 │    27.554 │    567 │    20.6 │
-╰───────────────────────┴──────────┴──────────────┴───────────┴────────┴─────────╯
-
-── AI Benchmark: GPU (phi-4-mini-instruct-generic-gpu) ──
-
-╭──────────────────────────────── Inference Timing ─────────────────────────────────╮
-│ Run                   │ Load (s) │ Response (s) │ Total (s) │ Tokens │   Tok/s │
-├───────────────────────┼──────────┼──────────────┼───────────┼────────┼─────────┤
-│ Q1 (cold, incl. load) │  104.848 │        1.139 │   105.987 │      8 │     7.0 │
-│ Q2 (warm)             │        — │       19.326 │    19.326 │    744 │    38.5 │
-╰───────────────────────┴──────────┴──────────────┴───────────┴────────┴─────────╯
-
-── AI Benchmark: NPU (phi-4-mini-instruct-openvino-npu) ──
-
-╭──────────────────────────────── Inference Timing ─────────────────────────────────╮
-│ Run                   │ Load (s) │ Response (s) │ Total (s) │ Tokens │   Tok/s │
-├───────────────────────┼──────────┼──────────────┼───────────┼────────┼─────────┤
-│ Q1 (cold, incl. load) │  154.216 │        3.968 │   158.183 │    102 │    25.7 │
-│ Q2 (warm)             │        — │       17.062 │    17.062 │    472 │    27.7 │
+│ Q1 (cold, incl. load) │    8.268 │        4.418 │    12.685 │    108 │    24.4 │
+│ Q2 (warm)             │        — │       46.688 │    46.688 │    692 │    14.8 │
 ╰───────────────────────┴──────────┴──────────────┴───────────┴────────┴─────────╯
   Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
 
 ╭────────────────────────────── Device Comparison ──────────────────────────────╮
 │ Device │ Model      │ Load (s) │ Q1 Total (s) │ Q1 Tok/s │ Q2 Time │ Q2 Tok/s│
 ├────────┼────────────┼──────────┼──────────────┼──────────┼─────────┼─────────┤
-│ CPU    │ phi-4-mini │  151.036 │      154.262 │     29.5 │  27.554 │    20.6 │
-│ GPU    │ phi-4-mini │  104.848 │      105.987 │      7.0 │  19.326 │    38.5 │
-│ NPU    │ phi-4-mini │  154.216 │      158.183 │     25.7 │  17.062 │    27.7 │
+│ CPU    │ phi-4-mini │    8.268 │       12.685 │     24.4 │  46.688 │    14.8 │
 ╰────────┴────────────┴──────────┴──────────────┴──────────┴─────────┴─────────╯
   Q2 (warm) tok/s = key metric — higher memory bandwidth → higher tok/s
 ```
 
-> Foundry Local runs the same model on CPU, GPU, and NPU for an apples-to-apples comparison.
+> Foundry Local can run the same model on CPU, GPU, and NPU for an apples-to-apples comparison.
 > NPU uses OpenVINO; GPU/CPU use generic execution providers.
-> GPU achieves the highest Q2 tok/s on this system because the discrete GPU has dedicated high-bandwidth VRAM.
+> On systems with a dedicated GPU, GPU typically achieves the highest Q2 tok/s due to high-bandwidth VRAM.
+> Use `--ai-device cpu,gpu,npu` to select specific devices.
 
 ### Example output — LM Studio (GPU)
 
@@ -585,14 +579,14 @@ Starting LM Studio AI service...
   LM Studio does not support device targeting; using single-device GPU mode.
   Querying model catalog from backend...
 
-── AI Benchmark: GPU (phi-3.5-mini-instruct) ──
+── AI Benchmark: GPU (phi-4-mini-instruct) ──
 
 ╭───────────────────── Model Info ──────────────────────╮
 │ Property               │ Value                        │
 ├────────────────────────┼──────────────────────────────┤
 │ Device                 │ GPU                          │
-│ Model ID               │ phi-3.5-mini-instruct        │
-│ Alias                  │ phi-3.5-mini                 │
+│ Model ID               │ phi-4-mini-instruct          │
+│ Alias                  │ phi-4-mini                   │
 │ Execution Provider     │ llama.cpp                    │
 ╰────────────────────────┴──────────────────────────────╯
 ╭────────────────────────────────── Inference Timing ───────────────────────────────────╮
@@ -607,7 +601,7 @@ Starting LM Studio AI service...
 > LM Studio runs a single GPU pass (no device targeting).
 > Use `--ai-backend lmstudio` to select it explicitly.
 
-### Example output — Ollama (GPU — llama2:13b on Apple M5 Max)
+### Example output — Ollama (GPU)
 
 ```
 ══════════════════════════════════════════════════════════════
@@ -620,45 +614,56 @@ Starting Ollama AI service...
   Service URL: http://127.0.0.1:11434
   Ollama does not support device targeting; using single-device GPU mode.
   Querying model catalog from backend...
+  Catalog models by device: GPU (1)
 
-── AI Benchmark: GPU (llama2:13b) ──
+── AI Benchmark: GPU (phi4-mini:latest) ──
 
 ╭───────────────────── Model Info ──────────────────────╮
 │ Property               │ Value                        │
 ├────────────────────────┼──────────────────────────────┤
 │ Device                 │ GPU                          │
-│ Model ID               │ llama2:13b                   │
-│ Alias                  │ llama2-13b                   │
-│ Execution Provider     │ ollama-metal                 │
+│ Model ID               │ phi4-mini:latest             │
+│ Alias                  │ phi4-mini                    │
+│ Execution Provider     │ ollama-cuda                  │
 ╰────────────────────────┴──────────────────────────────╯
 ╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
 │ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │    Tok/sec │
 ├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
-│ Q1 (cold, incl. load)      │            0.004 │          1.500 │       1.503 │            5 │        3.3 │
-│ Q2 (warm)                  │                — │         10.988 │      10.988 │          647 │       58.9 │
+│ Q1 (cold, incl. load)      │            0.004 │          6.696 │       6.700 │           99 │       14.8 │
+│ Q2 (warm)                  │                — │         27.441 │      27.441 │          480 │       17.5 │
 ╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
   Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited (higher bandwidth → higher tok/s)
 ```
 
-> Ollama runs a single inference pass (no per-device targeting). On macOS Apple Silicon,
-> it uses Metal for GPU acceleration — the execution provider shows `ollama-metal`.
-> Q2 58.9 tok/s on llama2:13b is consistent with the Apple M5 Max's ~546 GB/s unified
-> memory bandwidth (same pool shared by CPU, GPU, and Neural Engine).
-> Use `--ai-backend ollama --ai-model llama2:13b` to select it explicitly.
+> Ollama runs a single inference pass (no per-device targeting). On systems with a CUDA GPU,
+> it uses the GPU automatically — the execution provider shows `ollama-cuda`.
+> On macOS Apple Silicon, it uses Metal (`ollama-metal`).
+> Use `--ai-backend ollama --ai-model phi4-mini` to select it explicitly.
 > For a larger MoE model, try `gemma4:26b` (26B params, 4B active).
 
 ### Example output — Final Summary
 
-**LPDDR5X quad-channel system (high bandwidth):**
+**System with discrete GPU (high VRAM bandwidth):**
 
 ```
 ══════════════════════════════════════════════════════════════
   StreamBench — Summary
 ══════════════════════════════════════════════════════════════
 
-  CPU    : 16-core SoC (16 cores)
-  Memory : 32 GB LPDDR5X @ 9600 MT/s
-  GPU    : Discrete GPU (96 CUs, 16.4 GiB)
+╭──────────────── Key Results ─────────────────╮
+│ Device   │  AI Cold Tok/s │    AI Warm Tok/s │
+├──────────┼────────────────┼──────────────────┤
+│ CPU      │           24.4 │             14.8 │
+╰──────────┴────────────────┴──────────────────╯
+  Q2 (warm) = sustained throughput — memory-bandwidth limited
+```
+
+**Multi-device system (CPU + GPU + NPU via Foundry Local):**
+
+```
+══════════════════════════════════════════════════════════════
+  StreamBench — Summary
+══════════════════════════════════════════════════════════════
 
 ╭───────────────────────── Key Results ─────────────────────────╮
 │ Device   │   STREAM Triad │  AI Cold Tok/s │   AI Warm Tok/s│
@@ -670,35 +675,12 @@ Starting Ollama AI service...
   Q2 (warm) = sustained throughput — memory-bandwidth limited
 ```
 
-**DDR5 single-channel system (discrete + integrated GPU):**
-
-```
-══════════════════════════════════════════════════════════════
-  StreamBench — Summary
-══════════════════════════════════════════════════════════════
-
-  CPU    : 16-core Mobile Processor (16 cores)
-  Memory : 32 GB DDR5 @ 5600 MT/s
-  GPU    : Discrete Laptop GPU (36 CUs, 8.0 GiB)
-
-╭───────────────────────── Key Results ─────────────────────────╮
-│ Device   │   STREAM Triad │  AI Cold Tok/s │   AI Warm Tok/s│
-├──────────┼────────────────┼────────────────┼──────────────────┤
-│ CPU      │     29.70 GB/s │           15.5 │             10.5 │
-│ GPU      │    346.23 GB/s │            0.0 │             35.1 │
-│ GPU      │    136.76 GB/s │              — │                — │
-│ NPU      │              — │           11.6 │             11.5 │
-╰──────────┴────────────────┴────────────────┴──────────────────╯
-  Q2 (warm) = sustained throughput — memory-bandwidth limited
-```
-
 > The summary combines memory bandwidth and AI inference results in one table.
 > NPU has no STREAM Triad score (memory bandwidth is measured only on CPU and GPU).
 > When a system has both discrete and integrated GPUs, two GPU rows appear — the first
 > is the discrete GPU (high VRAM bandwidth, runs AI inference), the second is the iGPU
 > (shares system memory, no separate AI run).
-> Single-channel DDR5 delivers roughly half the CPU bandwidth of dual-channel, while
-> the discrete GPU's dedicated VRAM is unaffected by system memory configuration.
+> Higher memory bandwidth generally correlates with higher Q2 tok/s across all devices.
 
 ### Key metrics
 
@@ -768,7 +750,7 @@ The results depend on your memory type, number of channels, and frequency:
 | DDR5-6400 | Dual-channel | ~102 GB/s | ~65–80 GB/s | ~70–90 GB/s |
 | LPDDR5X-7500 | Quad-channel | ~120 GB/s | ~70–90 GB/s | ~90–110 GB/s |
 | LPDDR5X-8000 | 8-channel | ~256 GB/s | ~90–110 GB/s | ~180–220 GB/s |
-| LPDDR5 (unified, Apple M5 Max) | 256-bit unified | ~546 GB/s ² | ~338 GB/s (18-thread) | ~406 GB/s |
+| LPDDR5 (unified, Apple Silicon) | 256-bit unified | ~546 GB/s ² | ~338 GB/s (18-thread) | ~406 GB/s |
 | LPDDR5-6400 (unified, 1024-bit) | 1024-bit unified | ~819 GB/s | ~300–310 GB/s (20-thread) | ~670–700 GB/s |
 
 > ¹ Modern iGPUs use hardware lossless compression (e.g. Delta Color Compression, Unified
@@ -777,7 +759,7 @@ The results depend on your memory type, number of channels, and frequency:
 > but STREAM's uniform float patterns compress well, making the *reported* effective bandwidth
 > appear well above the raw DRAM limit.
 >
-> ² Apple M5 Max theoretical max estimated from 256-bit LPDDR5 bus at ~8533 MT/s
+> ² Apple Silicon theoretical max estimated from 256-bit LPDDR5 bus at ~8533 MT/s
 > (256 / 8 × 8533 × 2 / 1000 ≈ 546 GB/s). Actual measured CPU STREAM Triad ~338 GB/s
 > (62% efficiency) and GPU STREAM Triad ~406 GB/s (74% efficiency) — consistent with
 > Apple Silicon's unified memory architecture where CPU and GPU share the same bandwidth pool.

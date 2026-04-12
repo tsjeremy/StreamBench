@@ -61,7 +61,7 @@ internal sealed class FoundryAiBackend : IAiBackend
         "phi-4-mini-reasoning",
     ];
 
-    private const string DefaultBootstrapAlias = "phi-3.5-mini";
+    private const string DefaultBootstrapAlias = "phi-4-mini";
 
     // ── IAiBackend implementation ───────────────────────────────────────────
 

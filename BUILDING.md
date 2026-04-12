@@ -412,6 +412,7 @@ StreamBench/ (.NET 10 frontend)
 ├── AiExecutionOptions.cs     # Typed CLI argument parsing for AI options
 ├── FoundryAiBackend.cs       # Foundry Local backend (Windows/macOS, CPU/GPU/NPU)
 ├── LmStudioAiBackend.cs      # LM Studio backend (cross-platform, GPU/CPU)
+├── OllamaAiBackend.cs        # Ollama backend (cross-platform, GPU/CPU, easy CLI)
 ├── DirectOpenAiChatClient.cs # Lightweight IChatClient for local OpenAI-compatible APIs
 ├── AiBenchmarkRunner.cs      # AI inference benchmark orchestrator (two-pass strategy)
 ├── CliLog.cs                 # Console-to-file tee logging (STREAMBENCH_CLI_LOG env var)

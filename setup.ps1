@@ -956,7 +956,7 @@ if ($setupLmStudio) {
         if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
             if ($hasWinget) {
                 Write-Host '  Installing LM Studio via winget...' -ForegroundColor Yellow
-                winget install ElementLabs.LMStudio --accept-package-agreements --accept-source-agreements --silent --disable-interactivity --source winget
+                winget install ElementLabs.LMStudio --accept-package-agreements --accept-source-agreements --silent --disable-interactivity --source winget --scope user
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host '  [OK] LM Studio installed.' -ForegroundColor Green
 
@@ -1053,12 +1053,12 @@ if ($setupLmStudio) {
             } catch {}
 
             if (-not $hasModels) {
-                Write-Host '  Downloading default AI model (phi-3.5-mini)...' -ForegroundColor Cyan
+                Write-Host '  Downloading default AI model (phi-4-mini)...' -ForegroundColor Cyan
                 Write-Host '  (This may take several minutes on first run.)' -ForegroundColor Yellow
                 $dlStart = Get-Date
                 $dlJob = Start-Job -ScriptBlock {
                     param($cmd)
-                    & $cmd get "lmstudio-community/phi-3.5-mini-instruct-GGUF" --yes 2>&1
+                    & $cmd get "lmstudio-community/Phi-4-mini-instruct-GGUF" --yes 2>&1
                     $LASTEXITCODE  # return exit code from job
                 } -ArgumentList $lmsCmd
                 while ($dlJob.State -eq 'Running') {
@@ -1076,9 +1076,9 @@ if ($setupLmStudio) {
                     Remove-Job $dlJob -Force
                     $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
                     if ($jobExit -eq 0) {
-                        Write-Host "  [OK] Default model (phi-3.5-mini) downloaded in ${dlSec}s." -ForegroundColor Green
+                        Write-Host "  [OK] Default model (phi-4-mini) downloaded in ${dlSec}s." -ForegroundColor Green
                     } else {
-                        Write-Host "  [!] Model download may have failed (non-fatal). Try: lms get phi-3.5-mini --yes" -ForegroundColor Yellow
+                        Write-Host "  [!] Model download may have failed (non-fatal). Try: lms get phi-4-mini --yes" -ForegroundColor Yellow
                     }
                 }
             } else {
@@ -1120,12 +1120,12 @@ if ($setupOllama) {
         } catch {}
 
         if (-not $hasModels) {
-            Write-Host '  Pulling default AI model (gemma4:26b)...' -ForegroundColor Cyan
+            Write-Host '  Pulling default AI model (phi4-mini)...' -ForegroundColor Cyan
             Write-Host '  (This may take several minutes on first run.)' -ForegroundColor Yellow
             $dlStart = Get-Date
             $dlJob = Start-Job -ScriptBlock {
                 param($cmd)
-                & $cmd pull 'gemma4:26b' 2>&1
+                & $cmd pull 'phi4-mini' 2>&1
                 $LASTEXITCODE
             } -ArgumentList $ollamaCmd
             while ($dlJob.State -eq 'Running') {
@@ -1143,9 +1143,9 @@ if ($setupOllama) {
                 Remove-Job $dlJob -Force
                 $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
                 if ($jobExit -eq 0) {
-                    Write-Host "  [OK] Default model (gemma4:26b) downloaded in ${dlSec}s." -ForegroundColor Green
+                    Write-Host "  [OK] Default model (phi4-mini) downloaded in ${dlSec}s." -ForegroundColor Green
                 } else {
-                    Write-Host "  [!] Model download may have failed (non-fatal). Try: ollama pull gemma4:26b" -ForegroundColor Yellow
+                    Write-Host "  [!] Model download may have failed (non-fatal). Try: ollama pull phi4-mini" -ForegroundColor Yellow
                 }
             }
         } else {
@@ -1156,11 +1156,38 @@ if ($setupOllama) {
         if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
             if (Get-Command winget -ErrorAction SilentlyContinue) {
                 Write-Host '  Installing Ollama via winget...' -ForegroundColor Yellow
-                winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements --silent --disable-interactivity --source winget
+                winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements --silent --disable-interactivity --source winget --scope user
                 if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) {
                     Write-Host '  [OK] Ollama installed.' -ForegroundColor Green
-                    $ollamaOk = $true
-                    $ollamaCmd = 'ollama'
+
+                    # Refresh PATH from registry so newly-installed commands are visible
+                    $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
+                    $userPath    = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+                    $env:PATH    = "$machinePath;$userPath"
+
+                    # Re-detect ollama CLI after install
+                    $ollamaOk = [bool](Get-Command ollama -ErrorAction SilentlyContinue)
+                    if (-not $ollamaOk) {
+                        $ollamaWellKnown = @(
+                            (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'),
+                            (Join-Path $env:ProgramFiles 'Ollama\ollama.exe')
+                        )
+                        foreach ($p in $ollamaWellKnown) {
+                            if (Test-Path $p) {
+                                $ollamaOk = $true
+                                $ollamaCmd = $p
+                                break
+                            }
+                        }
+                    } else {
+                        $ollamaCmd = 'ollama'
+                    }
+                    if ($ollamaOk) {
+                        Write-Host "  [OK] Ollama CLI available at: $ollamaCmd" -ForegroundColor Green
+                    } else {
+                        Write-Host '  [!] Ollama installed but CLI not found on PATH.' -ForegroundColor Yellow
+                        Write-Host '      Restart your terminal to refresh PATH, then re-run setup.' -ForegroundColor DarkGray
+                    }
                 } else {
                     Write-Host '  [!] Ollama install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
                     Write-Host '      Install manually: winget install Ollama.Ollama' -ForegroundColor Yellow
