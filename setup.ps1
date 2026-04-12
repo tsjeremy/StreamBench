@@ -1007,8 +1007,36 @@ if ($setupLmStudio) {
                     if ($lmsOk) {
                         Write-Host "  [OK] LM Studio CLI available at: $lmsCmd" -ForegroundColor Green
                     } else {
-                        Write-Host '  [!] LM Studio installed but CLI not found on PATH.' -ForegroundColor Yellow
-                        Write-Host '      Open LM Studio once to register the CLI, then re-run setup.' -ForegroundColor DarkGray
+                        # LM Studio requires the GUI to be opened at least once to bootstrap
+                        # the CLI at ~/.lmstudio/bin/lms.exe. Try launching it automatically.
+                        $lmStudioExe = Join-Path $env:LOCALAPPDATA 'Programs\LM Studio\LM Studio.exe'
+                        if (Test-Path $lmStudioExe) {
+                            Write-Host '  [!] LM Studio CLI not bootstrapped yet — launching GUI for first-time setup...' -ForegroundColor Yellow
+                            Start-Process $lmStudioExe -ErrorAction SilentlyContinue
+                            $bootstrapTimeout = 60
+                            $bootstrapStart = [DateTime]::Now
+                            $bootstrappedLms = Join-Path $env:USERPROFILE '.lmstudio\bin\lms.exe'
+                            while (([DateTime]::Now - $bootstrapStart).TotalSeconds -lt $bootstrapTimeout) {
+                                Start-Sleep -Seconds 3
+                                if (Test-Path $bootstrappedLms) {
+                                    $lmsOk = $true
+                                    $lmsCmd = $bootstrappedLms
+                                    $lmsDir = Split-Path $bootstrappedLms -Parent
+                                    if ($env:PATH -notlike "*$lmsDir*") {
+                                        $env:PATH = "$lmsDir;$env:PATH"
+                                    }
+                                    Write-Host "  [OK] LM Studio CLI bootstrapped at: $lmsCmd" -ForegroundColor Green
+                                    break
+                                }
+                            }
+                            if (-not $lmsOk) {
+                                Write-Host '  [!] LM Studio GUI launched but CLI bootstrap timed out.' -ForegroundColor Yellow
+                                Write-Host '      Wait for LM Studio to finish loading, then re-run setup.' -ForegroundColor DarkGray
+                            }
+                        } else {
+                            Write-Host '  [!] LM Studio installed but CLI not found on PATH.' -ForegroundColor Yellow
+                            Write-Host '      Open LM Studio once to bootstrap the CLI, then re-run setup.' -ForegroundColor DarkGray
+                        }
                     }
                 } else {
                     Write-Host '  [!] LM Studio install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow

@@ -623,24 +623,25 @@ Starting LM Studio AI service...
   Service URL: http://127.0.0.1:1234
   LM Studio does not support device targeting; using single-device GPU mode.
   Querying model catalog from backend...
+  Catalog models by device: GPU (1)
 
-── AI Benchmark: GPU (phi-4-mini-instruct) ──
+── AI Benchmark: GPU (microsoft/phi-4-mini-reasoning) ──
 
-╭───────────────────── Model Info ──────────────────────╮
-│ Property               │ Value                        │
-├────────────────────────┼──────────────────────────────┤
-│ Device                 │ GPU                          │
-│ Model ID               │ phi-4-mini-instruct          │
-│ Alias                  │ phi-4-mini                   │
-│ Execution Provider     │ llama.cpp                    │
-╰────────────────────────┴──────────────────────────────╯
-╭────────────────────────────────── Inference Timing ───────────────────────────────────╮
-│ Run                        │ Model Load (s) │ Response (s) │ Total (s) │ Tok/sec   │
-├────────────────────────────┼────────────────┼──────────────┼───────────┼─────────────┤
-│ Q1 (cold, incl. load)      │          0.004 │       11.382 │    11.386 │         2.3 │
-│ Q2 (warm)                │              — │       22.382 │    22.382 │        40.0 │
-╰────────────────────────────┴────────────────┴──────────────┴───────────┴─────────────╯
-  Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
+╭────────────────────── Model Info ───────────────────────╮
+│ Property               │ Value                          │
+├────────────────────────┼────────────────────────────────┤
+│ Device                 │ GPU                            │
+│ Model ID               │ microsoft/phi-4-mini-reasoning │
+│ Alias                  │ phi-4-mini-reasoning           │
+│ Execution Provider     │ llama.cpp                      │
+╰────────────────────────┴────────────────────────────────╯
+╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │    Tok/sec │
+├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
+│ Q1 (cold, incl. load)      │            0.007 │          5.366 │       5.373 │          128 │       23.9 │
+│ Q2 (warm)                  │                — │         35.739 │      35.739 │         1024 │       28.7 │
+╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
+  Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited (higher bandwidth → higher tok/s)
 ```
 
 > LM Studio runs a single GPU pass (no device targeting).
