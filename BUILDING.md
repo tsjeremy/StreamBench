@@ -61,7 +61,7 @@ pwsh ./build_all_macos.ps1   # or build_all_linux.ps1
 # -> produces stream_cpu_win_x64.exe, stream_gpu_win_x64.exe, and builds StreamBench/
 ```
 
-For source-mode launcher runs (`run_stream.cmd` / `run_stream.ps1` against the
+For source-mode launcher runs (`run_stream.cmd` / `run_stream.sh` / `run_stream.ps1` against the
 repo checkout), these native `stream_cpu_*` / `stream_gpu_*` binaries are what
 enable the memory benchmark and Q3 relation summary. If they are missing, the
 launcher now warns and falls back to AI-only mode so local backend validation
@@ -390,8 +390,10 @@ StreamBench/
 ├── build_all_linux.ps1       # Build script for Linux (x64 + ARM64)
 ├── setup.ps1                 # First-time setup (standalone or source mode)
 ├── run_stream.cmd            # Recommended Windows launcher (choose memory or memory + AI)
+├── run_stream.sh             # Recommended macOS / Linux launcher (auto-detects pwsh or binary)
 ├── run_stream.ps1            # Unified PowerShell launcher (cross-platform)
 ├── run_stream_ai.cmd         # Windows compatibility shortcut for AI mode
+├── run_stream_ai.sh          # macOS / Linux compatibility shortcut for AI mode
 ├── run_stream_ai.ps1         # PowerShell compatibility shortcut for AI mode
 ├── README.md                 # Main README (pre-built binaries, features, results)
 ├── BUILDING.md               # Build from source guide

@@ -10,8 +10,9 @@ Also includes an **AI inference benchmark** supporting [Microsoft AI Foundry Loc
 
 - **Windows:** run `run_stream.cmd`
 - **Windows (PowerShell):** run `./run_stream.ps1`
-- **macOS:** download the Apple Silicon binary, remove quarantine if needed, then run `./StreamBench_osx-arm64 --cpu`
-- **AI mode:** add `--ai` or use the AI-enabled launcher/binary
+- **macOS / Linux:** run `./run_stream.sh` (auto-detects PowerShell, falls back to binary)
+- **macOS (direct):** download the Apple Silicon binary, remove quarantine if needed, then run `./StreamBench_osx-arm64 --cpu`
+- **AI mode:** add `--ai` or use the AI-enabled launcher (`run_stream_ai.cmd` / `run_stream_ai.sh`)
 
 ## Contents
 
@@ -109,10 +110,19 @@ maximum performance — StreamBench extracts them automatically on first run.
 
 ```mermaid
 flowchart TD
-    A([New Windows PC]) --> B
-    B["📦 Download StreamBench_win_standalone.zip<br/>github.com/tsjeremy/StreamBench · Releases page"] --> C
-    C["📂 Extract to any folder"] --> D
-    D["▶ Run run_stream.cmd<br/>or pwsh ./run_stream.ps1"] --> E{"Choose mode"}
+    A([New PC / Mac]) --> P{"Platform?"}
+
+    P -->|"Windows"| B["📦 Download StreamBench_win_standalone.zip"]
+    P -->|"macOS"| MB["📦 Download StreamBench_osx-arm64<br/>+ run_stream.sh"]
+
+    B --> C["📂 Extract to any folder"]
+    C --> D["▶ Run run_stream.cmd"]
+
+    MB --> MC["📂 Place in any folder"]
+    MC --> MD["▶ Run ./run_stream.sh<br/>(auto-installs pwsh if needed)"]
+
+    D --> E{"Choose mode"}
+    MD --> E
 
     subgraph mem ["💾 Memory Benchmark"]
         F["🔵 CPU bandwidth test"] --> G["🔵 GPU bandwidth test"]
@@ -224,7 +234,26 @@ Optional manual / advanced path:
 Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/latest/download/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
-### macOS — Download and run
+### macOS — Quick start (recommended)
+
+1. Go to the **[Latest Release](https://github.com/tsjeremy/StreamBench/releases/latest)**
+2. Download **`StreamBench_osx-arm64`** (Apple Silicon) and **`run_stream.sh`**
+3. Place both files in the same folder and run:
+
+```bash
+chmod +x run_stream.sh
+./run_stream.sh
+```
+
+The shell script automatically finds PowerShell (`pwsh`) if installed, or falls
+back to running the binary directly. It also handles quarantine removal for you.
+
+> **New Mac?** If PowerShell isn't installed, `run_stream.sh` still works — it runs
+> the binary in direct mode. For the full launcher experience (mode selection, AI
+> backend choices, CLI transcript), install PowerShell first:
+> `brew install powershell`
+
+### macOS — Manual binary download
 
 1. Go to the **[Latest Release](https://github.com/tsjeremy/StreamBench/releases/latest)**
 2. Download **`StreamBench_osx-arm64`** (Apple Silicon)
@@ -249,8 +278,16 @@ curl -fLO https://github.com/tsjeremy/StreamBench/releases/latest/download/Strea
 
 #### macOS — Full setup with AI benchmark
 
-For the AI inference benchmark (Foundry Local / LM Studio / Ollama), use `setup.ps1` to
-auto-install all prerequisites (Homebrew, .NET, AI backends, models):
+The easiest path is `run_stream_ai.sh` (AI mode preselected):
+
+```bash
+chmod +x run_stream_ai.sh
+./run_stream_ai.sh
+```
+
+If PowerShell is not installed, the script falls back to running the binary
+with `--ai` directly. For the full setup flow (Homebrew, .NET, AI backends,
+model downloads), install PowerShell first:
 
 ```bash
 # 1. Install Homebrew (if not already installed — the macOS package manager)
@@ -275,9 +312,9 @@ pwsh ./run_stream.ps1
 ./StreamBench_osx-arm64 --ai --ai-backend ollama
 ```
 
-> **New MacBook?** First install [Homebrew](https://brew.sh) (`/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`),
-> then PowerShell (`brew install powershell`),
+> **New MacBook?** The fastest path is: install [Homebrew](https://brew.sh), then PowerShell (`brew install powershell`),
 > then run `pwsh ./setup.ps1` — everything else is automatic.
+> Or just run `./run_stream.sh` — it works without PowerShell (direct binary mode).
 
 ### Launcher scripts
 
@@ -288,9 +325,11 @@ downloads on the [release page](https://github.com/tsjeremy/StreamBench/releases
 |--------|-------------|
 | `setup.ps1` | First-time setup — installs runtime dependencies and AI backends (VC++ Redist, .NET, Foundry Local, LM Studio, Ollama). Auto-detects standalone vs. source mode. |
 | `run_stream.cmd` | Recommended Windows entrypoint — PowerShell bypass, mode selection, CLI transcript. |
+| `run_stream.sh` | Recommended macOS / Linux entrypoint — tries `pwsh`, falls back to direct binary with auto quarantine removal. |
 | `run_stream.ps1` | Unified PowerShell launcher (Windows/macOS/Linux) — auto-runs `setup.ps1` if needed. |
 | `run_stream_ai.cmd` | Windows shortcut that preselects AI mode. |
-| `run_stream_ai.ps1` | Cross-platform shortcut that preselects AI mode. |
+| `run_stream_ai.sh` | macOS / Linux shortcut that preselects AI mode. |
+| `run_stream_ai.ps1` | Cross-platform PowerShell shortcut that preselects AI mode. |
 
 **Usage:**
 
@@ -311,7 +350,13 @@ run_stream_ai.cmd
 ```
 
 ```bash
-# macOS/Linux
+# macOS/Linux (recommended — no PowerShell required)
+./run_stream.sh
+
+# macOS/Linux AI shortcut
+./run_stream_ai.sh
+
+# macOS/Linux (PowerShell)
 pwsh ./run_stream.ps1
 ```
 
