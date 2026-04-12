@@ -31,6 +31,7 @@ public static class AiBenchmarkRunner
     public const string Q2 = "How to calculate memory bandwidth on different memory?";
     public const string Q3Label = "Summarize local memory bandwidth and AI benchmark results from saved JSON files.";
     public const string Q3 = "Based on all local JSON files in this folder (including files from other devices), summarize memory bandwidth and AI benchmark relationship, highlight the best combined profile and also try to explain the % from memory bandwidth benchmark result vs. the theoretical bandwidth calculation of the memory on the device.";
+    // TODO: Support Q4/Q5 extensible relation questions loaded from external config.
     public static readonly string[] RelationQuestions =
     [
         Q1,
@@ -97,20 +98,20 @@ public static class AiBenchmarkRunner
         return RunAsync(
             options.DevicesOrDefault,
             options.ModelAlias,
-            options.SharedOnly,
             options.NoDownload,
             options.QuickMode,
             options.BackendType,
+            options.Endpoint,
             cancellationToken);
     }
 
     internal static async Task<(AiBenchmarkTwoPassResult Result, AiSession? Session)> RunAsync(
         IEnumerable<string>? devices = null,
         string? modelAlias = null,
-        bool sharedOnly = false,
         bool noDownload = false,
         bool quickMode = false,
         AiBackendType backendType = AiBackendType.Auto,
+        string? endpoint = null,
         CancellationToken cancellationToken = default)
     {
         // Defence-in-depth: prevent sleep even when called outside the normal Program.cs flow.
@@ -119,10 +120,21 @@ public static class AiBenchmarkRunner
         var sharedResults = new List<AiDeviceBenchmarkResult>();
         var bestPerDeviceResults = new List<AiDeviceBenchmarkResult>();
 
-        // Create backend via factory
+        // Create backend via factory — apply CLI overrides for backend type and endpoint
         var config = AiBackendConfig.Load();
         if (backendType != AiBackendType.Auto)
             config = config with { Backend = backendType };
+        if (!string.IsNullOrWhiteSpace(endpoint))
+        {
+            config = backendType switch
+            {
+                AiBackendType.Ollama => config with { OllamaEndpoint = endpoint },
+                AiBackendType.LmStudio => config with { LmStudioEndpoint = endpoint },
+                AiBackendType.Foundry => config with { FoundryEndpoint = endpoint },
+                _ => config with { OllamaEndpoint = endpoint, LmStudioEndpoint = endpoint }
+            };
+            TraceLog.DiagnosticInfo($"CLI endpoint override: {endpoint}");
+        }
 
         var backend = AiBackendFactory.Create(config);
         TraceLog.DiagnosticInfo($"AI backend selected: {backend.Name}");
@@ -165,13 +177,12 @@ public static class AiBenchmarkRunner
             }
         }
 
-        // Quick mode (--quick-ai): cached models only, skip shared pass, 1 model per device.
+        // Quick mode (--quick-ai): cached models only, 1 model per device.
         // Apply this before catalog bootstrap so a clean machine does not trigger a download
         // that the quick path will immediately refuse to use.
         if (quickMode)
         {
             noDownload = true;
-            sharedOnly = false;
             TraceLog.DiagnosticInfo("Quick mode: noDownload=true, skipping shared pass");
             ConsoleOutput.WriteMarkup("[dim]  Quick mode: using cached models only, 1 model per device.[/]");
         }
@@ -194,11 +205,11 @@ public static class AiBenchmarkRunner
                 {
                     ConsoleOutput.WriteMarkup("[yellow][INFO][/] No chat/instruct models found in LM Studio.");
                     ConsoleOutput.WriteMarkup("[dim]  Embedding and non-chat models are not supported for AI benchmark.[/]");
-                    ConsoleOutput.WriteMarkup("[dim]  Please download a chat model in LM Studio (e.g. phi-3.5-mini, llama, qwen).[/]");
+                    ConsoleOutput.WriteMarkup("[dim]  Please download a chat model in LM Studio (e.g. phi-4-mini, llama, qwen).[/]");
 
                     // Try auto-loading recommended model
-                    ConsoleOutput.WriteMarkup("[dim]  Attempting to auto-load phi-3.5-mini (this may take several minutes)...[/]");
-                    var loaded = await backend.LoadModelAsync("phi-3.5-mini", cancellationToken);
+                    ConsoleOutput.WriteMarkup("[dim]  Attempting to auto-load phi-4-mini (this may take several minutes)...[/]");
+                    var loaded = await backend.LoadModelAsync("phi-4-mini", cancellationToken);
                     if (loaded is not null)
                     {
                         allModels = await backend.ListModelsAsync(cancellationToken);
@@ -211,7 +222,7 @@ public static class AiBenchmarkRunner
                 TraceLog.AiCatalogUnavailable("No models found in catalog after retry and bootstrap");
                 ConsoleOutput.WriteMarkup($"[yellow][WARN][/] No chat models found in {backend.Name} catalog.");
                 ConsoleOutput.WriteMarkup($"[dim]  Embedding/rerank models cannot be used for AI benchmark.[/]");
-                ConsoleOutput.WriteMarkup($"[dim]  Please download a chat/instruct model (e.g. phi-3.5-mini, llama, qwen).[/]");
+                ConsoleOutput.WriteMarkup($"[dim]  Please download a chat/instruct model (e.g. phi-4-mini, llama, qwen).[/]");
                 await backend.StopAsync(cancellationToken);
                 return (new AiBenchmarkTwoPassResult(sharedResults, bestPerDeviceResults), null);
             }
@@ -219,7 +230,7 @@ public static class AiBenchmarkRunner
             // Log a summary of device types available in the catalog
             LogCatalogDeviceTypes(allModels);
 
-            TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, sharedOnly: {sharedOnly}, quickMode: {quickMode}");
+            TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, quickMode: {quickMode}");
 
             // Drop target devices that have no compatible models in the catalog —
             // avoids wasting time trying shared aliases for devices the backend cannot run.

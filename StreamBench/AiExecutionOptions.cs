@@ -4,26 +4,26 @@ namespace StreamBench;
 internal sealed record AiExecutionOptions(
     IReadOnlyList<string> DeviceFilter,
     string? ModelAlias,
-    bool SharedOnly,
     bool NoDownload,
     bool QuickMode,
-    AiBackendType BackendType)
+    AiBackendType BackendType,
+    string? Endpoint)
 {
     internal static AiExecutionOptions FromCli(
         string? deviceArg,
         string? modelAlias,
-        bool sharedOnly,
         bool noDownload,
         bool quickMode,
-        string? backendArg)
+        string? backendArg,
+        string? endpointArg)
     {
         return new AiExecutionOptions(
             DeviceFilter: ParseDeviceFilter(deviceArg),
             ModelAlias: NormalizeValue(modelAlias),
-            SharedOnly: sharedOnly,
             NoDownload: noDownload,
             QuickMode: quickMode,
-            BackendType: ParseBackendType(backendArg));
+            BackendType: ParseBackendType(backendArg),
+            Endpoint: NormalizeValue(endpointArg));
     }
 
     internal IEnumerable<string>? DevicesOrDefault =>
@@ -32,16 +32,17 @@ internal sealed record AiExecutionOptions(
     internal bool HasExplicitSelection =>
         DeviceFilter.Count > 0
         || !string.IsNullOrWhiteSpace(ModelAlias)
-        || SharedOnly
         || NoDownload
         || QuickMode
-        || BackendType != AiBackendType.Auto;
+        || BackendType != AiBackendType.Auto
+        || !string.IsNullOrWhiteSpace(Endpoint);
 
     internal string BackendLabel =>
         BackendType switch
         {
             AiBackendType.Foundry => "Foundry Local",
             AiBackendType.LmStudio => "LM Studio",
+            AiBackendType.Ollama => "Ollama",
             _ => "Auto-detect"
         };
 
@@ -71,6 +72,7 @@ internal sealed record AiExecutionOptions(
         {
             "foundry" => AiBackendType.Foundry,
             "lmstudio" or "lm-studio" => AiBackendType.LmStudio,
+            "ollama" => AiBackendType.Ollama,
             _ => AiBackendType.Auto,
         };
     }

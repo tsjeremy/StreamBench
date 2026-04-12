@@ -1,11 +1,11 @@
 // Program.cs — STREAM Benchmark .NET 10 CLI entry point
 //
 // Usage:
-//   StreamBench [--cpu] [--gpu] [--gpu-device N] [--array-size N] [--ntimes N]
+//   StreamBench [--cpu] [--gpu] [--gpu-device N] [--array-size N]
 //               [--range START:END:STEP] [--no-save] [--output-dir DIR]
 //               [--exe PATH]
 //               [--ai] [--ai-device cpu|gpu|npu] [--ai-model ALIAS]
-//               [--ai-shared-only]
+//               [--ai-backend auto|foundry|lmstudio|ollama]
 //               [--ai-no-download]
 //
 // If neither --cpu nor --gpu is specified, both benchmarks run automatically
@@ -79,13 +79,13 @@ async Task<int> RunMainAsync(string[] args)
     bool   wantGpu    = false;
     bool   modeSet    = false;   // true if user explicitly passed --cpu or --gpu
     bool   wantAi     = false;   // --ai flag
-    bool   aiSharedOnly = false;   // --ai-shared-only (skip best-per-device pass)
     bool   aiNoDownload = false;   // --ai-no-download (cached models only)
     bool   aiQuick     = false;   // --quick-ai / --ai-quick (CI: skip shared, cached only, 1 model/device)
     bool   aiOnly      = false;   // --ai-only (skip default CPU/GPU passes)
     string? aiModel   = null;    // --ai-model ALIAS
     string? aiDevices = null;    // --ai-device cpu,gpu,npu (comma-separated)
-    string? aiBackend = null;    // --ai-backend foundry|lmstudio|auto
+    string? aiBackend = null;    // --ai-backend foundry|lmstudio|ollama|auto
+    string? aiEndpoint = null;   // --ai-endpoint URL (custom backend endpoint)
     long?  arraySize  = null;
     bool   noSave     = false;
     string? outputDir = null;
@@ -105,7 +105,6 @@ async Task<int> RunMainAsync(string[] args)
                 case "--gpu":   wantGpu = true; modeSet = true; break;
                 case "--ai":    wantAi  = true; break;
                 case "--ai-only": wantAi = true; aiOnly = true; break;
-                case "--ai-shared-only": aiSharedOnly = true; break;
                 case "--ai-no-download": aiNoDownload = true; break;
                 case "--quick-ai": case "--ai-quick": aiQuick = true; break;
                 case "--no-save": noSave = true; break;
@@ -120,6 +119,10 @@ async Task<int> RunMainAsync(string[] args)
 
                 case "--ai-backend" when i + 1 < args.Length:
                     aiBackend = args[++i];
+                    break;
+
+                case "--ai-endpoint" when i + 1 < args.Length:
+                    aiEndpoint = args[++i];
                     break;
 
                 case "--array-size"when i + 1 < args.Length:
@@ -173,24 +176,24 @@ async Task<int> RunMainAsync(string[] args)
     var aiOptions = AiExecutionOptions.FromCli(
         aiDevices,
         aiModel,
-        aiSharedOnly,
         aiNoDownload,
         aiQuick,
-        aiBackend);
+        aiBackend,
+        aiEndpoint);
 
     if (!wantAi && aiOptions.HasExplicitSelection)
         wantAi = true;
 #else
-    _ = aiSharedOnly;
     _ = aiNoDownload;
     _ = aiQuick;
+    _ = aiEndpoint;
 
     // If user provided AI-specific options, enable AI mode automatically.
     if (!wantAi
         && (!string.IsNullOrWhiteSpace(aiModel)
             || !string.IsNullOrWhiteSpace(aiDevices)
             || !string.IsNullOrWhiteSpace(aiBackend)
-            || aiSharedOnly
+            || !string.IsNullOrWhiteSpace(aiEndpoint)
             || aiNoDownload
             || aiQuick))
     {
@@ -555,7 +558,7 @@ async Task<int> RunAiBenchmarkAsync(
         {
             ConsoleOutput.WriteMarkup($"[dim]  Cached-only mode was enabled, but no requested model was available in the local {(aiSession?.BackendName ?? aiOptions.BackendLabel)} cache.[/]");
             ConsoleOutput.WriteMarkup("[dim]  Re-run without --quick-ai / --ai-no-download, or pre-download a model first:[/]");
-            ConsoleOutput.WriteMarkup("[dim]  foundry model run phi-3.5-mini[/]");
+            ConsoleOutput.WriteMarkup("[dim]  foundry model run phi-4-mini[/]");
         }
         else if (aiOptions.DeviceFilter.Count == 1 && aiOptions.DeviceFilter[0].Equals("NPU", StringComparison.OrdinalIgnoreCase))
         {
@@ -698,10 +701,11 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("  [cyan]--ai[/]                     Run AI inference benchmark on all available devices");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-only[/]                Run AI inference only without default CPU/GPU memory passes");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-device[/] LIST         Comma-separated devices: cpu, gpu, npu (default: all)");
-    ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-3.5-mini, phi-4-mini)");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-model[/] ALIAS         Model alias to use (e.g. phi-4-mini, phi-3.5-mini)");
     ConsoleOutput.WriteMarkup("  [cyan]--ai-no-download[/]         Only use cached models (skip downloads for fast repeat runs)");
     ConsoleOutput.WriteMarkup("  [cyan]--quick-ai[/]               Fast CI mode: cached models only, 1 model per device");
-    ConsoleOutput.WriteMarkup("  [cyan]--ai-backend[/] TYPE        AI backend: auto (default), foundry, lmstudio");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-backend[/] TYPE        AI backend: auto (default), foundry, lmstudio, ollama");
+    ConsoleOutput.WriteMarkup("  [cyan]--ai-endpoint[/] URL        Custom endpoint URL (e.g. http://remote:11434)");
     ConsoleOutput.WriteMarkup("  [cyan]--help[/]                   Show this help");
     Console.WriteLine();
     ConsoleOutput.WriteMarkup("[bold white]Diagnostics:[/]");
@@ -718,7 +722,7 @@ static void PrintHelp()
     ConsoleOutput.WriteMarkup("[bold white]AI benchmark examples:[/]");
     ConsoleOutput.WriteMarkup("  StreamBench --ai                          AI benchmark on all devices (CPU/GPU/NPU)");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-device cpu,npu      AI benchmark on CPU and NPU only");
-    ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-model phi-3.5-mini  Use a specific model");
+    ConsoleOutput.WriteMarkup("  StreamBench --ai --ai-model phi-4-mini    Use a specific model");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --no-save                Run without saving JSON");
     ConsoleOutput.WriteMarkup("  StreamBench --ai --quick-ai               CI: fast, cached models only");
 }

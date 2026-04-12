@@ -8,13 +8,19 @@ internal static class AiBackendFactory
 {
     /// <summary>
     /// Creates an AI backend based on configuration and availability.
-    /// Auto mode: tries Foundry first (Windows), then LM Studio.
+    /// Auto mode: tries Foundry first (Windows/macOS), then Ollama (Linux), then LM Studio.
     /// </summary>
     internal static IAiBackend Create(AiBackendConfig config)
     {
-        if (config.Backend is AiBackendType.Foundry or AiBackendType.LmStudio)
+        if (config.Backend is AiBackendType.Foundry or AiBackendType.LmStudio or AiBackendType.Ollama)
         {
-            var name = config.Backend == AiBackendType.Foundry ? "Foundry Local" : "LM Studio";
+            var name = config.Backend switch
+            {
+                AiBackendType.Foundry => "Foundry Local",
+                AiBackendType.LmStudio => "LM Studio",
+                AiBackendType.Ollama => "Ollama",
+                _ => "Unknown"
+            };
             TraceLog.AiBackendSelected(name, "User selected via --ai-backend");
         }
 
@@ -22,6 +28,7 @@ internal static class AiBackendFactory
         {
             AiBackendType.Foundry => CreateFoundry(config),
             AiBackendType.LmStudio => CreateLmStudio(config),
+            AiBackendType.Ollama => CreateOllama(config),
             AiBackendType.Auto => AutoDetect(config),
             _ => AutoDetect(config),
         };
@@ -29,7 +36,9 @@ internal static class AiBackendFactory
 
     /// <summary>
     /// Auto-detects the best available backend.
-    /// Priority: Foundry (Windows/macOS, supports NPU) → LM Studio (cross-platform).
+    /// Priority: Foundry (Windows/macOS) → Ollama (Linux) → LM Studio → Ollama (other).
+    /// TODO: Let users persist auto-detect preference in streambench_ai_config.json
+    /// so repeated runs skip the detection waterfall.
     /// </summary>
     private static IAiBackend AutoDetect(AiBackendConfig config)
     {
@@ -47,6 +56,19 @@ internal static class AiBackendFactory
             }
         }
 
+        // On Linux, try Ollama before LM Studio (simpler install, better headless support)
+        if (OperatingSystem.IsLinux())
+        {
+            var ollama = CreateOllama(config);
+            if (ollama.IsAvailable())
+            {
+                TraceLog.DiagnosticInfo("Auto-detected: Ollama (Linux priority)");
+                TraceLog.AiBackendAutoDetect("Ollama", "Ollama CLI found on PATH (Linux priority)");
+                ConsoleOutput.WriteMarkup("[dim]  Auto-detected AI backend: [white]Ollama[/][/]");
+                return ollama;
+            }
+        }
+
         // Try LM Studio (cross-platform)
         var lmStudio = CreateLmStudio(config);
         if (lmStudio.IsAvailable())
@@ -57,8 +79,19 @@ internal static class AiBackendFactory
             return lmStudio;
         }
 
-        // On Windows/macOS, still return Foundry as it gives the best error message
-        // about how to install. On Linux, return LM Studio.
+        // Try Ollama (cross-platform, fallback for Windows/macOS)
+        {
+            var ollama = CreateOllama(config);
+            if (ollama.IsAvailable())
+            {
+                TraceLog.DiagnosticInfo("Auto-detected: Ollama");
+                TraceLog.AiBackendAutoDetect("Ollama", "Ollama CLI found on PATH");
+                ConsoleOutput.WriteMarkup("[dim]  Auto-detected AI backend: [white]Ollama[/][/]");
+                return ollama;
+            }
+        }
+
+        // No backend found — return sensible default with install instructions
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
             TraceLog.DiagnosticInfo("No AI backend detected; defaulting to Foundry (Windows/macOS)");
@@ -66,9 +99,9 @@ internal static class AiBackendFactory
             return CreateFoundry(config);
         }
 
-        TraceLog.DiagnosticInfo("No AI backend detected; defaulting to LM Studio");
-        TraceLog.AiBackendAutoDetect("LM Studio (default)", "No backend found, defaulting for Linux");
-        return CreateLmStudio(config);
+        TraceLog.DiagnosticInfo("No AI backend detected; defaulting to Ollama (Linux)");
+        TraceLog.AiBackendAutoDetect("Ollama (default)", "No backend found, defaulting for Linux");
+        return CreateOllama(config);
     }
 
     private static FoundryAiBackend CreateFoundry(AiBackendConfig config)
@@ -81,25 +114,41 @@ internal static class AiBackendFactory
         return new LmStudioAiBackend(config.LmStudioEndpoint);
     }
 
+    private static OllamaAiBackend CreateOllama(AiBackendConfig config)
+    {
+        return new OllamaAiBackend(config.OllamaEndpoint);
+    }
+
     /// <summary>
     /// Returns a user-friendly message about how to install an AI backend
     /// based on the current platform.
     /// </summary>
     internal static string GetInstallInstructions(AiBackendType preferredBackend)
     {
+        if (preferredBackend == AiBackendType.Ollama)
+        {
+            return "Install Ollama: https://ollama.com/\n" +
+                   "  macOS: brew install ollama\n" +
+                   "  Windows: winget install Ollama.Ollama\n" +
+                   "  Then: ollama pull gemma4:26b";
+        }
+
         if (preferredBackend == AiBackendType.Foundry || (preferredBackend == AiBackendType.Auto && (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())))
         {
             if (OperatingSystem.IsMacOS())
             {
                 return "Install Foundry Local: brew tap microsoft/foundrylocal && brew install foundrylocal\n" +
-                       "  Or install LM Studio: brew install --cask lm-studio";
+                       "  Or install LM Studio: brew install --cask lm-studio\n" +
+                       "  Or install Ollama: brew install ollama";
             }
             return "Install Foundry Local: winget install Microsoft.FoundryLocal\n" +
-                   "  Or install LM Studio: https://lmstudio.ai/";
+                   "  Or install LM Studio: https://lmstudio.ai/\n" +
+                   "  Or install Ollama: winget install Ollama.Ollama";
         }
 
         return "Install LM Studio: https://lmstudio.ai/\n" +
                "  macOS: brew install --cask lm-studio\n" +
+               "  Or install Ollama: https://ollama.com/\n" +
                "  Then start the server and load a model.";
     }
 }

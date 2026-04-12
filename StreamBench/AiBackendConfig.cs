@@ -14,12 +14,14 @@ namespace StreamBench;
 [JsonConverter(typeof(JsonStringEnumConverter))]
 internal enum AiBackendType
 {
-    /// <summary>Auto-detect: try Foundry first (Windows), then LM Studio.</summary>
+    /// <summary>Auto-detect: try Foundry first (Windows/macOS), then Ollama (Linux), then LM Studio.</summary>
     Auto,
     /// <summary>Microsoft Foundry Local (Windows-only, supports CPU/GPU/NPU).</summary>
     Foundry,
     /// <summary>LM Studio (cross-platform, supports CPU/GPU).</summary>
     LmStudio,
+    /// <summary>Ollama (cross-platform, supports CPU/GPU).</summary>
+    Ollama,
 }
 
 /// <summary>
@@ -37,6 +39,9 @@ internal sealed record AiBackendConfig
     [JsonPropertyName("lmstudio_endpoint")]
     public string? LmStudioEndpoint { get; init; }
 
+    [JsonPropertyName("ollama_endpoint")]
+    public string? OllamaEndpoint { get; init; }
+
     [JsonPropertyName("preferred_model")]
     public string? PreferredModel { get; init; }
 
@@ -46,6 +51,7 @@ internal sealed record AiBackendConfig
     {
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        PropertyNameCaseInsensitive = true,
     };
 
     /// <summary>

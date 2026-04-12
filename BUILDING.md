@@ -61,7 +61,7 @@ pwsh ./build_all_macos.ps1   # or build_all_linux.ps1
 # -> produces stream_cpu_win_x64.exe, stream_gpu_win_x64.exe, and builds StreamBench/
 ```
 
-For source-mode launcher runs (`run_stream.cmd` / `run_stream.ps1` against the
+For source-mode launcher runs (`run_stream.cmd` / `run_stream.sh` / `run_stream.ps1` against the
 repo checkout), these native `stream_cpu_*` / `stream_gpu_*` binaries are what
 enable the memory benchmark and Q3 relation summary. If they are missing, the
 launcher now warns and falls back to AI-only mode so local backend validation
@@ -97,6 +97,7 @@ dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-device gpu --ai-m
 # Use a specific AI backend
 dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend lmstudio
 dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend foundry
+dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend ollama
 ```
 
 > `dotnet run --project StreamBench -- --ai` uses the default non-AI build and will skip AI.
@@ -118,10 +119,10 @@ dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend foundry
 AI Inference Benchmark:
 --ai                     Add AI inference benchmark (memory benchmarks still run by default)
 --ai-only                Run AI inference only without default CPU/GPU memory passes
---ai-backend TYPE        AI backend: auto (default), foundry, lmstudio
+--ai-backend TYPE        AI backend: auto (default), foundry, lmstudio, ollama
+--ai-endpoint URL        Custom endpoint URL (e.g. http://remote:11434)
 --ai-device LIST         Comma-separated devices: cpu, gpu, npu (default: all)
---ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)
---ai-shared-only         Skip best-per-device pass (shared model comparison only)
+--ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b, llama2:13b)
 --ai-no-download         Only use cached models (skip downloads for fast repeat runs)
 --quick-ai               Fast CI mode: cached models only, 1 model per device
 ```
@@ -389,8 +390,10 @@ StreamBench/
 ├── build_all_linux.ps1       # Build script for Linux (x64 + ARM64)
 ├── setup.ps1                 # First-time setup (standalone or source mode)
 ├── run_stream.cmd            # Recommended Windows launcher (choose memory or memory + AI)
+├── run_stream.sh             # Recommended macOS / Linux launcher (auto-detects pwsh or binary)
 ├── run_stream.ps1            # Unified PowerShell launcher (cross-platform)
 ├── run_stream_ai.cmd         # Windows compatibility shortcut for AI mode
+├── run_stream_ai.sh          # macOS / Linux compatibility shortcut for AI mode
 ├── run_stream_ai.ps1         # PowerShell compatibility shortcut for AI mode
 ├── README.md                 # Main README (pre-built binaries, features, results)
 ├── BUILDING.md               # Build from source guide
@@ -411,6 +414,7 @@ StreamBench/ (.NET 10 frontend)
 ├── AiExecutionOptions.cs     # Typed CLI argument parsing for AI options
 ├── FoundryAiBackend.cs       # Foundry Local backend (Windows/macOS, CPU/GPU/NPU)
 ├── LmStudioAiBackend.cs      # LM Studio backend (cross-platform, GPU/CPU)
+├── OllamaAiBackend.cs        # Ollama backend (cross-platform, GPU/CPU, easy CLI)
 ├── DirectOpenAiChatClient.cs # Lightweight IChatClient for local OpenAI-compatible APIs
 ├── AiBenchmarkRunner.cs      # AI inference benchmark orchestrator (two-pass strategy)
 ├── CliLog.cs                 # Console-to-file tee logging (STREAMBENCH_CLI_LOG env var)
