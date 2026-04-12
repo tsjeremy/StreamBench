@@ -55,7 +55,7 @@ The `.csproj` reads `VERSION` at build time via MSBuild — no manual edit neede
 
 - **CLI parsing:** manual `switch`/`case` in `Program.cs` (no external CLI library)
   - Benchmark: `--cpu`, `--gpu`, `--array-size N`, `--range START:END:STEP`
-  - AI: `--ai`, `--ai-only`, `--ai-backend foundry|lmstudio`, `--ai-model ALIAS`, `--ai-device cpu,gpu,npu`, `--quick-ai`, `--ai-no-download`
+  - AI: `--ai`, `--ai-only`, `--ai-backend foundry|lmstudio|ollama`, `--ai-model ALIAS`, `--ai-device cpu,gpu,npu`, `--quick-ai`, `--ai-no-download`
 - **Embedded backends:** C binaries are bundled as `EmbeddedResource` items, extracted at runtime to `%TEMP%/StreamBench/<version>/` with SHA hash caching (`EmbeddedBackends.cs`)
 - **System detection:** `SystemInfoDetector.cs` runs async detection (sysctl/WMI/procfs) in parallel with the benchmark subprocess
 - **Console output:** custom markup parser (`[cyan]`, `[bold *]`, `[/]`) in `ConsoleOutput.cs` — no third-party library
@@ -63,12 +63,17 @@ The `.csproj` reads `VERSION` at build time via MSBuild — no manual edit neede
 
 ## AI Inference Benchmark
 
-The AI benchmark uses **Foundry Local CLI + REST API** (not NuGet packages):
-- `AiBenchmarkRunner.cs` finds the Foundry CLI (`foundry` or `foundrylocal`) on PATH
-- Starts the Foundry service, then calls `POST /v1/chat/completions` via HttpClient
+The AI benchmark supports three backends via the `IAiBackend` interface:
+- **Foundry Local** (`FoundryAiBackend.cs`) — uses Foundry CLI + REST API, supports CPU/GPU/NPU device targeting
+- **LM Studio** (`LmStudioAiBackend.cs`) — uses `lms` CLI + OpenAI-compatible REST API, GPU-only (llama.cpp)
+- **Ollama** (`OllamaAiBackend.cs`) — uses `ollama` CLI + OpenAI-compatible REST API at `http://localhost:11434`, GPU-only
+
+All backends expose OpenAI-compatible `/v1/chat/completions` endpoints.
 - AI support is compile-time opt-in: `-p:EnableAI=true` MSBuild property, guarded by `#if ENABLE_AI`
-- **Backend factory:** `AiBackendFactory.cs` auto-detects Foundry → LM Studio priority; implements `IAiBackend`
+- **Backend factory:** `AiBackendFactory.cs` auto-detects Foundry → LM Studio → Ollama priority; implements `IAiBackend`
 - **Custom chat client:** `DirectOpenAiChatClient.cs` calls `/v1/chat/completions` directly because OpenAI SDK v2 throws on `"tool_calls": []` from non-OpenAI backends
+- **Config:** `AiBackendConfig.cs` defines `AiBackendType` enum (Auto, Foundry, LmStudio, Ollama) and persists to `streambench_ai_config.json`
+- **CLI arg parsing:** `AiExecutionOptions.cs` maps `--ai-backend ollama|lmstudio|foundry` to enum values
 
 ## Diagnostics / Logging
 
@@ -86,6 +91,6 @@ All diagnostic logging goes through **`TraceLog.cs`** (simple file-based logger)
 - AI results: `ai_inference_benchmark_yyyyMMdd_HHmmss.json`
 - GPU results include device tag: `stream_gpu_{device}_results_{size}.csv/json`
 - Launcher scripts (`run_stream.ps1`, `run_stream_ai.ps1`) auto-detect source vs standalone mode
-- `setup.ps1` handles first-time VC++ Redistributable, Foundry Local, and LM Studio installation
+- `setup.ps1` handles first-time VC++ Redistributable, Foundry Local, LM Studio, and Ollama installation
 - macOS: `DYLD_LIBRARY_PATH` set at runtime to find bundled `libomp.dylib`
 - Windows ARM64: builds target `win-x64` RID; requires x64 .NET runtime installed alongside ARM64

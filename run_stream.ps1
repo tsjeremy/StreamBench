@@ -616,9 +616,14 @@ function Ensure-StreamBenchPrerequisites {
                 Write-Host '        winget install ElementLabs.LMStudio' -ForegroundColor Yellow
                 Write-Host '        # or download from https://lmstudio.ai' -ForegroundColor Yellow
             }
+            'ollama' {
+                Write-Host '        winget install Ollama.Ollama' -ForegroundColor Yellow
+                Write-Host '        # or download from https://ollama.com/' -ForegroundColor Yellow
+            }
             default {
                 Write-Host '        winget install Microsoft.FoundryLocal' -ForegroundColor Yellow
                 Write-Host '        winget install ElementLabs.LMStudio' -ForegroundColor Yellow
+                Write-Host '        winget install Ollama.Ollama' -ForegroundColor Yellow
             }
         }
     }

@@ -12,7 +12,7 @@
 #   4. (Source mode only) Runs "dotnet restore" for base + AI packages
 #   5. Checks GPU driver / OpenCL availability for GPU benchmark
 #   6. (Optional) Checks / installs PowerShell 7
-#   7. (Optional) Installs AI backends (Microsoft Foundry Local and/or LM Studio)
+#   7. (Optional) Installs AI backends (Microsoft Foundry Local, LM Studio, and/or Ollama)
 #
 # macOS (Apple Silicon):
 #   1. Checks / installs Homebrew
@@ -21,7 +21,7 @@
 #   4. (Source mode only) Runs "dotnet restore" for base + AI packages
 #   5. Checks GPU (Metal/OpenCL) availability for GPU benchmark
 #   6. PowerShell 7 -- already running if you see this
-#   7. (Optional) Installs AI backends (Foundry Local via brew, LM Studio via brew cask)
+#   7. (Optional) Installs AI backends (Foundry Local via brew, LM Studio via brew cask, Ollama via brew)
 #
 # Usage:
 #   pwsh ./setup.ps1                                          # macOS / Linux
@@ -565,7 +565,7 @@ if (Get-Command pwsh -ErrorAction SilentlyContinue) {
 Write-Host ''
 
 # ------------------------------------------------------------------
-#  7. AI Backend Setup (Foundry Local and/or LM Studio)
+#  7. AI Backend Setup (Foundry Local, LM Studio, and/or Ollama)
 # ------------------------------------------------------------------
 Write-Host '  [7/7] Setting up AI backend (AI benchmark)...' -ForegroundColor Cyan
 
@@ -681,6 +681,33 @@ if ($foundryOk) { Write-Host '  [OK] Microsoft Foundry Local is installed.' -For
 else            { Write-Host '  [--] Microsoft Foundry Local not found.' -ForegroundColor DarkGray }
 if ($lmsOk)     { Write-Host '  [OK] LM Studio is installed.' -ForegroundColor Green }
 else            { Write-Host '  [--] LM Studio not found.' -ForegroundColor DarkGray }
+
+# Ollama detection (cross-platform)
+$ollamaOk = $false
+$ollamaCmd = $null
+if (Get-Command ollama -ErrorAction SilentlyContinue) {
+    $ollamaOk = $true
+    $ollamaCmd = 'ollama'
+} else {
+    # Probe well-known paths
+    $ollamaPaths = @()
+    if ($IsMacOS) {
+        $ollamaPaths += '/usr/local/bin/ollama'
+        $ollamaPaths += '/opt/homebrew/bin/ollama'
+    } elseif ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+        $ollamaPaths += Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'
+        $ollamaPaths += Join-Path $env:ProgramFiles 'Ollama\ollama.exe'
+    }
+    foreach ($p in $ollamaPaths) {
+        if (Test-Path $p) {
+            $ollamaOk = $true
+            $ollamaCmd = $p
+            break
+        }
+    }
+}
+if ($ollamaOk) { Write-Host '  [OK] Ollama is installed.' -ForegroundColor Green }
+else           { Write-Host '  [--] Ollama not found.' -ForegroundColor DarkGray }
 Write-Host ''
 
 # ── Ask user which backend to set up ──
@@ -690,29 +717,33 @@ if ($env:STREAMBENCH_AI_BACKEND) {
     $aiChoice = switch ($env:STREAMBENCH_AI_BACKEND.ToLower()) {
         'foundry'  { '1' }
         'lmstudio' { '2' }
-        default    { '3' }
+        'ollama'   { '3' }
+        default    { '4' }
     }
-    $aiChoiceName = switch ($aiChoice) { '1' { 'Foundry Local' } '2' { 'LM Studio' } '3' { 'Both' } }
+    $aiChoiceName = switch ($aiChoice) { '1' { 'Foundry Local' } '2' { 'LM Studio' } '3' { 'Ollama' } '4' { 'All' } }
     Write-Host "  AI backend pre-selected by launcher: $aiChoiceName" -ForegroundColor DarkGray
 } else {
     Write-Host '  Select AI backend for StreamBench:' -ForegroundColor Cyan
     Write-Host '    [1] Microsoft Foundry Local  (Windows/macOS, NPU/GPU/CPU support)' -ForegroundColor White
     Write-Host '    [2] LM Studio               (Windows/macOS/Linux, GPU/CPU)' -ForegroundColor White
-    Write-Host '    [3] Both' -ForegroundColor White
-    Write-Host '    [4] Skip AI setup' -ForegroundColor DarkGray
+    Write-Host '    [3] Ollama                   (Windows/macOS/Linux, GPU/CPU, easy CLI)' -ForegroundColor White
+    Write-Host '    [4] All' -ForegroundColor White
+    Write-Host '    [5] Skip AI setup' -ForegroundColor DarkGray
     Write-Host ''
 
-    $aiChoice = Read-Host '  Enter choice (1-4)'
+    $aiChoice = Read-Host '  Enter choice (1-5)'
     if ([string]::IsNullOrWhiteSpace($aiChoice)) {
-        if ($foundryOk -and $lmsOk) { $aiChoice = '3' }
+        if ($foundryOk -and $lmsOk) { $aiChoice = '4' }
         elseif ($foundryOk)         { $aiChoice = '1' }
         elseif ($lmsOk)             { $aiChoice = '2' }
-        else                        { $aiChoice = '3' }
+        elseif ($ollamaOk)          { $aiChoice = '3' }
+        else                        { $aiChoice = '4' }
     }
 }
 
-$setupFoundry   = $aiChoice -in @('1', '3')
-$setupLmStudio  = $aiChoice -in @('2', '3')
+$setupFoundry   = $aiChoice -in @('1', '4')
+$setupLmStudio  = $aiChoice -in @('2', '4')
+$setupOllama    = $aiChoice -in @('3', '4')
 
 # ── Foundry Local Setup ──
 
@@ -1057,23 +1088,125 @@ if ($setupLmStudio) {
     }
 }
 
-# ── Save AI backend config ──
+# ── Ollama Setup ──
 
-if ($aiChoice -ne '4') {
+if ($setupOllama) {
+    Write-Host ''
+    Write-Host '  -- Ollama Setup --' -ForegroundColor Cyan
+    if ($ollamaOk) {
+        Write-Host "  [OK] Ollama CLI found." -ForegroundColor Green
+
+        # Check if server is running
+        $ollamaRunning = $false
+        try {
+            $client = [System.Net.Sockets.TcpClient]::new()
+            try {
+                $connectTask = $client.ConnectAsync('127.0.0.1', 11434)
+                if ($connectTask.Wait(2000)) { $ollamaRunning = $client.Connected }
+            } finally { $client.Dispose() }
+        } catch {}
+
+        if ($ollamaRunning) {
+            Write-Host '  [OK] Ollama server is running on port 11434.' -ForegroundColor Green
+        } else {
+            Write-Host '  [--] Ollama server is not running (will start automatically when needed).' -ForegroundColor DarkGray
+        }
+
+        # Check for existing models
+        $hasModels = $false
+        try {
+            $ollamaList = & $ollamaCmd list 2>&1 | Out-String
+            if ($ollamaList -match 'phi|qwen|llama|gemma|mistral|deepseek') { $hasModels = $true }
+        } catch {}
+
+        if (-not $hasModels) {
+            Write-Host '  Pulling default AI model (gemma4:26b)...' -ForegroundColor Cyan
+            Write-Host '  (This may take several minutes on first run.)' -ForegroundColor Yellow
+            $dlStart = Get-Date
+            $dlJob = Start-Job -ScriptBlock {
+                param($cmd)
+                & $cmd pull 'gemma4:26b' 2>&1
+                $LASTEXITCODE
+            } -ArgumentList $ollamaCmd
+            while ($dlJob.State -eq 'Running') {
+                if ([int]((Get-Date) - $dlStart).TotalSeconds -ge 600) { break }
+                Write-Host '.' -NoNewline -ForegroundColor Cyan
+                Start-Sleep -Seconds 5
+            }
+            Write-Host ''
+            if ($dlJob.State -eq 'Running') {
+                Write-Host '  [!] Model download timed out after 10 min (non-fatal).' -ForegroundColor Yellow
+                $dlJob | Stop-Job -PassThru | Remove-Job -Force
+            } else {
+                $dlOutput = @(Receive-Job $dlJob 2>&1)
+                $jobExit = if ($dlOutput.Count -gt 0) { $dlOutput[-1] } else { 1 }
+                Remove-Job $dlJob -Force
+                $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
+                if ($jobExit -eq 0) {
+                    Write-Host "  [OK] Default model (gemma4:26b) downloaded in ${dlSec}s." -ForegroundColor Green
+                } else {
+                    Write-Host "  [!] Model download may have failed (non-fatal). Try: ollama pull gemma4:26b" -ForegroundColor Yellow
+                }
+            }
+        } else {
+            Write-Host '  [OK] AI model(s) already present in Ollama.' -ForegroundColor Green
+        }
+    } else {
+        # Ollama not installed — attempt auto-install
+        if ($IsWindows -or (-not $PSVersionTable.PSEdition) -or ($PSVersionTable.PSEdition -eq 'Desktop')) {
+            if (Get-Command winget -ErrorAction SilentlyContinue) {
+                Write-Host '  Installing Ollama via winget...' -ForegroundColor Yellow
+                winget install Ollama.Ollama --accept-package-agreements --accept-source-agreements --silent --disable-interactivity --source winget
+                if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) {
+                    Write-Host '  [OK] Ollama installed.' -ForegroundColor Green
+                    $ollamaOk = $true
+                    $ollamaCmd = 'ollama'
+                } else {
+                    Write-Host '  [!] Ollama install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
+                    Write-Host '      Install manually: winget install Ollama.Ollama' -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host '  [!] winget not available. Install Ollama manually:' -ForegroundColor Yellow
+                Write-Host '      Download from https://ollama.com/' -ForegroundColor DarkGray
+            }
+        } elseif ($IsMacOS) {
+            if (Get-Command brew -ErrorAction SilentlyContinue) {
+                Write-Host '  Installing Ollama via Homebrew...' -ForegroundColor Yellow
+                brew install ollama 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host '  [OK] Ollama installed.' -ForegroundColor Green
+                    $ollamaOk = $true
+                    $ollamaCmd = 'ollama'
+                } else {
+                    Write-Host '  [!] Ollama install may have failed (non-fatal -- AI is optional).' -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host '  [!] Homebrew not available. Install Ollama manually:' -ForegroundColor Yellow
+                Write-Host '      Download from https://ollama.com/' -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Host '  [!] Automatic Ollama install is not supported on Linux.' -ForegroundColor Yellow
+            Write-Host '      Install: curl -fsSL https://ollama.com/install.sh | sh' -ForegroundColor DarkGray
+        }
+    }
+}
+
+if ($aiChoice -ne '5') {
     $configBackend = switch ($aiChoice) {
         '1' { 'Foundry' }
         '2' { 'LmStudio' }
-        '3' { 'Auto' }
+        '3' { 'Ollama' }
+        '4' { 'Auto' }
         default { 'Auto' }
     }
     $configPath = Join-Path (Get-Location) 'streambench_ai_config.json'
-    $configObj = @{ Backend = $configBackend } | ConvertTo-Json
+    $configObj = @{ backend = $configBackend } | ConvertTo-Json
     Set-Content -Path $configPath -Value $configObj -Encoding UTF8
     Write-Host ''
     Write-Host "  [OK] AI backend preference saved to streambench_ai_config.json ($configBackend)" -ForegroundColor Green
 }
 
-if ($aiChoice -eq '4') {
+if ($aiChoice -eq '5') {
     Write-Host '  Skipping AI setup. Use --ai-backend to configure later.' -ForegroundColor DarkGray
 }
 Write-Host ''

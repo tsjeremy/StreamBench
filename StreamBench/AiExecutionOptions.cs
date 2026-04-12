@@ -1,10 +1,11 @@
 #if ENABLE_AI
 namespace StreamBench;
 
+// TODO: Add --ai-endpoint URL flag to allow custom Ollama/LM Studio endpoints
+//       (e.g. remote server inference) without editing streambench_ai_config.json.
 internal sealed record AiExecutionOptions(
     IReadOnlyList<string> DeviceFilter,
     string? ModelAlias,
-    bool SharedOnly,
     bool NoDownload,
     bool QuickMode,
     AiBackendType BackendType)
@@ -12,7 +13,6 @@ internal sealed record AiExecutionOptions(
     internal static AiExecutionOptions FromCli(
         string? deviceArg,
         string? modelAlias,
-        bool sharedOnly,
         bool noDownload,
         bool quickMode,
         string? backendArg)
@@ -20,7 +20,6 @@ internal sealed record AiExecutionOptions(
         return new AiExecutionOptions(
             DeviceFilter: ParseDeviceFilter(deviceArg),
             ModelAlias: NormalizeValue(modelAlias),
-            SharedOnly: sharedOnly,
             NoDownload: noDownload,
             QuickMode: quickMode,
             BackendType: ParseBackendType(backendArg));
@@ -32,7 +31,6 @@ internal sealed record AiExecutionOptions(
     internal bool HasExplicitSelection =>
         DeviceFilter.Count > 0
         || !string.IsNullOrWhiteSpace(ModelAlias)
-        || SharedOnly
         || NoDownload
         || QuickMode
         || BackendType != AiBackendType.Auto;

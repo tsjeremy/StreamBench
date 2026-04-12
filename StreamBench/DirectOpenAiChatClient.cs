@@ -96,6 +96,8 @@ internal sealed class DirectOpenAiChatClient : IChatClient, IDisposable
         };
     }
 
+    // TODO: Implement streaming support (SSE) for real-time token output during inference,
+    //       which would improve UX for long-running Q2/Q3 prompts on slower models.
     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> chatMessages,
         ChatOptions? options = null,

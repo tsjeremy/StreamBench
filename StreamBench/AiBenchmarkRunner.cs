@@ -97,7 +97,6 @@ public static class AiBenchmarkRunner
         return RunAsync(
             options.DevicesOrDefault,
             options.ModelAlias,
-            options.SharedOnly,
             options.NoDownload,
             options.QuickMode,
             options.BackendType,
@@ -107,7 +106,6 @@ public static class AiBenchmarkRunner
     internal static async Task<(AiBenchmarkTwoPassResult Result, AiSession? Session)> RunAsync(
         IEnumerable<string>? devices = null,
         string? modelAlias = null,
-        bool sharedOnly = false,
         bool noDownload = false,
         bool quickMode = false,
         AiBackendType backendType = AiBackendType.Auto,
@@ -165,13 +163,12 @@ public static class AiBenchmarkRunner
             }
         }
 
-        // Quick mode (--quick-ai): cached models only, skip shared pass, 1 model per device.
+        // Quick mode (--quick-ai): cached models only, 1 model per device.
         // Apply this before catalog bootstrap so a clean machine does not trigger a download
         // that the quick path will immediately refuse to use.
         if (quickMode)
         {
             noDownload = true;
-            sharedOnly = false;
             TraceLog.DiagnosticInfo("Quick mode: noDownload=true, skipping shared pass");
             ConsoleOutput.WriteMarkup("[dim]  Quick mode: using cached models only, 1 model per device.[/]");
         }
@@ -219,7 +216,7 @@ public static class AiBenchmarkRunner
             // Log a summary of device types available in the catalog
             LogCatalogDeviceTypes(allModels);
 
-            TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, sharedOnly: {sharedOnly}, quickMode: {quickMode}");
+            TraceLog.DiagnosticInfo($"Target devices: {string.Join(", ", targetDevices)}, noDownload: {noDownload}, quickMode: {quickMode}");
 
             // Drop target devices that have no compatible models in the catalog —
             // avoids wasting time trying shared aliases for devices the backend cannot run.

@@ -97,6 +97,7 @@ dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-device gpu --ai-m
 # Use a specific AI backend
 dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend lmstudio
 dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend foundry
+dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend ollama
 ```
 
 > `dotnet run --project StreamBench -- --ai` uses the default non-AI build and will skip AI.
@@ -118,10 +119,9 @@ dotnet run --project StreamBench -p:EnableAI=true -- --ai --ai-backend foundry
 AI Inference Benchmark:
 --ai                     Add AI inference benchmark (memory benchmarks still run by default)
 --ai-only                Run AI inference only without default CPU/GPU memory passes
---ai-backend TYPE        AI backend: auto (default), foundry, lmstudio
+--ai-backend TYPE        AI backend: auto (default), foundry, lmstudio, ollama
 --ai-device LIST         Comma-separated devices: cpu, gpu, npu (default: all)
 --ai-model ALIAS         Model alias to use (e.g. phi-3.5-mini, qwen2.5-0.5b)
---ai-shared-only         Skip best-per-device pass (shared model comparison only)
 --ai-no-download         Only use cached models (skip downloads for fast repeat runs)
 --quick-ai               Fast CI mode: cached models only, 1 model per device
 ```

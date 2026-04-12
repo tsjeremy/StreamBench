@@ -51,6 +51,7 @@ internal sealed record AiBackendConfig
     {
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        PropertyNameCaseInsensitive = true,
     };
 
     /// <summary>

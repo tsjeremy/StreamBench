@@ -34,6 +34,8 @@ internal static class AiBackendFactory
         };
     }
 
+    // TODO: Auto-detect Ollama as a higher priority than LM Studio on Linux,
+    //       since Ollama has a simpler install path on headless Linux servers.
     /// <summary>
     /// Auto-detects the best available backend.
     /// Priority: Foundry (Windows/macOS, supports NPU) → LM Studio (cross-platform).
@@ -109,15 +111,25 @@ internal static class AiBackendFactory
     /// </summary>
     internal static string GetInstallInstructions(AiBackendType preferredBackend)
     {
+        if (preferredBackend == AiBackendType.Ollama)
+        {
+            return "Install Ollama: https://ollama.com/\n" +
+                   "  macOS: brew install ollama\n" +
+                   "  Windows: winget install Ollama.Ollama\n" +
+                   "  Then: ollama pull gemma4:26b";
+        }
+
         if (preferredBackend == AiBackendType.Foundry || (preferredBackend == AiBackendType.Auto && (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())))
         {
             if (OperatingSystem.IsMacOS())
             {
                 return "Install Foundry Local: brew tap microsoft/foundrylocal && brew install foundrylocal\n" +
-                       "  Or install LM Studio: brew install --cask lm-studio";
+                       "  Or install LM Studio: brew install --cask lm-studio\n" +
+                       "  Or install Ollama: brew install ollama";
             }
             return "Install Foundry Local: winget install Microsoft.FoundryLocal\n" +
-                   "  Or install LM Studio: https://lmstudio.ai/";
+                   "  Or install LM Studio: https://lmstudio.ai/\n" +
+                   "  Or install Ollama: winget install Ollama.Ollama";
         }
 
         return "Install LM Studio: https://lmstudio.ai/\n" +

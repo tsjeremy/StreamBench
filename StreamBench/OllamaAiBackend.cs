@@ -32,6 +32,7 @@ internal sealed class OllamaAiBackend : IAiBackend
         "llama3.2:3b",
         "llama3.2:1b",
         "gemma2:2b",
+        "gemma4:26b",
         "mistral",
     ];
 
@@ -45,7 +46,9 @@ internal sealed class OllamaAiBackend : IAiBackend
     public bool IsAvailable()
     {
         if (FindOllamaCli() is not null) return true;
-        return IsServerRunning();
+        if (IsServerRunning()) return true;
+        TraceLog.AiCliNotFound("ollama (PATH, /usr/local/bin, /opt/homebrew/bin)");
+        return false;
     }
 
     public async Task<string?> StartAsync(CancellationToken ct = default)
@@ -61,7 +64,8 @@ internal sealed class OllamaAiBackend : IAiBackend
         string? cli = FindOllamaCli();
         if (cli is null)
         {
-            TraceLog.DiagnosticInfo("Ollama CLI not found and server not running");
+            TraceLog.AiCliNotFound("ollama (PATH, /usr/local/bin, /opt/homebrew/bin)");
+            TraceLog.AiServiceStartFailed("Ollama CLI not found and server not running", "OllamaAiBackend.cs", 0);
             return null;
         }
 
@@ -86,7 +90,7 @@ internal sealed class OllamaAiBackend : IAiBackend
         }
         catch (Exception ex)
         {
-            TraceLog.DiagnosticInfo($"Failed to start ollama serve: {ex.Message}");
+            TraceLog.DiagnosticWarning($"Failed to start ollama serve: {ex.Message}", "OllamaAiBackend.cs", 0, nameof(StartAsync));
         }
 
         // Poll for readiness — up to 30 seconds
@@ -108,10 +112,12 @@ internal sealed class OllamaAiBackend : IAiBackend
     public Task StopAsync(CancellationToken ct = default)
     {
         // Ollama runs as a persistent service — don't stop it
-        // (unlike LM Studio where we own the server lifecycle)
+        TraceLog.DiagnosticInfo("Ollama stop requested — skipped (persistent service)");
         return Task.CompletedTask;
     }
 
+    // TODO: Detect Ollama GPU backend type (Metal, CUDA, ROCm, CPU-only fallback)
+    //       and report it in DeviceType/ExecutionProvider for more accurate device comparison.
     public async Task<List<AiModelInfo>> ListModelsAsync(CancellationToken ct = default)
     {
         var models = new List<AiModelInfo>();
@@ -202,9 +208,12 @@ internal sealed class OllamaAiBackend : IAiBackend
     public Task UnloadModelAsync(string modelId, CancellationToken ct = default)
     {
         // Ollama manages model lifecycle automatically
+        TraceLog.DiagnosticInfo($"Ollama model unload requested for {modelId} — skipped (auto-managed)");
         return Task.CompletedTask;
     }
 
+    // TODO: Add download progress reporting via Ollama REST API (/api/pull with streaming)
+    //       to give users a progress bar instead of a silent wait during large model pulls.
     public async Task<bool> DownloadModelAsync(string modelIdOrAlias, CancellationToken ct = default)
     {
         string? cli = FindOllamaCli();
@@ -218,6 +227,7 @@ internal sealed class OllamaAiBackend : IAiBackend
             return false;
         }
 
+        TraceLog.AiModelDownloadStarted(modelIdOrAlias, 0);
         TraceLog.DiagnosticInfo($"Pulling model via ollama pull: {modelIdOrAlias}");
         ConsoleOutput.WriteMarkup($"[dim]  Pulling {modelIdOrAlias} via Ollama (this may take several minutes)...[/]");
 
@@ -247,6 +257,9 @@ internal sealed class OllamaAiBackend : IAiBackend
 
     // ── Ollama CLI helpers ──────────────────────────────────────────────────
 
+    // TODO: Add Windows well-known paths for Ollama CLI detection
+    //       (e.g. %LOCALAPPDATA%\Programs\Ollama\ollama.exe, %ProgramFiles%\Ollama\ollama.exe)
+    //       to improve first-run UX when PATH is not refreshed after install.
     private static string? FindOllamaCli()
     {
         try
@@ -289,6 +302,8 @@ internal sealed class OllamaAiBackend : IAiBackend
         return null;
     }
 
+    // TODO: Surface the Ollama server version in diagnostics via /api/version
+    //       to help debug backend-specific issues in trace logs.
     private bool IsServerRunning()
     {
         try
