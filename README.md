@@ -584,7 +584,7 @@ continues with the devices that do have compatible models.
 For single-device runs, StreamBench uses device-specific priority lists and prefers
 cached models first to reduce download/startup time.
 
-### Example output — Foundry Local (CPU)
+### Example output — Foundry Local (CPU + GPU + NPU)
 
 ```
 ══════════════════════════════════════════════════════════════
@@ -607,19 +607,55 @@ Starting Foundry Local AI service...
 │ Model ID               │ Phi-4-mini-instruct-generic-cpu:5 │
 │ Alias                  │ phi-4-mini                        │
 ╰────────────────────────┴───────────────────────────────────╯
-╭──────────────────────────────── Inference Timing ─────────────────────────────────╮
-│ Run                   │ Load (s) │ Response (s) │ Total (s) │ Tokens │   Tok/s │
-├───────────────────────┼──────────┼──────────────┼───────────┼────────┼─────────┤
-│ Q1 (cold, incl. load) │    8.268 │        4.418 │    12.685 │    108 │    24.4 │
-│ Q2 (warm)             │        — │       46.688 │    46.688 │    692 │    14.8 │
-╰───────────────────────┴──────────┴──────────────┴───────────┴────────┴─────────╯
-  Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited
+╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │    Tok/sec │
+├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
+│ Q1 (cold, incl. load)      │           16.101 │          0.354 │      16.454 │            3 │        8.5 │
+│ Q2 (warm)                  │                — │         35.684 │      35.684 │          637 │       17.9 │
+╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
+  Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited (higher bandwidth → higher tok/s)
 
-╭────────────────────────────── Device Comparison ──────────────────────────────╮
-│ Device │ Model      │ Load (s) │ Q1 Total (s) │ Q1 Tok/s │ Q2 Time │ Q2 Tok/s│
-├────────┼────────────┼──────────┼──────────────┼──────────┼─────────┼─────────┤
-│ CPU    │ phi-4-mini │    8.268 │       12.685 │     24.4 │  46.688 │    14.8 │
-╰────────┴────────────┴──────────┴──────────────┴──────────┴─────────┴─────────╯
+── AI Benchmark: GPU (Phi-4-mini-instruct-generic-gpu:5) ──
+
+╭──────────────────────── Model Info ────────────────────────╮
+│ Property               │ Value                             │
+├────────────────────────┼───────────────────────────────────┤
+│ Device                 │ GPU                               │
+│ Model ID               │ Phi-4-mini-instruct-generic-gpu:5 │
+│ Alias                  │ phi-4-mini                        │
+╰────────────────────────┴───────────────────────────────────╯
+╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │    Tok/sec │
+├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
+│ Q1 (cold, incl. load)      │          201.445 │          1.190 │     202.635 │            8 │        6.7 │
+│ Q2 (warm)                  │                — │         22.326 │      22.326 │          744 │       33.3 │
+╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
+  Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited (higher bandwidth → higher tok/s)
+
+── AI Benchmark: NPU (phi-4-mini-instruct-openvino-npu:3) ──
+
+╭─────────────────────── Model Info ──────────────────────────╮
+│ Property               │ Value                              │
+├────────────────────────┼────────────────────────────────────┤
+│ Device                 │ NPU                                │
+│ Model ID               │ phi-4-mini-instruct-openvino-npu:3 │
+│ Alias                  │ phi-4-mini                         │
+╰────────────────────────┴────────────────────────────────────╯
+╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
+│ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │    Tok/sec │
+├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
+│ Q1 (cold, incl. load)      │          191.840 │          4.880 │     196.720 │          102 │       20.9 │
+│ Q2 (warm)                  │                — │         19.939 │      19.939 │          472 │       23.7 │
+╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
+  Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited (higher bandwidth → higher tok/s)
+
+╭──────────────────────────────────────────────── Device Comparison ─────────────────────────────────────────────────╮
+│ Device   │ Model                          │   Load (s) │   Q1 Total (s) │   Q1 Tok/s │   Q2 Total (s) │   Q2 Tok/s │
+├──────────┼────────────────────────────────┼────────────┼────────────────┼────────────┼────────────────┼────────────┤
+│ CPU      │ phi-4-mini                     │     16.101 │         16.454 │        8.5 │         35.684 │       17.9 │
+│ GPU      │ phi-4-mini                     │    201.445 │        202.635 │        6.7 │         22.326 │       33.3 │
+│ NPU      │ phi-4-mini                     │    191.840 │        196.720 │       20.9 │         19.939 │       23.7 │
+╰──────────┴────────────────────────────────┴────────────┴────────────────┴────────────┴────────────────┴────────────╯
   Q2 (warm) tok/s = key metric — higher memory bandwidth → higher tok/s
 ```
 
@@ -656,8 +692,8 @@ Starting LM Studio AI service...
 ╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
 │ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │    Tok/sec │
 ├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
-│ Q1 (cold, incl. load)      │            0.007 │          5.366 │       5.373 │          128 │       23.9 │
-│ Q2 (warm)                  │                — │         35.739 │      35.739 │         1024 │       28.7 │
+│ Q1 (cold, incl. load)      │            0.007 │         10.168 │      10.175 │          128 │       12.6 │
+│ Q2 (warm)                  │                — │         32.640 │      32.640 │         1024 │       31.4 │
 ╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
   Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited (higher bandwidth → higher tok/s)
 ```
@@ -693,8 +729,8 @@ Starting Ollama AI service...
 ╭──────────────────────────────────────────── Inference Timing ────────────────────────────────────────────╮
 │ Run                        │   Model Load (s) │   Response (s) │   Total (s) │   Tokens Out │    Tok/sec │
 ├────────────────────────────┼──────────────────┼────────────────┼─────────────┼──────────────┼────────────┤
-│ Q1 (cold, incl. load)      │            0.004 │          6.696 │       6.700 │           99 │       14.8 │
-│ Q2 (warm)                  │                — │         27.441 │      27.441 │          480 │       17.5 │
+│ Q1 (cold, incl. load)      │            0.005 │          9.550 │       9.555 │          128 │       13.4 │
+│ Q2 (warm)                  │                — │         68.118 │      68.118 │          687 │       10.1 │
 ╰────────────────────────────┴──────────────────┴────────────────┴─────────────┴──────────────┴────────────╯
   Q2 (warm) tok/s = sustained throughput — memory-bandwidth limited (higher bandwidth → higher tok/s)
 ```
@@ -707,7 +743,7 @@ Starting Ollama AI service...
 
 ### Example output — Final Summary
 
-**System with discrete GPU (high VRAM bandwidth):**
+**Single-device system (CPU-only via Foundry Local):**
 
 ```
 ══════════════════════════════════════════════════════════════
@@ -717,7 +753,7 @@ Starting Ollama AI service...
 ╭──────────────── Key Results ─────────────────╮
 │ Device   │  AI Cold Tok/s │    AI Warm Tok/s │
 ├──────────┼────────────────┼──────────────────┤
-│ CPU      │           24.4 │             14.8 │
+│ CPU      │            8.5 │             17.9 │
 ╰──────────┴────────────────┴──────────────────╯
   Q2 (warm) = sustained throughput — memory-bandwidth limited
 ```
@@ -729,13 +765,13 @@ Starting Ollama AI service...
   StreamBench — Summary
 ══════════════════════════════════════════════════════════════
 
-╭───────────────────────── Key Results ─────────────────────────╮
-│ Device   │   STREAM Triad │  AI Cold Tok/s │   AI Warm Tok/s│
-├──────────┼────────────────┼────────────────┼──────────────────┤
-│ CPU      │     90.72 GB/s │           29.5 │             20.6 │
-│ GPU      │    362.36 GB/s │            7.0 │             38.5 │
-│ NPU      │              — │           25.7 │             27.7 │
-╰──────────┴────────────────┴────────────────┴──────────────────╯
+╭──────────────── Key Results ─────────────────╮
+│ Device   │  AI Cold Tok/s │    AI Warm Tok/s │
+├──────────┼────────────────┼──────────────────┤
+│ CPU      │            8.5 │             17.9 │
+│ GPU      │            6.7 │             33.3 │
+│ NPU      │           20.9 │             23.7 │
+╰──────────┴────────────────┴──────────────────╯
   Q2 (warm) = sustained throughput — memory-bandwidth limited
 ```
 
