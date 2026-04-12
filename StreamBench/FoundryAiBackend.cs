@@ -21,8 +21,8 @@ internal sealed class FoundryAiBackend : IAiBackend
 
     private static readonly string[] PreferredAliasesCpu =
     [
-        "phi-3.5-mini",
         "phi-4-mini",
+        "phi-3.5-mini",
         "phi-3-mini-4k",
         "phi-3-mini-128k",
         "qwen2.5-1.5b",
@@ -32,8 +32,8 @@ internal sealed class FoundryAiBackend : IAiBackend
 
     private static readonly string[] PreferredAliasesGpu =
     [
-        "phi-3.5-mini",
         "phi-4-mini",
+        "phi-3.5-mini",
         "phi-3-mini-4k",
         "qwen2.5-1.5b",
         "qwen2.5-0.5b",
@@ -51,8 +51,8 @@ internal sealed class FoundryAiBackend : IAiBackend
 
     private static readonly string[] SharedAliasPriorityList =
     [
-        "phi-3.5-mini",
         "phi-4-mini",
+        "phi-3.5-mini",
         "phi-3-mini-4k",
         "phi-3-mini-128k",
         "qwen2.5-1.5b",
@@ -677,6 +677,7 @@ internal sealed class FoundryAiBackend : IAiBackend
         var sw = Stopwatch.StartNew();
         bool canOverwrite = !Console.IsOutputRedirected;
         bool hasSpinnerLine = false;
+        bool hasError = false;
 
         var psi = new ProcessStartInfo(cli, $"model download \"{modelId}\"")
         {
@@ -699,7 +700,9 @@ internal sealed class FoundryAiBackend : IAiBackend
             if (e.Data is { Length: > 0 } line)
             {
                 stderrSb.AppendLine(line);
-                lastInfo = line.Trim();
+                // Don't show error text on the spinner — it creates garbled output
+                // with multiple spinner frames showing the error before process exits.
+                hasError = true;
             }
         };
 
@@ -712,6 +715,9 @@ internal sealed class FoundryAiBackend : IAiBackend
         while (!processTask.IsCompleted)
         {
             await Task.WhenAny(processTask, Task.Delay(350));
+
+            // Stop updating spinner once an error has been received
+            if (hasError) continue;
 
             if (canOverwrite)
             {

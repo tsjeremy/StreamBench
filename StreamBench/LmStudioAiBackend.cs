@@ -28,13 +28,28 @@ internal sealed class LmStudioAiBackend : IAiBackend
     // These are the recommended models for benchmarking, ordered by quality/speed balance.
     private static readonly string[] PreferredModels =
     [
-        "phi-3.5-mini",
         "phi-4-mini",
+        "phi-3.5-mini",
         "phi-3-mini",
         "qwen2.5-1.5b",
         "qwen2.5-0.5b",
         "qwen2.5-7b",
     ];
+
+    // Mapping from short aliases to HuggingFace model identifiers for `lms get`.
+    // `lms get` requires an owner/repo identifier; short aliases search "staff picks"
+    // which may not find the model.
+    private static readonly Dictionary<string, string[]> HuggingFaceModelIds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["phi-3.5-mini"] = ["lmstudio-community/Phi-3.5-mini-instruct-GGUF", "bartowski/Phi-3.5-mini-instruct-GGUF"],
+        ["phi-4-mini"] = ["lmstudio-community/Phi-4-mini-instruct-GGUF", "bartowski/Phi-4-mini-instruct-GGUF"],
+        ["phi-3-mini"] = ["lmstudio-community/Phi-3-mini-4k-instruct-GGUF", "bartowski/Phi-3-mini-4k-instruct-GGUF"],
+        ["phi-3-mini-4k"] = ["lmstudio-community/Phi-3-mini-4k-instruct-GGUF"],
+        ["phi-3-mini-128k"] = ["lmstudio-community/Phi-3-mini-128k-instruct-GGUF"],
+        ["qwen2.5-1.5b"] = ["lmstudio-community/Qwen2.5-1.5B-Instruct-GGUF", "bartowski/Qwen2.5-1.5B-Instruct-GGUF"],
+        ["qwen2.5-0.5b"] = ["lmstudio-community/Qwen2.5-0.5B-Instruct-GGUF", "bartowski/Qwen2.5-0.5B-Instruct-GGUF"],
+        ["qwen2.5-7b"] = ["lmstudio-community/Qwen2.5-7B-Instruct-GGUF", "bartowski/Qwen2.5-7B-Instruct-GGUF"],
+    };
 
     public LmStudioAiBackend(string? endpoint = null)
     {
@@ -319,10 +334,10 @@ internal sealed class LmStudioAiBackend : IAiBackend
                 // No chat models on disk — try downloading
                 TraceLog.DiagnosticInfo($"No chat models on disk; attempting download of {modelIdOrAlias}");
                 ConsoleOutput.WriteMarkup($"[dim]  No chat models found on disk. Downloading {modelIdOrAlias} (this may take several minutes)...[/]");
-                var (dlExit, _, dlErr) = await RunLmsAsync(_cli, $"get \"{modelIdOrAlias}\" --yes", 600_000);
-                if (dlExit != 0)
+                bool downloaded = await TryDownloadWithFallbackAsync(_cli, modelIdOrAlias);
+                if (!downloaded)
                 {
-                    TraceLog.Warn($"Failed to download model: {dlErr}");
+                    TraceLog.Warn($"Failed to download model: {modelIdOrAlias}");
                     return null;
                 }
 
@@ -330,8 +345,8 @@ internal sealed class LmStudioAiBackend : IAiBackend
                 var (lsExit2, lsOut2, _) = await RunLmsAsync(_cli, "ls", 15_000);
                 if (lsExit2 == 0 && !string.IsNullOrWhiteSpace(lsOut2))
                 {
-                    var downloaded = ParseLmsLsOutput(lsOut2);
-                    var dlMatch = downloaded.FirstOrDefault(m =>
+                    var rescanned = ParseLmsLsOutput(lsOut2);
+                    var dlMatch = rescanned.FirstOrDefault(m =>
                         m.Id.Contains(modelIdOrAlias, StringComparison.OrdinalIgnoreCase) ||
                         m.Alias.Contains(modelIdOrAlias, StringComparison.OrdinalIgnoreCase));
                     loadKey = dlMatch?.Id ?? modelIdOrAlias;
@@ -392,14 +407,10 @@ internal sealed class LmStudioAiBackend : IAiBackend
         TraceLog.DiagnosticInfo($"Downloading model via lms get: {modelIdOrAlias}");
         ConsoleOutput.WriteMarkup($"[dim]  Downloading {modelIdOrAlias} via LM Studio CLI (this may take several minutes)...[/]");
 
-        var (exitCode, stdout, stderr) = await RunLmsAsync(_cli, $"get \"{modelIdOrAlias}\" --yes", 600_000);
-        if (exitCode == 0)
-        {
-            TraceLog.DiagnosticInfo($"Model downloaded successfully: {modelIdOrAlias}");
+        bool ok = await TryDownloadWithFallbackAsync(_cli, modelIdOrAlias);
+        if (ok)
             return true;
-        }
 
-        TraceLog.Warn($"Model download failed for {modelIdOrAlias}: {stderr}");
         ConsoleOutput.WriteMarkup($"[yellow][WARN][/] Model download failed. Open LM Studio to download manually.");
         ConsoleOutput.WriteMarkup($"[dim]  Suggested model: {modelIdOrAlias}[/]");
         return false;
@@ -412,6 +423,45 @@ internal sealed class LmStudioAiBackend : IAiBackend
     // ── Internal accessors ──────────────────────────────────────────────────
 
     internal string? ServiceUrl => _serviceUrl;
+
+    // ── Download helpers ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Tries to download a model, falling back from the short alias to known
+    /// HuggingFace identifiers when the alias isn't recognised as a "staff pick".
+    /// </summary>
+    private static async Task<bool> TryDownloadWithFallbackAsync(string cli, string aliasOrId)
+    {
+        // 1. Try the literal value first (works for full owner/repo IDs)
+        var (exitCode, _, stderr) = await RunLmsAsync(cli, $"get \"{aliasOrId}\" --yes", 600_000);
+        if (exitCode == 0)
+        {
+            TraceLog.DiagnosticInfo($"Model downloaded successfully: {aliasOrId}");
+            return true;
+        }
+
+        TraceLog.DiagnosticInfo($"lms get \"{aliasOrId}\" failed: {stderr.Trim().ReplaceLineEndings(" ")}");
+
+        // 2. Fallback: try known HuggingFace identifiers for this alias
+        if (HuggingFaceModelIds.TryGetValue(aliasOrId, out var hfIds))
+        {
+            foreach (var hfId in hfIds)
+            {
+                TraceLog.DiagnosticInfo($"Retrying download with HuggingFace ID: {hfId}");
+                ConsoleOutput.WriteMarkup($"[dim]  Trying {hfId}...[/]");
+                var (exit2, _, err2) = await RunLmsAsync(cli, $"get \"{hfId}\" --yes", 600_000);
+                if (exit2 == 0)
+                {
+                    TraceLog.DiagnosticInfo($"Model downloaded successfully via HuggingFace ID: {hfId}");
+                    return true;
+                }
+                TraceLog.DiagnosticInfo($"lms get \"{hfId}\" failed: {err2.Trim().ReplaceLineEndings(" ")}");
+            }
+        }
+
+        TraceLog.Warn($"All download attempts failed for {aliasOrId}");
+        return false;
+    }
 
     // ── LM Studio CLI helpers ──────────────────────────────────────────────
 

@@ -213,7 +213,7 @@ Optional manual / advanced path:
 #### One-liner PowerShell (copy-paste)
 
 ```powershell
-Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.37/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
+Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/download/v5.10.38/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
 ### macOS — Download and run
@@ -236,7 +236,7 @@ chmod +x StreamBench_osx-arm64
 #### One-liner bash (copy-paste into Terminal)
 
 ```bash
-curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.37/StreamBench_osx-arm64 && xattr -d com.apple.quarantine StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
+curl -fLO https://github.com/tsjeremy/StreamBench/releases/download/v5.10.38/StreamBench_osx-arm64 && xattr -d com.apple.quarantine StreamBench_osx-arm64 && chmod +x StreamBench_osx-arm64 && ./StreamBench_osx-arm64 --cpu
 ```
 
 #### macOS — Full setup with AI benchmark
@@ -579,6 +579,27 @@ Starting LM Studio AI service...
 
 ### Example output — Final Summary
 
+**Apple M5 Max (unified LPDDR5, 36 GB):**
+
+```
+══════════════════════════════════════════════════════════════
+  StreamBench — Summary
+══════════════════════════════════════════════════════════════
+
+  CPU    : Apple M5 Max (18 cores)
+  Memory : 36 GB LPDDR5
+  GPU    : Apple M5 Max (32 CUs, 28.1 GiB)
+
+╭───────────────────────── Key Results ─────────────────────────╮
+│ Device   │   STREAM Triad │  AI Cold Tok/s │    AI Warm Tok/s │
+├──────────┼────────────────┼────────────────┼──────────────────┤
+│ CPU      │    337.89 GB/s │              — │                — │
+│ GPU      │    405.75 GB/s │              — │                — │
+╰──────────┴────────────────┴────────────────┴──────────────────╯
+
+  Total elapsed time: 11s
+```
+
 **LPDDR5X quad-channel system (high bandwidth):**
 
 ```
@@ -698,6 +719,7 @@ The results depend on your memory type, number of channels, and frequency:
 | DDR5-6400 | Dual-channel | ~102 GB/s | ~65–80 GB/s | ~70–90 GB/s |
 | LPDDR5X-7500 | Quad-channel | ~120 GB/s | ~70–90 GB/s | ~90–110 GB/s |
 | LPDDR5X-8000 | 8-channel | ~256 GB/s | ~90–110 GB/s | ~180–220 GB/s |
+| LPDDR5 (unified, Apple M5 Max) | 256-bit unified | ~546 GB/s ² | ~338 GB/s (18-thread) | ~406 GB/s |
 | LPDDR5-6400 (unified, 1024-bit) | 1024-bit unified | ~819 GB/s | ~300–310 GB/s (20-thread) | ~670–700 GB/s |
 
 > ¹ Modern iGPUs use hardware lossless compression (e.g. Delta Color Compression, Unified
@@ -705,6 +727,11 @@ The results depend on your memory type, number of channels, and frequency:
 > useful data per transfer. The DRAM bus still runs at ~45 GB/s (single-channel DDR5-5600),
 > but STREAM's uniform float patterns compress well, making the *reported* effective bandwidth
 > appear well above the raw DRAM limit.
+>
+> ² Apple M5 Max theoretical max estimated from 256-bit LPDDR5 bus at ~8533 MT/s
+> (256 / 8 × 8533 × 2 / 1000 ≈ 546 GB/s). Actual measured CPU STREAM Triad ~338 GB/s
+> (62% efficiency) and GPU STREAM Triad ~406 GB/s (74% efficiency) — consistent with
+> Apple Silicon's unified memory architecture where CPU and GPU share the same bandwidth pool.
 >
 > **Tip:** If your results are significantly below these ranges, check that all memory channels are
 > populated, XMP/EXPO profiles are enabled in BIOS, and the system is plugged in (not on battery).
