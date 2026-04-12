@@ -586,6 +586,8 @@ cached models first to reduce download/startup time.
 
 ### Example output — Foundry Local (CPU + GPU + NPU)
 
+> Example from an **Intel** system with integrated GPU and NPU (phi-4-mini model across all devices).
+
 ```
 ══════════════════════════════════════════════════════════════
   AI Inference Benchmark — Foundry Local
@@ -661,10 +663,13 @@ Starting Foundry Local AI service...
 
 > Foundry Local can run the same model on CPU, GPU, and NPU for an apples-to-apples comparison.
 > NPU uses OpenVINO; GPU/CPU use generic execution providers.
-> On systems with a dedicated GPU, GPU typically achieves the highest Q2 tok/s due to high-bandwidth VRAM.
+> On this Intel system, GPU (iGPU) achieves the highest Q2 tok/s (33.3), followed by NPU (23.7) and CPU (17.9).
+> On systems with a discrete GPU, the discrete GPU typically achieves even higher Q2 tok/s due to high-bandwidth VRAM.
 > Use `--ai-device cpu,gpu,npu` to select specific devices.
 
 ### Example output — LM Studio (GPU)
+
+> Example from the same **Intel** system — LM Studio uses llama.cpp for GPU inference.
 
 ```
 ══════════════════════════════════════════════════════════════
@@ -702,6 +707,8 @@ Starting LM Studio AI service...
 > Use `--ai-backend lmstudio` to select it explicitly.
 
 ### Example output — Ollama (GPU)
+
+> Example from the same **Intel** system — Ollama uses llama.cpp with CUDA/Metal backend.
 
 ```
 ══════════════════════════════════════════════════════════════
@@ -743,7 +750,7 @@ Starting Ollama AI service...
 
 ### Example output — Final Summary
 
-**Single-device system (CPU-only via Foundry Local):**
+**Single-device system (CPU-only via Foundry Local on Intel):**
 
 ```
 ══════════════════════════════════════════════════════════════
@@ -758,7 +765,7 @@ Starting Ollama AI service...
   Q2 (warm) = sustained throughput — memory-bandwidth limited
 ```
 
-**Multi-device system (CPU + GPU + NPU via Foundry Local):**
+**Multi-device system (CPU + iGPU + NPU via Foundry Local on Intel):**
 
 ```
 ══════════════════════════════════════════════════════════════
