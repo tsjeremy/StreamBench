@@ -37,6 +37,8 @@ internal static class AiBackendFactory
     /// <summary>
     /// Auto-detects the best available backend.
     /// Priority: Foundry (Windows/macOS) → Ollama (Linux) → LM Studio → Ollama (other).
+    /// TODO: Let users persist auto-detect preference in streambench_ai_config.json
+    /// so repeated runs skip the detection waterfall.
     /// </summary>
     private static IAiBackend AutoDetect(AiBackendConfig config)
     {

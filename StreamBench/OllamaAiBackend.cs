@@ -19,6 +19,7 @@ internal sealed class OllamaAiBackend : IAiBackend, IDisposable
     private string _serviceUrl;
     // TODO: Consider adding device targeting support when Ollama exposes GPU layer control via REST API
     private readonly HttpClient _http;
+    private Process? _serverProcess;
 
     private const string DefaultEndpoint = "http://127.0.0.1:11434";
 
@@ -44,7 +45,15 @@ internal sealed class OllamaAiBackend : IAiBackend, IDisposable
         _http = new HttpClient { BaseAddress = new Uri(_serviceUrl), Timeout = TimeSpan.FromSeconds(10) };
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        if (_serverProcess is { HasExited: false })
+        {
+            try { _serverProcess.Kill(entireProcessTree: true); } catch { }
+        }
+        _serverProcess?.Dispose();
+        _http.Dispose();
+    }
 
     // ── IAiBackend implementation ───────────────────────────────────────────
 
@@ -89,6 +98,7 @@ internal sealed class OllamaAiBackend : IAiBackend, IDisposable
             var proc = Process.Start(psi);
             if (proc is not null)
             {
+                _serverProcess = proc;
                 proc.BeginOutputReadLine();
                 proc.BeginErrorReadLine();
             }
@@ -215,6 +225,7 @@ internal sealed class OllamaAiBackend : IAiBackend, IDisposable
         return Task.CompletedTask;
     }
 
+    // TODO: Add retry logic for transient HTTP failures during model pull (network blips).
     public async Task<bool> DownloadModelAsync(string modelIdOrAlias, CancellationToken ct = default)
     {
         TraceLog.AiModelDownloadStarted(modelIdOrAlias, 0);
@@ -353,6 +364,8 @@ internal sealed class OllamaAiBackend : IAiBackend, IDisposable
     /// Detects the GPU acceleration backend Ollama is using (Metal, CUDA, ROCm, or CPU).
     /// Uses platform heuristics since Ollama doesn't expose this directly via REST.
     /// </summary>
+    // TODO: Distinguish between Intel iGPU, AMD ROCm, and NVIDIA CUDA on Linux
+    // by parsing `ollama ps` details or checking /proc/driver/ paths.
     private async Task<string> DetectGpuBackendAsync(CancellationToken ct)
     {
         // macOS always uses Metal on Apple Silicon

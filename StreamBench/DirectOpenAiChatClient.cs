@@ -18,6 +18,7 @@ namespace StreamBench;
 /// Direct IChatClient that calls an OpenAI-compatible /v1/chat/completions endpoint
 /// via HttpClient. Works with Foundry Local, LM Studio, Ollama, and any compatible server.
 /// </summary>
+// TODO: Add request/response logging behind a --verbose flag for debugging backend issues.
 internal sealed class DirectOpenAiChatClient : IChatClient, IDisposable
 {
     private readonly HttpClient _http;

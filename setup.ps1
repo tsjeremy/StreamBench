@@ -1100,7 +1100,9 @@ if ($setupLmStudio) {
                     $dlJob | Stop-Job -PassThru | Remove-Job -Force
                 } else {
                     $dlOutput = @(Receive-Job $dlJob 2>&1)
-                    $jobExit = if ($dlOutput.Count -gt 0) { $dlOutput[-1] } else { 1 }
+                    # Last item is the exit code returned by the ScriptBlock
+                    $jobExit = if ($dlOutput.Count -gt 0) { $dlOutput[-1] -as [int] } else { 1 }
+                    if ($null -eq $jobExit) { $jobExit = 1 }
                     Remove-Job $dlJob -Force
                     $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
                     if ($jobExit -eq 0) {
@@ -1167,7 +1169,9 @@ if ($setupOllama) {
                 $dlJob | Stop-Job -PassThru | Remove-Job -Force
             } else {
                 $dlOutput = @(Receive-Job $dlJob 2>&1)
-                $jobExit = if ($dlOutput.Count -gt 0) { $dlOutput[-1] } else { 1 }
+                # Last item is the exit code returned by the ScriptBlock
+                $jobExit = if ($dlOutput.Count -gt 0) { $dlOutput[-1] -as [int] } else { 1 }
+                if ($null -eq $jobExit) { $jobExit = 1 }
                 Remove-Job $dlJob -Force
                 $dlSec = [int]((Get-Date) - $dlStart).TotalSeconds
                 if ($jobExit -eq 0) {

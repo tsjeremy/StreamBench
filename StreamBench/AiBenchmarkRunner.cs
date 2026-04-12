@@ -31,6 +31,7 @@ public static class AiBenchmarkRunner
     public const string Q2 = "How to calculate memory bandwidth on different memory?";
     public const string Q3Label = "Summarize local memory bandwidth and AI benchmark results from saved JSON files.";
     public const string Q3 = "Based on all local JSON files in this folder (including files from other devices), summarize memory bandwidth and AI benchmark relationship, highlight the best combined profile and also try to explain the % from memory bandwidth benchmark result vs. the theoretical bandwidth calculation of the memory on the device.";
+    // TODO: Support Q4/Q5 extensible relation questions loaded from external config.
     public static readonly string[] RelationQuestions =
     [
         Q1,
