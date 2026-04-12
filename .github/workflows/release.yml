@@ -380,24 +380,41 @@ jobs:
         run: |
           cp setup.ps1 release-assets/
           cp run_stream.cmd release-assets/
+          cp run_stream.sh release-assets/
           cp run_stream.ps1 release-assets/
           cp run_stream_ai.cmd release-assets/
+          cp run_stream_ai.sh release-assets/
           cp run_stream_ai.ps1 release-assets/
 
       - name: Create Windows standalone ZIP
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          mkdir -p _zip
-          cp release-assets/StreamBench_win_x64.exe _zip/
-          cp release-assets/StreamBench_win_arm64.exe _zip/
-          cp release-assets/StreamBench_win_x64_ai.exe _zip/
-          cp release-assets/StreamBench_win_arm64_ai.exe _zip/
-          cp release-assets/setup.ps1 _zip/
-          cp release-assets/run_stream.cmd _zip/
-          cp release-assets/run_stream.ps1 _zip/
-          cp release-assets/run_stream_ai.cmd _zip/
-          cp release-assets/run_stream_ai.ps1 _zip/
-          cd _zip && zip -9 "../release-assets/StreamBench_${TAG}_win_standalone.zip" * && cd ..
+          mkdir -p _zip_win
+          cp release-assets/StreamBench_win_x64.exe _zip_win/
+          cp release-assets/StreamBench_win_arm64.exe _zip_win/
+          cp release-assets/StreamBench_win_x64_ai.exe _zip_win/
+          cp release-assets/StreamBench_win_arm64_ai.exe _zip_win/
+          cp release-assets/setup.ps1 _zip_win/
+          cp release-assets/run_stream.cmd _zip_win/
+          cp release-assets/run_stream.ps1 _zip_win/
+          cp release-assets/run_stream_ai.cmd _zip_win/
+          cp release-assets/run_stream_ai.ps1 _zip_win/
+          cd _zip_win && zip -9 "../release-assets/StreamBench_${TAG}_win_standalone.zip" * && cd ..
+
+      - name: Create macOS standalone ZIP
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          mkdir -p _zip_mac
+          cp release-assets/StreamBench_osx-arm64 _zip_mac/
+          cp release-assets/StreamBench_osx-x64 _zip_mac/
+          cp release-assets/setup.ps1 _zip_mac/
+          cp release-assets/run_stream.sh _zip_mac/
+          cp release-assets/run_stream.ps1 _zip_mac/
+          cp release-assets/run_stream_ai.sh _zip_mac/
+          cp release-assets/run_stream_ai.ps1 _zip_mac/
+          chmod +x _zip_mac/StreamBench_osx-arm64 _zip_mac/StreamBench_osx-x64
+          chmod +x _zip_mac/run_stream.sh _zip_mac/run_stream_ai.sh
+          cd _zip_mac && zip -9 "../release-assets/StreamBench_${TAG}_macos_standalone.zip" * && cd ..
 
       - name: Create or update GitHub Release
         env:

@@ -103,8 +103,12 @@ so you only need a single download. The benchmarks still run as native C code fo
 maximum performance — StreamBench extracts them automatically on first run.
 
 > **Windows users**: A standalone **zip package** (`StreamBench_<version>_win_standalone.zip`)
-> is also available — download one file, extract, and run. Includes setup script,
+> is available — download one file, extract, and run `run_stream.cmd`. Includes setup script,
 > launcher scripts, and all four Windows executables (standard + AI-enabled).
+>
+> **macOS users**: A standalone **zip package** (`StreamBench_<version>_macos_standalone.zip`)
+> is available — download one file, extract, and run `./run_stream.sh`. Includes both
+> Apple Silicon and Intel binaries, shell launchers, and setup script.
 
 ### Setup & run flow (diagram)
 
@@ -113,13 +117,13 @@ flowchart TD
     A([New PC / Mac]) --> P{"Platform?"}
 
     P -->|"Windows"| B["📦 Download StreamBench_win_standalone.zip"]
-    P -->|"macOS"| MB["📦 Download StreamBench_osx-arm64<br/>+ run_stream.sh"]
+    P -->|"macOS"| MB["📦 Download StreamBench_macos_standalone.zip"]
 
     B --> C["📂 Extract to any folder"]
     C --> D["▶ Run run_stream.cmd"]
 
-    MB --> MC["📂 Place in any folder"]
-    MC --> MD["▶ Run ./run_stream.sh<br/>(auto-installs pwsh if needed)"]
+    MB --> MC["📂 Extract to any folder"]
+    MC --> MD["▶ Run ./run_stream.sh"]
 
     D --> E{"Choose mode"}
     MD --> E
@@ -234,26 +238,41 @@ Optional manual / advanced path:
 Invoke-WebRequest "https://github.com/tsjeremy/StreamBench/releases/latest/download/StreamBench_win_x64.exe" -OutFile StreamBench.exe; .\StreamBench.exe --cpu
 ```
 
-### macOS — Quick start (recommended)
+### macOS — Standalone ZIP (recommended)
 
 1. Go to the **[Latest Release](https://github.com/tsjeremy/StreamBench/releases/latest)**
-2. Download **`StreamBench_osx-arm64`** (Apple Silicon) and **`run_stream.sh`**
-3. Place both files in the same folder and run:
+2. Download the standalone zip (e.g. `StreamBench_v<version>_macos_standalone.zip`)
+3. Extract to any folder and run:
 
 ```bash
 chmod +x run_stream.sh
 ./run_stream.sh
 ```
 
-The shell script automatically finds PowerShell (`pwsh`) if installed, or falls
-back to running the binary directly. It also handles quarantine removal for you.
+This opens the same launcher experience as Windows — choose Memory only or Memory + AI,
+select an AI backend, and get colored CLI output with JSON results saved to the folder.
 
-> **New Mac?** If PowerShell isn't installed, `run_stream.sh` still works — it runs
-> the binary in direct mode. For the full launcher experience (mode selection, AI
-> backend choices, CLI transcript), install PowerShell first:
-> `brew install powershell`
+The ZIP includes:
 
-### macOS — Manual binary download
+| File | Description |
+|------|-------------|
+| `StreamBench_osx-arm64` | Self-contained binary (Apple Silicon) |
+| `StreamBench_osx-x64` | Self-contained binary (Intel Mac) |
+| `run_stream.sh` | Recommended macOS entrypoint |
+| `run_stream_ai.sh` | macOS shortcut for AI mode |
+| `run_stream.ps1` | Full-featured PowerShell launcher |
+| `run_stream_ai.ps1` | PowerShell AI shortcut |
+| `setup.ps1` | First-time setup (AI backends, models) |
+
+> `run_stream.sh` auto-detects your architecture (arm64/x64), finds PowerShell
+> if installed, removes macOS quarantine automatically, and falls back to direct
+> binary mode when PowerShell is not available.
+
+> **New Mac?** Just extract the ZIP and run `./run_stream.sh` — it works immediately.
+> For AI benchmarks, install PowerShell first: `brew install powershell`, then
+> run `./run_stream_ai.sh` or `pwsh ./setup.ps1` for full backend setup.
+
+### macOS — Individual binary download
 
 1. Go to the **[Latest Release](https://github.com/tsjeremy/StreamBench/releases/latest)**
 2. Download **`StreamBench_osx-arm64`** (Apple Silicon)
@@ -278,10 +297,9 @@ curl -fLO https://github.com/tsjeremy/StreamBench/releases/latest/download/Strea
 
 #### macOS — Full setup with AI benchmark
 
-The easiest path is `run_stream_ai.sh` (AI mode preselected):
+If you downloaded the standalone ZIP, AI mode is just:
 
 ```bash
-chmod +x run_stream_ai.sh
 ./run_stream_ai.sh
 ```
 
